@@ -32,7 +32,7 @@ For example,
 ``wget https://developer.download.nvidia.com/compute/cuda/12.6.1/local_installers/cuda_12.6.1_560.35.03_linux.run``
 
 If you are using an OS with a GUI (you are not connected via SSH):
-I highly recommend doing at least of the following PRIOR to running the installer as otherwise the installation will fail.
+do ONE of the following PRIOR to running the installer as otherwise the installation will fail.
 
 - Reboot your computer and enter shell from GNU Grub -> Advanced Options for Ubuntu -> Recovery Mode -> Shell -> run the runfile -> boot normally 
 - Stop your display manager, and enter shell (`sudo service gdm3 stop` -> `ctrl + ALT + (F2 or F3 or F4)` -> login to your user -> run the runfile -> `sudo service gdm3 restart`)
