@@ -73,6 +73,20 @@ install_nvidia_docker2() {
     sudo systemctl restart docker
 }
 
+# Function to check for NVIDIA components
+check_existing_nvidia() {
+    if dpkg-query -l | grep -q "nvidia-container-toolkit"; then
+        echo "NVIDIA Container Toolkit is installed."
+        return 0
+    elif dpkg-query -l | grep -q "nvidia-docker2"; then
+        echo "NVIDIA Docker 2 is installed."
+        return 0
+    else
+        echo "No NVIDIA Docker components detected."
+        return 1
+    fi
+}
+
 # Function to prompt for upgrading Docker
 prompt_for_upgrade() {
     read -p "Your Docker version is less than 19.03. Would you like to upgrade Docker (y/n)? " choice
