@@ -40,16 +40,11 @@ echo "*!*!* Setting up Nvidia Docker support *!*!*"
 
 # Add the package repositories for Nvidia Docker
 distribution=$(. /etc/os-release;echo $ID$VERSION_ID)
-curl -s -L https://nvidia.github.io/nvidia-docker/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-docker-archive-keyring.gpg
-curl -s -L "https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.list" | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-docker-archive-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-docker.list
-
-# Update apt package index
+curl -s -L https://nvidia.github.io/libnvidia-container/gpgkey | sudo apt-key add - && curl -s -L https://nvidia.github.io/libnvidia-container/$distribution/libnvidia-container.list | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
 sudo apt-get update
-
-# Install NVIDIA runtime packages
-sudo apt-get install -y nvidia-container-toolkit
-
+sudo apt-get install -y nvidia-docker2 # this version works better than nvidia-container-toolkit ? 
 # Restart Docker to apply changes
+sudo systemctl daemon-reload
 sudo systemctl restart docker
 
 echo "*!*!* Nvidia Docker setup completed :) *!*!*"
