@@ -39,13 +39,13 @@ I highly recommend doing at least of the following PRIOR to running the installe
 
 Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
 
-``sudo sh cuda_12.6.1_560.35.03_linux.run``
+    sudo sh cuda_12.6.1_560.35.03_linux.run
 
 # Container Toolkit Install
 
 Run
 
-`wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/install_nvidia_docker_toolkit.sh | bash -s -- --enable_kubernetes`
+    wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/install_nvidia_docker_toolkit.sh | bash -s -- --enable_kubernetes
 
 for more info about NVIDIA Contailer Toolkit subtleties see [distinctions between nvidia toolkit and docker setups explained](https://github.com/NVIDIA/nvidia-docker/issues/1268)
 
