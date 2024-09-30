@@ -2,7 +2,7 @@
 
 echo "Make sure you don't have docker desktop installed"
 echo "This script was created by Gary Lvov"
-echo "Please open a Github issue at https://github.com/garylvov/dev_env/pulls if this didn't work"
+echo "Please open a Github issue at https://github.com/garylvov/dev_env/issues if this didn't work"
 
 # Function to check if Docker is installed and get its version
 get_docker_version() {
@@ -181,7 +181,7 @@ main() {
     echo "If nvidia-smi outputs correctly below, then this script ran correctly"
     check_nvidia_smi
     echo "This script was created by Gary Lvov"
-    echo "Please open a Github issue at https://github.com/garylvov/dev_env/pulls if this script didn't work for you"
+    echo "Please open a Github issue at https://github.com/garylvov/dev_env/issues if this script didn't work for you"
     echo "You can also star https://github.com/garylvov/dev_env/ if it did work."
 }
 
