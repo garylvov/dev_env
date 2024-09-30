@@ -50,3 +50,15 @@ Run
 for more info about NVIDIA Contailer Toolkit subtleties see [distinctions between nvidia toolkit and docker setups explained](https://github.com/NVIDIA/nvidia-docker/issues/1268)
 
 as well as [how to get around the NVML unknown error without rebooting, highly recommended for production environments](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
+
+# Use Nvidia Containers
+
+If you'd like to use NVIDIA containers from [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) such as those which include PyTorch, high-performance computing kit, robotics simulation, etc, create [an account with NGC](https://ngc.nvidia.com/signin)
+and generate a developer token, then login
+
+```
+docker login nvcr.io
+#username: $oauthtoken
+#password: <YOUR_DEVELOPER_TOKEN_HERE>
+```
+
