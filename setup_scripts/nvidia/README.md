@@ -12,6 +12,8 @@ Even for things like training a PyTorch or Keras model I recommend using an imag
 This config currently works for **Ubuntu 22.04 Kernel 6.80-45-generic** , but also works for many kernels compatible with 22.04
 
 
+# Driver / CUDA install 
+
 Purge existing NVIDIA install:
 ```
 sudo apt-get remove --purge '^nvidia-.*'
@@ -29,12 +31,22 @@ Download the runfile [here](https://developer.nvidia.com/cuda-downloads)
 For example,
 ``wget https://developer.download.nvidia.com/compute/cuda/12.6.1/local_installers/cuda_12.6.1_560.35.03_linux.run``
 
+If you are using an OS with a GUI (you are not connected via SSH):
+I highly recommend doing at least of the following PRIOR to running the installer as otherwise the installation will fail.
 
+- Reboot your computer and enter shell from GNU Grub -> Advanced Options for Ubuntu -> Recovery Mode -> Shell -> run the runfile -> boot normally 
+- Stop your display manager, and enter shell (`sudo service gdm3 stop` -> `ctrl + ALT + (F2 or F3 or F4)` -> login to your user -> run the runfile -> `sudo service gdm3 restart`)
+
+Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
 
 ``sudo sh cuda_12.6.1_560.35.03_linux.run``
 
-If you are visual
+# Container Toolkit Install
 
+Run
 
-You may want to try:
+`wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/install_nvidia_docker_toolkit.sh | bash -s -- --enable_kubernetes`
 
+for more info about NVIDIA Contailer Toolkit subtleties see [distinctions between nvidia toolkit and docker setups explained](https://github.com/NVIDIA/nvidia-docker/issues/1268)
+
+as well as [how to get around the NVML unknown error without rebooting, highly recommended for production environments](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
