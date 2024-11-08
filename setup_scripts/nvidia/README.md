@@ -43,13 +43,26 @@ Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJE
 
 # Container Toolkit Install
 
-Run
+First, install [Docker](https://docs.docker.com/desktop/setup/install/linux/). 
 
-    wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/install_nvidia_docker_toolkit.sh | bash -s -- --enable_kubernetes
+Also, install [Docker Compose](https://docs.docker.com/compose/install/linux/#install-using-the-repository). 
 
-for more info about NVIDIA Contailer Toolkit subtleties see [distinctions between nvidia toolkit and docker setups explained](https://github.com/NVIDIA/nvidia-docker/issues/1268)
+Make sure to follow the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/). 
 
-as well as [how to get around the NVML unknown error without rebooting, highly recommended for production environments](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
+Then follow these steps to install the [NVIDIA container toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+Make sure to follow the configuration steps.
+
+More info about: [how to get around the NVML unknown error without rebooting, highly recommended for production environments](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
+
+More info about NVIDIA Contailer Toolkit subtleties see [distinctions between nvidia toolkit and docker setups explained](https://github.com/NVIDIA/nvidia-docker/issues/1268)
+
+
+
+To check that the NVIDIA container toolkit is functioning, run
+
+    docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+
+
 
 # Use Nvidia Containers
 
@@ -61,4 +74,5 @@ docker login nvcr.io
 #username: $oauthtoken
 #password: <YOUR_DEVELOPER_TOKEN_HERE>
 ```
+
 
