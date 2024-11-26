@@ -4,6 +4,8 @@ I've installed many NVIDIA drivers. From what I've experienced, it's best if you
 
 DON'T DO ANY OF THE FOLLOWING:``sudo apt-get install -y nvidia-open`` ``sudo apt install nvidia-driver-<VERSION> nvidia-dkms-<VERSION>``
 
+ALSO DON'T DOWNLOAD THE DRIVER FROM THE ADDITIONAL DRIVERS
+
 Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside cuda from the runfile
 so that the the NVIDIA docker toolkit will interface correctly with the GPU. I've found it's really hard to resolve the dependencies without using docker for many more complex workloads, 
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
