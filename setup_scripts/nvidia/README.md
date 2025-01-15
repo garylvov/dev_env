@@ -11,7 +11,7 @@ so that the the NVIDIA docker toolkit will interface correctly with the GPU. I'v
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
 Even for things like training a PyTorch or Keras model I recommend using an image from the [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) registry.
 
-This config currently works for **Ubuntu 22.04 Kernel 6.80-45-generic** , but also works for many kernels compatible with 22.04
+This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic** , but also works for many kernels compatible with 22.04
 
 
 # Driver / CUDA install 
