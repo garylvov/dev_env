@@ -36,7 +36,7 @@ For example,
 If you are using an OS with a GUI (you are not connected via SSH):
 do ONE of the following PRIOR to running the installer as otherwise the installation will fail.
 
-- Reboot your computer and enter shell from GNU Grub -> Advanced Options for Ubuntu -> Recovery Mode -> Shell -> run the runfile -> boot normally 
+- Reboot your computer and enter shell from GNU Grub -> Advanced Options for Ubuntu -> Recovery Mode -> Shell -> run the runfile -> boot normally (ctrl + D, then press enter to continue.)
 - Stop your display manager, and enter shell (`sudo service gdm3 stop` -> `ctrl + ALT + (F2 or F3 or F4)` -> login to your user -> run the runfile -> `sudo service gdm3 restart`)
 
 Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
