@@ -1,20 +1,21 @@
 # This is how I make my Ubuntu NVIDIA drivers work
 
-I've installed many NVIDIA drivers. From what I've experienced, it's best if you...
+Over the course of my life, I'd estimate that I've installed NVIDIA drivers 200+ times. Here is the definitive guide of how to do it the right way (in my opinion).
+
+# Driver / CUDA install 
+
+From what I've experienced, it's best if you...
 
 DON'T DO ANY OF THE FOLLOWING:``sudo apt-get install -y nvidia-open`` ``sudo apt install nvidia-driver-<VERSION> nvidia-dkms-<VERSION>``
 
-ALSO DON'T DOWNLOAD THE DRIVER FROM THE ADDITIONAL DRIVERS
+ALSO DON'T DOWNLOAD THE DRIVER FROM THE ADDITIONAL DRIVERS TAB.
 
 Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside cuda from the runfile
 so that the the NVIDIA docker toolkit will interface correctly with the GPU. I've found it's really hard to resolve the dependencies without using docker for many more complex workloads, 
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
 Even for things like training a PyTorch or Keras model I recommend using an image from the [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) registry.
 
-This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic** , but also works for many kernels compatible with 22.04
-
-
-# Driver / CUDA install 
+This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic** , but also works for many kernels compatible with 22.04.
 
 Purge existing NVIDIA install:
 ```
@@ -31,7 +32,9 @@ wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/
 Download the runfile [here](https://developer.nvidia.com/cuda-downloads)
 
 For example,
-``wget https://developer.download.nvidia.com/compute/cuda/12.6.1/local_installers/cuda_12.6.1_560.35.03_linux.run``
+```
+wget https://developer.download.nvidia.com/compute/cuda/12.6.1/local_installers/cuda_12.6.1_560.35.03_linux.run
+```
 
 If you are using an OS with a GUI (you are not connected via SSH):
 do ONE of the following PRIOR to running the installer as otherwise the installation will fail.
@@ -42,6 +45,24 @@ do ONE of the following PRIOR to running the installer as otherwise the installa
 Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
 
     sudo sh cuda_12.6.1_560.35.03_linux.run
+    
+# Power and Clock Limiting for Multi-GPU Stability
+
+If you have a multi-GPU rig, you may want to limit your GPU wattage and clock speeds. I find that without limiting these parameters, multi-GPU rigs may attempt to draw more power than the power supply can provide, leading to crashes while attempting to run training. This is mostly for local rigs, as a rented node from a cloud provider is probably already configured properly. Laptops with dedicated GPUs are also probably already configured properly.
+
+You can check power and clock information with
+```
+nvidia-smi -q -d CLOCK,POWER
+```
+
+Then, the power and clocks can be configured with similar to the following. If persistence mode is disabled, you should do this after every time your computer turns on. The example below is what works well for my personal quad 3090 rig with a 1600W power supply and a Threadripper Pro CPU (~350W TDP), but you should adjust these values with some experimentation/the output of the above power/clock information to optimize performance for your rig.
+```
+sudo nvidia-smi -pl 300 -i 0,1,2,3 # power limit to 300W each for 4 gpus
+sudo nvidia-smi -lgc 0,1800 -i 0,1,2,3 # limit GPU clock frequency from 0 - 1800 MHz each for 4 gpus
+sudo nvidia-smi -lmc 0,1000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 1000 MHz each for 4 gpus
+```
+
+For more information on power limiting, see [Tim Dettmer's awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
 
 # Container Toolkit Install
 
@@ -76,5 +97,4 @@ docker login nvcr.io
 #username: $oauthtoken
 #password: <YOUR_DEVELOPER_TOKEN_HERE>
 ```
-
 
