@@ -1,8 +1,10 @@
 # This is how I make my Ubuntu NVIDIA drivers work
 
-Over the course of my life, I'd estimate that I've installed NVIDIA drivers 200+ times. Here is the definitive guide of how to do it the right way (in my opinion).
+I'd estimate that I've installed NVIDIA drivers 200+ times. Here is the definitive guide of how to do it the right way (in my opinion).
 
 # Driver / CUDA install 
+
+Make sure to disable secure boot in this bios!
 
 From what I've experienced, it's best if you...
 
@@ -15,17 +17,21 @@ so that the the NVIDIA docker toolkit will interface correctly with the GPU. I'v
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
 Even for things like training a PyTorch or Keras model I recommend using an image from the [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) registry.
 
-This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic** , but also works for many kernels compatible with 22.04.
+This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic** , but also works for many kernels compatible with 22.04.
 
 Purge existing NVIDIA install:
 ```
 sudo apt-get remove --purge '^nvidia-.*'
 ```
 
-Get GCC, and set it to the right version. I recommend 13.
+Get build tools.
 
 ```
 sudo apt-get install build-essential
+```
+
+Set GCC to the right version. I recommend 13. For Ubuntu versions newer than 22.04, you likely can omit this step, unless you get errors related to ``ftrivial``.
+```
 wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/update_gcc_patch.sh | bash -s -- --default_version 13
 ```
 
@@ -44,7 +50,7 @@ do ONE of the following PRIOR to running the installer as otherwise the installa
 
 Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
 
-    sudo sh cuda_12.6.1_560.35.03_linux.run
+    sudo sh cuda_12.6.1_560.35.03_linux.run # or replace the runfile version to match yours
     
 # Power and Clock Limiting for Multi-GPU Stability
 
@@ -82,12 +88,27 @@ More info about NVIDIA Contailer Toolkit subtleties see [distinctions between nv
 
 
 To check that the NVIDIA container toolkit is functioning, run
+```
+docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+```
 
-    docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+In some cases, you may also need some additional flags as follows, although ideally these would be configured by the ``sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`` .
+
+```
+# Need to add each device in /dev/nvidia*
+docker run --rm --gpus all \
+ --runtime=nvidia \
+--device=/dev/nvidia-uvm \
+--device=/dev/nvidia-uvm-tools \
+--device=/dev/nvidia-modeset \
+--device=/dev/nvidiactl \
+--device=/dev/nvidia0 \
+nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+```
 
 
 
-# Use Nvidia Containers
+# Using Nvidia Containers
 
 If you'd like to use NVIDIA containers from [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) such as those which include PyTorch, high-performance computing kit, robotics simulation, etc, create [an account with NGC](https://ngc.nvidia.com/signin)
 and generate a developer token, then login
@@ -98,3 +119,68 @@ docker login nvcr.io
 #password: <YOUR_DEVELOPER_TOKEN_HERE>
 ```
 
+# Extra Resources
+
+Some resources I personally find helpful:
+
+- [Human readable CUDA documentation by Modal](https://modal.com/gpu-glossary) 
+
+- [Which GPU(s) to Get for Deep Learning by Tim Dettmers](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/)
+
+- [A full hardware guide to deep learning by Tim Dettmers](https://timdettmers.com/2018/12/16/deep-learning-hardware-guide/)
+
+
+
+# Troubleshooting
+
+On a failed CUDA/driver install, ``cat`` the suggested logs for CUDA, and the suggested log for the driver (path is in the suggested CUDA logs) . 
+
+
+If your computer mentions Nouveau after a failed, try the following and reinstall.
+
+```
+sudo bash -c "echo blacklist nouveau > /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+sudo bash -c "echo options nouveau modeset=0 >> /etc/modprobe.d/blacklist-nvidia-nouveau.conf"
+sudo update-initramfs -u
+sudo reboot
+```
+
+If your computer mentions ``ftrivial``, try the following and reinstall.
+
+```
+wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/update_gcc_patch.sh | bash -s -- --default_version 13
+```
+
+For other cases, Google the error from the logs and pray that someone has encountered it before lol ;)
+
+---
+
+If your computer previously had ``nvidia-smi`` working, but then it mysteriously stopped, re-run the CUDA 
+runfile as shown previously in this guide (this is likely because of a kernel update). After selecting the installation components, you will be prompted with a menu that mentions
+that an existing CUDA installation was found. In this case, select the ``upgrade all`` option.
+
+--- 
+
+For the following case,
+```
+$ docker run --rm --gpus all nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+Unable to find image 'nvidia/cuda:11.8.0-base-ubuntu22.04' locally
+11.8.0-base-ubuntu22.04: Pulling from nvidia/cuda
+aece8493d397: Pull complete 
+5e3b7ee77381: Pull complete 
+5bd037f007fd: Pull complete 
+4cda774ad2ec: Pull complete 
+775f22adee62: Pull complete 
+Digest: sha256:f895871972c1c91eb6a896eee68468f40289395a1e58c492e1be7929d0f8703b
+Status: Downloaded newer image for nvidia/cuda:11.8.0-base-ubuntu22.04
+docker: Error response from daemon: could not select device driver "" with capabilities: [[gpu]].
+```
+
+First check that ``nvidia-smi`` works on the host machine. If it does, reinstall the NVIDIA Container Toolkit as shown previously in this guide. Otherwise,
+reinstall CUDA/the driver.
+
+---
+
+For unknown NVML issues:
+- [h=How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
+- [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
