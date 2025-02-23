@@ -68,7 +68,7 @@ sudo nvidia-smi -lgc 0,1800 -i 0,1,2,3 # limit GPU clock frequency from 0 - 1800
 sudo nvidia-smi -lmc 0,1000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 1000 MHz each for 4 gpus
 ```
 
-For more information on power limiting, see [Tim Dettmer's awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
+For more information on power limiting, see [Tim Dettmers' awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
 
 # Container Toolkit Install
 
