@@ -1,6 +1,6 @@
 # This is how I make my Ubuntu NVIDIA drivers work
 
-I'd estimate that I've installed NVIDIA drivers 200+ times. Here is the definitive guide of how to do it the right way (in my opinion).
+I'd estimate that I've installed NVIDIA drivers 100+ times. Here is the definitive guide of how to do it the right way (in my opinion).
 
 # Driver / CUDA install 
 
