@@ -51,7 +51,9 @@ do ONE of the following PRIOR to running the installer as otherwise the installa
 Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
 
     sudo sh cuda_12.6.1_560.35.03_linux.run # or replace the runfile version to match yours
-    
+
+If everything installed correclty, then ```nvidia-smi``` should show your GPUs.
+
 # Power and Clock Limiting for Multi-GPU Stability
 
 If you have a multi-GPU rig, you may want to limit your GPU wattage and clock speeds. I find that without limiting these parameters, multi-GPU rigs may attempt to draw more power than the power supply can provide, leading to crashes while attempting to run training. This is mostly for local rigs, as a rented node from a cloud provider is probably already configured properly. Laptops with dedicated GPUs are also probably already configured properly.
@@ -118,6 +120,23 @@ docker login nvcr.io
 #username: $oauthtoken
 #password: <YOUR_DEVELOPER_TOKEN_HERE>
 ```
+
+# If ```nvidia-smi``` works but ``nvcc --version`` isn't found
+
+In this case, the driver is installed, but the CUDA toolkit is either not found on path or is not installed.
+
+Make sure to add the following to your ```~/.bashrc```.
+```
+export PATH=/usr/local/cuda/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+```
+
+If after ```source ~/.bashrc```, if ```nvcc --version``` still is not found, then CUDA is not installed.
+
+In this case, I recommend wiping the drivers and installing the driver alongside CUDA with the runfile as detailed previously in this guide. 
+However, if you're feeling lucky, you can try to install CUDA on top of your existing drivers. In this case, check what CUDA version ```nvidia-smi``` mentions, then
+download the CUDA runfile with the matching CUDA version and run it. In the install menu, make sure to deselect the driver as part of the install. There will be a warning an existing driver installation being found, but you can
+try disregarding the warning and installing CUDA regardless.
 
 # Extra Resources
 
