@@ -27,7 +27,7 @@ Caffeine and Tactile are must have extensions IMO
 sudo apt-get install gnome-shell-extension-manager
 ```
 
-## Keybindings Stuff
+## Keybindings 
 
 I've used Keyd in the past but tbh I didn't love it and am considering switching to Hawck. I think binding the capslock key to something that isn't useless is great.
 
@@ -63,10 +63,32 @@ sudo apt-get install openssh-client
 sudo apt-get install openssh-server
 ```
 
-# Browser Stuff
+## Local LLM 
+
+Running Ollama: 
+```
+docker rm ollama 2>/dev/null || true && docker run -d --gpus=all -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
+docker exec -it ollama bash
+# Some favorites of mine:
+ollama run deepseek-r1:70b
+ollama run qwen:110b
+ollama run qwen2.5-coder:32b
+
+# Example of increasing context size:
+echo \
+"FROM deepseek-r1:70b
+PARAMETER num_ctx 60000
+PARAMETER num_predict 30000" > Modelfile
+ollama create deepseek-r1-60k-context-and-30k:70b -f Modelfile
+ollama run deepseek-r1-60k-context-and-30k:70b --verbose
+
+# Afterwards, make sure to clean up with CTRL + C, CTRL + D, and then docker stop ollama
+```
+
+## Browser Stuff
 [Vimium](https://vimium.github.io/)
 
-## Kubernetes Stuff 
+## Kubernetes 
 [Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
 
 [K9s](https://github.com/derailed/k9s):
@@ -81,3 +103,7 @@ kubectl get namespaces # Get all namespaces
 kubectl config use-context <CONTEXT> # Set Contexts
 kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace for the current context
 ```
+
+## Tmux
+
+[Yank](https://github.com/tmux-plugins/tmux-yank)
