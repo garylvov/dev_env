@@ -21,6 +21,41 @@ sudo snap install code --classic
 sudo apt-get install vim
 ```
 
+## Gnome Extensions 
+Caffeine and Tactile are must have extensions IMO
+```
+sudo apt-get install gnome-shell-extension-manager
+```
+
+## Keybindings Stuff
+
+I've used Keyd in the past but tbh I didn't love it and am considering switching to Hawck. I think binding the capslock key to something that isn't useless is great.
+
+[Hawck](https://github.com/snyball/hawck)
+
+[Keyd](https://github.com/rvaiya/keyd)
+
+Keyd conf file:
+
+```
+[ids]
+*
+[main]
+capslock = layer(capslock)
+[capslock]
+e = oneshot(control)
+q = oneshot(alt)
+o = oneshot(shift)
+p = oneshot(tab)
+g = b
+h = left
+j = down
+k = up
+l = right
+u = S-'
+i = S-5
+```
+
 ## Remoting in
 [NoMachine](https://www.nomachine.com/)
 ```
@@ -28,11 +63,8 @@ sudo apt-get install openssh-client
 sudo apt-get install openssh-server
 ```
 
-## Gnome Extensions 
-Caffeine and Tactile are must have extensions IMO
-```
-sudo apt-get install gnome-shell-extension-manager
-```
+# Browser Stuff
+[Vimium](https://vimium.github.io/)
 
 ## Kubernetes Stuff 
 [Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
@@ -49,6 +81,3 @@ kubectl get namespaces # Get all namespaces
 kubectl config use-context <CONTEXT> # Set Contexts
 kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace for the current context
 ```
-
-# Browser Stuff
-[Vimium](https://vimium.github.io/)
