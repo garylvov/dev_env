@@ -54,24 +54,6 @@ Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJE
 
 If everything installed correclty, then ```nvidia-smi``` should show your GPUs.
 
-# Power and Clock Limiting for Multi-GPU Stability
-
-If you have a multi-GPU rig, you may want to limit your GPU wattage and clock speeds. I find that without limiting these parameters, multi-GPU rigs may attempt to draw more power than the power supply can provide, leading to crashes while attempting to run training. This is mostly for local rigs, as a rented node from a cloud provider is probably already configured properly. Laptops with dedicated GPUs are also probably already configured properly.
-
-You can check power and clock information with
-```
-nvidia-smi -q -d CLOCK,POWER
-```
-
-Then, the power and clocks can be configured with similar to the following. If persistence mode is disabled, you should do this after every time your computer turns on. The example below is what works well for my personal quad 3090 rig with a 1600W power supply and a Threadripper Pro CPU (~350W TDP), but you should adjust these values with some experimentation/the output of the above power/clock information to optimize performance for your rig.
-```
-sudo nvidia-smi -pl 300 -i 0,1,2,3 # power limit to 300W each for 4 gpus
-sudo nvidia-smi -lgc 0,1800 -i 0,1,2,3 # limit GPU clock frequency from 0 - 1800 MHz each for 4 gpus
-sudo nvidia-smi -lmc 0,1000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 1000 MHz each for 4 gpus
-```
-
-For more information on power limiting, see [Tim Dettmers' awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
-
 # Container Toolkit Install
 
 First, install [Docker](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository). 
@@ -108,6 +90,23 @@ docker run --rm --gpus all \
 nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
 ```
 
+# Power and Clock Limiting for Multi-GPU Stability
+
+If you have a multi-GPU rig, you may want to limit your GPU wattage and clock speeds. I find that without limiting these parameters, multi-GPU rigs may attempt to draw more power than the power supply can provide, leading to crashes while attempting to run training. This is mostly for local rigs, as a rented node from a cloud provider is probably already configured properly. Laptops with dedicated GPUs are also probably already configured properly.
+
+You can check power and clock information with
+```
+nvidia-smi -q -d CLOCK,POWER
+```
+
+Then, the power and clocks can be configured with similar to the following. If persistence mode is disabled, you should do this after every time your computer turns on. The example below is what works well for my personal quad 3090 rig with a 1600W power supply and a Threadripper Pro CPU (~350W TDP), but you should adjust these values with some experimentation/the output of the above power/clock information to optimize performance for your rig.
+```
+sudo nvidia-smi -pl 300 -i 0,1,2,3 # power limit to 300W each for 4 gpus
+sudo nvidia-smi -lgc 0,1800 -i 0,1,2,3 # limit GPU clock frequency from 0 - 1800 MHz each for 4 gpus
+sudo nvidia-smi -lmc 0,1000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 1000 MHz each for 4 gpus
+```
+
+For more information on power limiting, see [Tim Dettmers' awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
 
 
 # Using Nvidia Containers
