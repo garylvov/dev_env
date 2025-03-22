@@ -141,6 +141,8 @@ try disregarding the warning and installing CUDA regardless.
 
 Some resources I personally find helpful:
 
+- [Test GPU Communication Bandwidth](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/1_Utilities/bandwidthTest)
+
 - [Human readable CUDA documentation by Modal](https://modal.com/gpu-glossary) 
 
 - [Which GPU(s) to Get for Deep Learning by Tim Dettmers](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/)
