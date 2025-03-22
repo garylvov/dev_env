@@ -107,3 +107,7 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 ## Tmux
 
 [Yank](https://github.com/tmux-plugins/tmux-yank)
+
+## Fan stuff for PCs
+
+[Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
