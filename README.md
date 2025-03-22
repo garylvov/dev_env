@@ -11,6 +11,7 @@ This also has some handy commands that I always look up and then forget.
 sudo apt-get install terminator # Make sure to turn on infinite scrollback: right click->preferences->profiles->scrolling
 sudo apt-get install htop
 sudo apt-get install nvtop
+sudo apt-get install btop
 ```
 
 ### Code Editors
