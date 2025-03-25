@@ -112,3 +112,8 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 ## Fan stuff for PCs
 
 [Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
+
+## Python Extract Method
+```
+pip install pylsp-rope
+```
