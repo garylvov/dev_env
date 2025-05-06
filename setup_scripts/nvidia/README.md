@@ -153,6 +153,22 @@ Some resources I personally find helpful:
 
 # Troubleshooting
 
+---
+If CUDA magically disappears after some time in Docker, try supplying the following flags in the docker run command.
+
+
+```
+docker run --rm --gpus all \
+ --runtime=nvidia \
+--device=/dev/nvidia-uvm \
+--device=/dev/nvidia-uvm-tools \
+--device=/dev/nvidia-modeset \
+--device=/dev/nvidiactl \
+--device=/dev/nvidia0 \
+<IMAGE> <COMMAND> #Example: nvidia/cuda:11.8.0-base-ubuntu22.04 nvidia-smi
+```
+
+---
 On a failed CUDA/driver install, ``cat`` the suggested logs for CUDA, and the suggested log for the driver (path is in the suggested CUDA logs) . 
 
 
