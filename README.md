@@ -89,6 +89,27 @@ ollama run deepseek-r1-60k-context-and-30k:70b --verbose
 ## Browser Stuff
 [Vimium](https://vimium.github.io/)
 
+## Space Preservation Part I 
+
+Check disk usage with the following.
+```
+sudo apt-get install baobab
+sudo baobab
+```
+
+If your ```overlay2``` folder gets huge, see the following.
+
+## When Docker Gets Greedy (Space Preservation Part II)
+
+Get rid of old docker images with the following.
+
+```
+docker system df
+# Clear builder cache with the following.
+docker builder prune -a -f
+```
+
+
 ## Kubernetes 
 [Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
 
@@ -114,6 +135,5 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 [Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
 
 ## Python Extract Method
-```
-pip install pylsp-rope
-```
+
+Some VSCode Python extensions conflict with each other. I forgot how to resolve this. I think you may want just the Microsoft Python extension and as few others as possible. I also really like the rainbow indent extension it's great!
