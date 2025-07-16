@@ -1,10 +1,17 @@
 # DEVeloper ENVironment (Ubuntu) 
-This is a collection of personal tweaks/rituals that make Ubuntu feel just right for me like how a ballerina customizes their pointe shoes to feel just right for them.
+This is a collection of personal tweaks/rituals that make Ubuntu feel just right for me like how a ballerina customizes their pointe shoes to feel just right for them, as well as some other useful resources I keep going back to.
+
 It would be cool if this was an Ansible playbook, but I haven't made it there yet. 
 This also has some handy commands that I always look up and then forget.
 
-## GPU Drivers with Docker Passthrough - Make ML Go Brrr
+# GPU Drivers with Docker Passthrough - Make ML Go Brrr
+
 [The definitive NVIDIA Ubuntu Driver / CUDA Install Guide](https://github.com/garylvov/dev_env/tree/main/setup_scripts/nvidia)
+
+# Hermetic and Reproducible Python Package Template
+
+[Hermetic and Reproducible Python Package Template](https://github.com/garylvov/pixidock_template) authored by yours truly.
+
 
 ## The Classics
 ```
