@@ -48,7 +48,7 @@ do ONE of the following PRIOR to running the installer as otherwise the installa
 - Reboot your computer and enter shell from GNU Grub -> Advanced Options for Ubuntu -> Recovery Mode -> Shell -> run the runfile -> boot normally (ctrl + D, then press enter to continue.)
 - Stop your display manager, and enter shell (`sudo service gdm3 stop` -> `ctrl + ALT + (F2 or F3 or F4)` -> login to your user -> run the runfile -> `sudo service gdm3 restart`)
 
-Run the installer. Select the driver, and the toolkit. DO NOT SELECT KERNEL OBJECTS!
+Run the installer. Select the driver, and the toolkit. I would not select kernel objects unless you are confident that they are absolutely needed. 
 
     sudo sh cuda_12.6.1_560.35.03_linux.run # or replace the runfile version to match yours
 
@@ -137,11 +137,27 @@ However, if you're feeling lucky, you can try to install CUDA on top of your exi
 download the CUDA runfile with the matching CUDA version and run it. In the install menu, make sure to deselect the driver as part of the install. There will be a warning an existing driver installation being found, but you can
 try disregarding the warning and installing CUDA regardless.
 
+# Enabling Wayland
+
+I personally don't like to use ``x11``. 
+This is due to an [annoying bug](https://askubuntu.com/questions/1044985/using-2-keyboards-at-the-same-time-create-annoying-input-lag) related to weilding dual keyboards like I do.
+The workaround I currently do is to use Wayland. 
+When logging into my user, I select the gear on the bottom right, and select "Ubuntu on Wayland". 
+However, Wayland may not be correctly configured, and at first, this gear may not even be visible.
+I found that the following works well for enabling Wayland on NVIDIA drivers.
+```
+echo 'options nvidia-drm modeset=1' | sudo tee /etc/modprobe.d/nvidia-drm.conf >/dev/null
+sudo update-initramfs -u -k "$(uname -r)"
+reboot
+```
+
+Finally, check that Wayland is enabled with ``echo $XDG_SESSION_TYPE`` after logging in.
+
 # Extra Resources
 
 Some resources I personally find helpful:
 
-- [Test GPU Communication Bandwidth](https://github.com/NVIDIA/cuda-samples/tree/master/Samples/1_Utilities/bandwidthTest)
+- [Test GPU Communication Bandwidth](https://github.com/nvidia/nvbandwidth)
 
 - [Human readable CUDA documentation by Modal](https://modal.com/gpu-glossary) 
 
@@ -220,3 +236,4 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
