@@ -17,7 +17,7 @@ so that the the NVIDIA docker toolkit will interface correctly with the GPU. I'v
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
 Even for things like training a PyTorch or Keras model I recommend using an image from the [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) registry.
 
-This config is confirmed to work on **Ubuntu 22.04 Kernel 6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic** , but also works for many kernels compatible with 22.04.
+This config is confirmed to work on **Ubuntu Versions 24.04, 22.04 | Kernel versions: 6.14.0-28-generic,  6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic** , but also works for many other configs.
 
 Purge existing NVIDIA install:
 ```
@@ -236,4 +236,5 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
