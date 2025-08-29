@@ -141,6 +141,14 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 [Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
 
+## Github
+
+[Adding a new SSH agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+
+## Notes
+[Obsidian](https://obsidian.md/)
+[Obsidian Git Plugin](https://github.com/Vinzent03/obsidian-git)
+
 ## Python Extract Method
 
 Some VSCode Python extensions conflict with each other. I forgot how to resolve this. I think you may want just the Microsoft Python extension and as few others as possible. I also really like the rainbow indent extension it's great!
