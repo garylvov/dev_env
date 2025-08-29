@@ -147,7 +147,8 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 ## Notes
 [Obsidian](https://obsidian.md/)
-[Obsidian Git Plugin](https://github.com/Vinzent03/obsidian-git)
+
+[Obsidian Git Plugin](https://publish.obsidian.md/git-doc/Start+here)
 
 ## Python Extract Method
 
