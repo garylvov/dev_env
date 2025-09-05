@@ -154,6 +154,13 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 Run Obsidian with the ``--disable-gpu`` flag to [prevent any glitches with Wayland](https://www.reddit.com/r/hyprland/comments/1aphbfq/comment/krv1np6/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)!
 
+### Citations
+
+[Zotero](https://www.zotero.org/download/)
+
+[Extra Zotero Install Help](https://www.zotero.org/support/installation)
+
+
 ## Python Extract Method
 
 Some VSCode Python extensions conflict with each other. I forgot how to resolve this. I think you may want just the Microsoft Python extension and as few others as possible. I also really like the rainbow indent extension it's great!
