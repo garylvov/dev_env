@@ -65,7 +65,22 @@ i = S-5
 ```
 
 ## Remoting in
-[NoMachine](https://www.nomachine.com/)
+
+### Networking
+
+The free plan from [Tailscale](https://tailscale.com/) works great (up to 100 personal devices!). 
+
+I tried to use WireGuard alone once and quickly retreated to the comfort of Tailscale.
+
+### Remote Desktop
+
+I like to use [NoMachine](https://www.nomachine.com/).
+
+Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
+
+I want to try [Sunshine/Moonlight](https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide) but I haven't gotten around to it yet.
+
+### Classic
 ```
 sudo apt-get install openssh-client
 sudo apt-get install openssh-server
