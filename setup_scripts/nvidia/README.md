@@ -127,7 +127,7 @@ Then, the power and clocks can be configured with similar to the following. If p
 ```
 sudo nvidia-smi -pl 300 -i 0,1,2,3 # power limit to 300W each for 4 gpus
 sudo nvidia-smi -lgc 0,1800 -i 0,1,2,3 # limit GPU clock frequency from 0 - 1800 MHz each for 4 gpus
-sudo nvidia-smi -lmc 0,1000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 1000 MHz each for 4 gpus
+sudo nvidia-smi -lmc 0,10000 -i 0,1,2,3 # limit GPU memory frequency from 0 - 10000 MHz each for 4 gpus
 ```
 
 For more information on power limiting, see [Tim Dettmers' awesome hardware blog](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/#Power_Limiting_An_Elegant_Solution_to_Solve_the_Power_Problem).
@@ -264,3 +264,4 @@ For unknown NVML issues:
 ---
 
 There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
+
