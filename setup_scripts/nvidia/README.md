@@ -181,6 +181,8 @@ Finally, check that Wayland is enabled with ``echo $XDG_SESSION_TYPE`` after log
 
 Some resources I personally find helpful:
 
+- [An alternative NVIDIA Driver Install Guide](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide)
+  
 - [Test GPU Communication Bandwidth](https://github.com/nvidia/nvbandwidth)
 
 - [Human readable CUDA documentation by Modal](https://modal.com/gpu-glossary) 
@@ -188,8 +190,6 @@ Some resources I personally find helpful:
 - [Which GPU(s) to Get for Deep Learning by Tim Dettmers](https://timdettmers.com/2023/01/30/which-gpu-for-deep-learning/)
 
 - [A full hardware guide to deep learning by Tim Dettmers](https://timdettmers.com/2018/12/16/deep-learning-hardware-guide/)
-
-
 
 # Troubleshooting
 
@@ -261,11 +261,6 @@ For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
 
+---
 
-
-
-
-
-
-
-
+There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
