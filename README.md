@@ -169,6 +169,11 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 Run Obsidian with the ``--disable-gpu`` flag to [prevent any glitches with Wayland](https://www.reddit.com/r/hyprland/comments/1aphbfq/comment/krv1np6/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)!
 
+Sometimes ``libfuse2`` is needed.
+```
+sudo apt update -y && sudo apt install -y libfuse2
+```
+
 ## Citations
 
 [Zotero](https://www.zotero.org/download/)
