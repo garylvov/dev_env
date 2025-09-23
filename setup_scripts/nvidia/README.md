@@ -16,7 +16,7 @@ From what I've experienced, it's best if you...
 
 **Also, don't download the driver from the additional drivers tab.**
 
-**Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside CUDA from the runfile**
+**Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside CUDA from the [runfile](https://developer.nvidia.com/cuda-downloads)**
 so that the the NVIDIA docker toolkit will interface correctly with the GPU. 
 
 People often ask me why I install using the runfile instead of other methods. 
@@ -43,7 +43,7 @@ Set GCC to the right version. I recommend 13. For Ubuntu versions newer than 22.
 wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/setup_scripts/nvidia/update_gcc_patch.sh | bash -s -- --default_version 13
 ```
 
-Download the runfile [here](https://developer.nvidia.com/cuda-downloads)
+Download the runfile [here](https://developer.nvidia.com/cuda-downloads).
 
 For example,
 ```
@@ -244,6 +244,7 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
 
 
