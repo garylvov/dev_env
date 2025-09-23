@@ -22,7 +22,7 @@ so that the the NVIDIA docker toolkit will interface correctly with the GPU.
 People often ask me why I install using the runfile instead of other methods. 
 Honestly, I don't have a deep technical reason, but in my experience, it’s been by far the most reliable approach.
 I suspect using the runfile installs the driver and CUDA together more carefully for your specific system, without relying on any pre-packaged versions that may have conflicts.
-That being said, I've worked on computers that had ``apt`` packaged NVIDIA drivers installed without issues before, but I've run into fewer issues on computers with runfile installed files.
+That being said, I've worked on computers that had ``apt`` packaged NVIDIA drivers/CUDA installed without issues before, but I've run into fewer issues on computers with runfile installed NVIDIA drivers/CUDA.
 
 
 I've found it's really hard to resolve the dependencies without using Docker for many more complex workloads, 
@@ -245,6 +245,7 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
 
 
