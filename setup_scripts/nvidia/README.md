@@ -4,27 +4,35 @@ I'd estimate that I've installed NVIDIA drivers 100+ times. Here is the definiti
 
 # Driver / CUDA install 
 
-Make sure to disable secure boot in this bios!
+Make sure to disable secure boot in your computer's BIOS!
 
 From what I've experienced, it's best if you...
 
-DON'T DO ANY OF THE FOLLOWING:``sudo apt-get install -y nvidia-open`` ``sudo apt install nvidia-driver-<VERSION> nvidia-dkms-<VERSION>``
+**Don't do any of the following:**
 
-ALSO DON'T DOWNLOAD THE DRIVER FROM THE ADDITIONAL DRIVERS TAB.
+``sudo apt-get install -y nvidia-open`` 
 
-Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside cuda from the runfile
-so that the the NVIDIA docker toolkit will interface correctly with the GPU. I've found it's really hard to resolve the dependencies without using docker for many more complex workloads, 
+``sudo apt install nvidia-driver-<VERSION> nvidia-dkms-<VERSION>``
+
+**Also, don't download the driver from the additional drivers tab.**
+
+**Instead, I highly recommend wiping all drivers from your system, and installing the drivers alongside CUDA from the runfile**
+so that the the NVIDIA docker toolkit will interface correctly with the GPU. 
+
+People often ask me why I install using the runfile instead of other methods. 
+Honestly, I don't have a deep technical reason, but in my experience, it’s been by far the most reliable approach.
+I suspect using the runfile installs the driver and CUDA together more carefully for your specific system, without relying on any pre-packaged versions that may have conflicts.
+
+
+I've found it's really hard to resolve the dependencies without using Docker for many more complex workloads, 
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
 Even for things like training a PyTorch or Keras model I recommend using an image from the [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch) registry.
 
-This config is confirmed to work on **Ubuntu Versions 24.04, 22.04 | Kernel versions: 6.14.0-28-generic,  6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic** , but also works for many other configs.
+This config is confirmed to work on **Ubuntu Versions 24.04, 22.04 | Kernel versions: 6.14.0-28-generic,  6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic**, but also works for many other configs.
 
-Purge existing NVIDIA install:
-```
-sudo apt-get remove --purge '^nvidia-.*'
-```
+**If you already have NVIDIA Drivers or CUDA installed, I highly recommend purging them entirely from your system using the instructions provided in [this StackOverflow answer](https://stackoverflow.com/a/62276101) before starting a fresh installation.** Then, get started on the actual install below.
 
-Get build tools.
+**Install build tools.**
 
 ```
 sudo apt-get install build-essential
@@ -236,5 +244,6 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
 
