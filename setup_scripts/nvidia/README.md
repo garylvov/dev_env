@@ -1,10 +1,11 @@
-# This is how I make my Ubuntu NVIDIA drivers work
+# This is how I make my Ubuntu NVIDIA drivers (and CUDA) work
 
 I'd estimate that I've installed NVIDIA drivers 100+ times. Here is the definitive guide of how to do it the right way (in my opinion).
 
-# Driver / CUDA install 
 
-Make sure to disable secure boot in your computer's BIOS!
+# Overview
+
+**Make sure to disable secure boot in your computer's BIOS!**
 
 From what I've experienced, it's best if you...
 
@@ -24,6 +25,16 @@ Honestly, I don't have a deep technical reason, but in my experience, it’s bee
 I suspect using the runfile installs the driver and CUDA together more carefully for your specific system, without relying on any pre-packaged versions that may have conflicts.
 That being said, I've worked on computers that had ``apt`` packaged NVIDIA drivers/CUDA installed without issues before, but I've run into fewer issues on computers with runfile installed NVIDIA drivers/CUDA.
 
+Some people don't like the runfile, as the [".run script overwrites important libraries."](https://www.reddit.com/r/linux_gaming/comments/1d1mcrm/comment/l5y9r1r/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button).
+However, I'd make the case that for software development contexts, your environment's dependencies should be isolated and versioned enough so that breaking from overwritten libraries is not possible. 
+If your software is so fragile that an update command can break it, is it robust enough for your users or for your fellow engineers to collaborate on?
+For general environments, I recommend using Docker for isolation/versioning to avoid this issue. 
+For Python environments, I recommend using Pixi for isolation/versioning to avoid this issue. 
+[Here's a shameless plug for my Pixi + Docker project template](https://github.com/garylvov/pixidock_template)
+
+Some people love the ``graphics-drivers`` PPA installation method, as it can be easier than the runfile installation, and it doesn't overwrite libraries .
+For the PPA case, I recommend the [guide by Oddmario](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide).
+
 
 I've found it's really hard to resolve the dependencies without using Docker for many more complex workloads, 
 like deep learning training, or stuff to do with the NVIDIA high-performance computing toolkit. 
@@ -32,6 +43,10 @@ Even for things like training a PyTorch or Keras model I recommend using an imag
 This config is confirmed to work on **Ubuntu Versions 24.04, 22.04 | Kernel versions: 6.14.0-28-generic,  6.80-45-generic, 6.8.0-51-generic, 6.8.0-52-generic**, but also works for many other configs.
 
 **If you already have NVIDIA Drivers or CUDA installed, I highly recommend purging them entirely from your system using the instructions provided in [this StackOverflow answer](https://stackoverflow.com/a/62276101) before starting a fresh installation.** Then, get started on the actual install below.
+
+# Installation 
+
+**Make sure to disable secure boot in your computer's BIOS!**
 
 **Install build tools.**
 
@@ -245,6 +260,7 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
 
 
