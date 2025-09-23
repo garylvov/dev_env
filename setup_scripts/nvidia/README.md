@@ -30,7 +30,7 @@ However, I'd make the case that for software development contexts, your environm
 If your software is so fragile that an update command can break it, is it robust enough for your users or for your fellow engineers to collaborate on?
 For general environments, I recommend using Docker for isolation/versioning to avoid this issue. 
 For Python environments, I recommend using Pixi for isolation/versioning to avoid this issue. 
-[Here's a shameless plug for my Pixi + Docker project template](https://github.com/garylvov/pixidock_template)
+[Here's a shameless plug for my Pixi + Docker project template](https://github.com/garylvov/pixidock_template).
 
 Some people love the ``graphics-drivers`` PPA installation method, as it can be easier than the runfile installation, and it doesn't overwrite libraries .
 For the PPA case, I recommend the [guide by Oddmario](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide).
@@ -260,6 +260,7 @@ reinstall CUDA/the driver.
 For unknown NVML issues:
 - [How to get around the NVML unknown error without rebooting](https://github.com/NVIDIA/nvidia-container-toolkit/issues/48)
 - [Related Stack Overflow issue](https://stackoverflow.com/questions/72932940/failed-to-initialize-nvml-unknown-error-in-docker-after-few-hours)
+
 
 
 
