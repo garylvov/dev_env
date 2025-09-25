@@ -9,7 +9,7 @@ Minerva has a ASUS WRX90 SAGE SE mobo, which has a BMC.
 I initially tried to set up Wake On LAN with a magic packet with the standard Ethernet connections, but found that the Intel network adapters (X70-TL) seemingly don't support
 this functionality despite it being enabled in BIOS.
 
-My Intel Nuc is connected to a Network Switch, as is Minerva's BMC.
+Nurdge is connected to a Network Switch, as is Minerva's BMC.
 
 Then, using ``ipmitool`` from Minerva I added some user perms to the BMC:
 
