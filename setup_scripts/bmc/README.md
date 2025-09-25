@@ -13,7 +13,7 @@ My Intel Nuc is connected to a Network Switch, as is Minerva's BMC.
 
 Then, using ``ipmitool`` from Minerva I added some user perms to the BMC:
 
-``
+```
 # List existing BMC users
 ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user list
 
@@ -22,6 +22,6 @@ ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user set name 3 rescueadm
 ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user set password 3 StrongRescuePass
 ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user enable 3
 ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN channel setaccess 1 3 callin=on ipmi=on link=on privilege=4
-``
+```
 
 Finally, the ``boom.sh`` script in this directory can be used from Parallelepid to remotely turn on Minerva from a complete shutdown ;)
