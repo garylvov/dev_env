@@ -25,3 +25,5 @@ ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN channel setaccess 1 3 cal
 ```
 
 Finally, the ``boom.sh`` script in this directory can be used from Nudge to remotely turn on Minerva from a complete shutdown ;)
+
+alias wake="ssh nudge '~/boom.sh'"
