@@ -1,8 +1,8 @@
 Here are some utilities I use to be able to remotely switch on [my beloved PC, Minerva](https://garylvov.com/projects/minerva/)
 
-I have an Intel Nuc (named Parallelepid) always on in my home network, which I remotely access via Tailscale. 
+I have an Intel Nuc (named Nudge) always on in my home network, which I remotely access via Tailscale. 
 
-I typically turn off Minerva when I'm not working/training models as I want to conserve electricity (Minerva draws far more at idle than Parallelepid, the Nuc).
+I typically turn off Minerva when I'm not working/training models as I want to conserve electricity (Minerva draws far more at idle than Nudge, the Nuc).
 
 Minerva has a ASUS WRX90 SAGE SE mobo, which has a BMC.
 
@@ -24,4 +24,4 @@ ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user enable 3
 ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN channel setaccess 1 3 callin=on ipmi=on link=on privilege=4
 ```
 
-Finally, the ``boom.sh`` script in this directory can be used from Parallelepid to remotely turn on Minerva from a complete shutdown ;)
+Finally, the ``boom.sh`` script in this directory can be used from Nudge to remotely turn on Minerva from a complete shutdown ;)
