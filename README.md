@@ -180,6 +180,9 @@ sudo apt update -y && sudo apt install -y libfuse2
 
 [Extra Zotero Install Help](https://www.zotero.org/support/installation)
 
+## Watch Count / Inotify
+
+[Updating Watch Count Stack Overflow](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently)
 
 ## Python Extract Method
 
