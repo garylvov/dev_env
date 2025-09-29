@@ -33,7 +33,7 @@ For Python environments, I recommend using Pixi for isolation/versioning to avoi
 [Here's a shameless plug for my Pixi + Docker project template](https://github.com/garylvov/pixidock_template).
 
 Some people love the ``graphics-drivers`` PPA installation method, as it can be easier than the runfile installation, and it doesn't overwrite libraries.
-For the PPA case, I recommend the [guide by Oddmario](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide).
+For the PPA case, I recommend the [guide by Oddmario](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide); Just make sure to update the driver version to be ``580``.
 
 
 I've found it's really hard to resolve the dependencies without using Docker for many more complex workloads, 
@@ -264,4 +264,5 @@ For unknown NVML issues:
 ---
 
 There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
+
 
