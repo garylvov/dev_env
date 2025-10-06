@@ -160,6 +160,8 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 [Adding a new SSH agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 
+[Creating a private fork from a public repo - make sure to have public repo link ready](https://github.com/new/import)
+
 ## Notes
 [Obsidian](https://obsidian.md/)
 
