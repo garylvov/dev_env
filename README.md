@@ -162,6 +162,8 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 [Creating a private fork from a public repo - make sure to have public repo link ready](https://github.com/new/import)
 
+[More information about private forks](https://stackoverflow.com/questions/10065526/github-how-to-make-a-fork-of-public-repository-private)
+
 ## Notes
 [Obsidian](https://obsidian.md/)
 
