@@ -263,6 +263,10 @@ For unknown NVML issues:
 
 ---
 
+[GPU has fallen off of the bus](https://forums.developer.nvidia.com/t/keep-getting-gpu-has-fallen-off-the-bus-with-3090-cards-on-gigabyte-mz32-ar1-rev-3-0-motherboard/333588/22)
+
+---
 There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
+
 
 
