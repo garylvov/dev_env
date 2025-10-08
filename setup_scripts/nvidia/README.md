@@ -265,6 +265,8 @@ For unknown NVML issues:
 
 [GPU has fallen off of the bus](https://forums.developer.nvidia.com/t/keep-getting-gpu-has-fallen-off-the-bus-with-3090-cards-on-gigabyte-mz32-ar1-rev-3-0-motherboard/333588/22)
 
+[Another GPU has fallen off of the bus](https://askubuntu.com/questions/868321/gpu-has-fallen-off-the-bus-nvidia)
+
 ---
 
 [More PCIE Error stuff](https://askubuntu.com/questions/863150/pcie-bus-error-severity-corrected-type-physical-layer-id-00e5receiver-id)
@@ -272,6 +274,7 @@ For unknown NVML issues:
 ---
 
 There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
+
 
 
 
