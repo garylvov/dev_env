@@ -265,6 +265,18 @@ For unknown NVML issues:
 
 [GPU has fallen off of the bus](https://forums.developer.nvidia.com/t/keep-getting-gpu-has-fallen-off-the-bus-with-3090-cards-on-gigabyte-mz32-ar1-rev-3-0-motherboard/333588/22)
 
+The line suggested in `/etc/default/grub` by the above resource has smart quotes which messes up the pasting, instead I suggest using the following.
+
+```
+GRUB_CMDLINE_LINUX_DEFAULT="ignore_rlimit_data pcie_aspm=off rcutree.rcu_idle_gp_delay=1 acpi_osi=! acpi_osi=\"Linux\""
+```
+
+Also, make sure to run the following afterwards.
+
+```
+sudo GRUB_DISABLE_OS_PROBER=true update-grub
+```
+
 [Another GPU has fallen off of the bus](https://askubuntu.com/questions/868321/gpu-has-fallen-off-the-bus-nvidia)
 
 ---
@@ -274,6 +286,7 @@ For unknown NVML issues:
 ---
 
 There are more issues and solutions in [Oddmario's repo](https://github.com/oddmario/NVIDIA-Ubuntu-Driver-Guide?tab=readme-ov-file#issues-faced-after-installing-the-nvidia-drivers-and-how-to-solve-them).
+
 
 
 
