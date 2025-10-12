@@ -88,10 +88,12 @@ sudo apt-get install openssh-server
 
 ## Local LLM + Coding 
 
+
 [Opencode](https://github.com/sst/opencode)
 
 For local agentic coding:
 ```
+vim ~/.local/share/opencode/opencode.json
 ollama run SimonPu/Qwen3-Coder:30B-Instruct_Q4_K_XL
 ```
 
