@@ -188,6 +188,12 @@ sudo apt update -y && sudo apt install -y libfuse2
 
 [Updating Watch Count Stack Overflow](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently)
 
+## Local Agentic Coding
+
+```
+ollama run SimonPu/Qwen3-Coder:30B-Instruct_Q4_K_XL
+```
+
 ## Python Extract Method
 
 Some VSCode Python extensions conflict with each other. I forgot how to resolve this. I think you may want just the Microsoft Python extension and as few others as possible. I also really like the rainbow indent extension it's great!
