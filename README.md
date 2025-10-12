@@ -86,7 +86,9 @@ sudo apt-get install openssh-client
 sudo apt-get install openssh-server
 ```
 
-## Local LLM 
+## Local LLM + Coding 
+
+[Opencode](https://github.com/sst/opencode)
 
 For local agentic coding:
 ```
