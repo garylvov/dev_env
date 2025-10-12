@@ -88,6 +88,12 @@ sudo apt-get install openssh-server
 
 ## Local LLM 
 
+For local agentic coding:
+```
+ollama run SimonPu/Qwen3-Coder:30B-Instruct_Q4_K_XL
+```
+
+
 Running Ollama: 
 ```
 docker rm ollama 2>/dev/null || true && docker run -d --gpus=all -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
@@ -187,12 +193,6 @@ sudo apt update -y && sudo apt install -y libfuse2
 ## Watch Count / Inotify
 
 [Updating Watch Count Stack Overflow](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently)
-
-## Local Agentic Coding
-
-```
-ollama run SimonPu/Qwen3-Coder:30B-Instruct_Q4_K_XL
-```
 
 ## Python Extract Method
 
