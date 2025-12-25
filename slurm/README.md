@@ -11,3 +11,5 @@ Always check current cluster utilization, with ``bash check_util.bash`` and ``ba
 Only then, run ``bash allocate.bash``.
 
 If I see you consistently using many GPUs, I will definitely ask why ;) 
+
+For people looking at this external to Brown, I hard-coded the partition and some of the GPU tags, but I think this could work for you too with a few small modifications.
