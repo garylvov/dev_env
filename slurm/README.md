@@ -1,6 +1,6 @@
 For students who work with me at Brown, remember that:
 
-With Great Power Comes Great Responsibility.
+# With Great Power Comes Great Responsibility.
 
 Please do not hog cluster resources. 
 Only use cluster resources for academic research.
