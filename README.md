@@ -6,7 +6,7 @@ This also has some handy commands that I always look up and then forget.
 
 # GPU Drivers with Docker Passthrough - Make ML Go Brrr
 
-[The definitive NVIDIA Ubuntu Driver / CUDA Install Guide](https://github.com/garylvov/dev_env/tree/main/setup_scripts/nvidia)
+[The definitive NVIDIA Ubuntu Driver / CUDA Install Guide](https://github.com/garylvov/dev_env/tree/main/NVIDIA)
 
 # Hermetic and Reproducible Python Package Template
 
