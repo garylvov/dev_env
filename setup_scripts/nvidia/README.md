@@ -2,7 +2,6 @@
 
 I'd estimate that I've installed NVIDIA drivers 100+ times. Here is the definitive guide of how to do it the right way (in my opinion).
 
-
 # Overview
 
 **Make sure to disable secure boot in your computer's BIOS!**
