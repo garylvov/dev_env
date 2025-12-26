@@ -12,6 +12,11 @@ This also has some handy commands that I always look up and then forget.
 
 [Hermetic and Reproducible Python Package Template](https://github.com/garylvov/pixidock_template) authored by yours truly.
 
+I love to use Pixi, which can be installed with the following.
+
+```
+curl -fsSL https://pixi.sh/install.sh | sh
+```
 
 ## The Classics
 ```
@@ -23,10 +28,19 @@ sudo apt-get install btop
 
 ### Code Editors
 
-[Cursor Stuff](https://gist.github.com/evgenyneu/5c5c37ca68886bf1bea38026f60603b6)
 ```
 sudo snap install code --classic
 sudo apt-get install vim
+```
+
+### Vibe Coding
+
+[My Agentic Vibe Coding w/ Claude Code Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
+
+Claude code can be installed with the following.
+
+```
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
 ## Gnome Extensions 
@@ -79,6 +93,8 @@ I like to use [NoMachine](https://www.nomachine.com/).
 Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
 
 I want to try [Sunshine/Moonlight](https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide) but I haven't gotten around to it yet.
+
+I need to remember to always do the following. Settings -> Sharing -> Remote Desktop -> On.
 
 ### Classic
 ```
@@ -168,7 +184,9 @@ kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace
 
 ## Github
 
-[Adding a new SSH agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+[Adding a new SSH agent Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+
+[Can be added to key agent here](https://github.com/settings/keys)
 
 [Creating a private fork from a public repo - make sure to have public repo link ready](https://github.com/new/import)
 
