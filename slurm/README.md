@@ -14,7 +14,7 @@ If I see you consistently using many GPUs, I will definitely ask why ;)
 
 Always check current cluster utilization, with ``bash check_util.bash`` and ``bash rank_users.bash``
 
-Only then, run ``bash allocate.bash``.
+Only then, run ``bash allocate.bash``. This will reserve an entire node, with 8 GPUs, 128 CPU cores, and 1TB RAM. Once your terminal exits, the node will shut down. Run multi-GPU training on this node! Please do not attempt to create more than one node at once.
 
 If the node isn't immediately allocated, you can check it's status in a new window with the following.
 
