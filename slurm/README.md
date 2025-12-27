@@ -28,4 +28,9 @@ Also, when on node, I often increase the process limit with the following.
 ulimit -u 8192
 ```
 
+For using more than one window, with the same compute node, is as easy as follows.
 
+```
+squeue -u $USER # read the compute node name
+ssh <COMPUTE_NODE_NAME> # e.g: ssh gpu2503
+```
