@@ -4,11 +4,11 @@ This is a collection of personal tweaks/rituals that make Ubuntu feel just right
 It would be cool if this was an Ansible playbook, but I haven't made it there yet. 
 This also has some handy commands that I always look up and then forget.
 
-# GPU Drivers with Docker Passthrough - Make ML Go Brrr
+## GPU Drivers with Docker Passthrough - Make ML Go Brrr
 
 [The definitive NVIDIA Ubuntu Driver / CUDA Install Guide](https://github.com/garylvov/dev_env/tree/main/NVIDIA)
 
-# Hermetic and Reproducible Python Package Template
+## Hermetic and Reproducible Python Package Template
 
 [Hermetic and Reproducible Python Package Template](https://github.com/garylvov/pixidock_template) authored by yours truly.
 
@@ -16,6 +16,16 @@ I love to use Pixi, which can be installed with the following.
 
 ```
 curl -fsSL https://pixi.sh/install.sh | sh
+```
+
+## Vibe Coding
+
+[My Agentic Vibe Coding w/ Claude Code Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
+
+Claude code can be installed with the following.
+
+```
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
 ## The Classics
@@ -33,20 +43,108 @@ sudo snap install code --classic
 sudo apt-get install vim
 ```
 
-### Vibe Coding
+## Remoting in
 
-[My Agentic Vibe Coding w/ Claude Code Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
-
-Claude code can be installed with the following.
-
+### Classic
 ```
-curl -fsSL https://claude.ai/install.sh | bash
+sudo apt-get install openssh-client
+sudo apt-get install openssh-server
 ```
 
-## Gnome Extensions 
+### Networking
+
+The free plan from [Tailscale](https://tailscale.com/) works great (up to 100 personal devices!). 
+
+I tried to use WireGuard alone once and quickly retreated to the comfort of Tailscale.
+
+### Remote Desktop
+
+I like to use [NoMachine](https://www.nomachine.com/).
+
+Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
+
+I want to try [Sunshine/Moonlight](https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide) but I haven't gotten around to it yet.
+
+I need to remember to always do the following. Settings -> Sharing -> Remote Desktop -> On.
+
+
+## Github
+
+[Adding a new SSH agent Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
+
+[Can be added to key agent here](https://github.com/settings/keys)
+
+[Creating a private fork from a public repo - make sure to have public repo link ready](https://github.com/new/import)
+
+[More information about private forks](https://stackoverflow.com/questions/10065526/github-how-to-make-a-fork-of-public-repository-private)
+
+### Gnome Extensions 
 Caffeine and Tactile are must have extensions IMO
 ```
 sudo apt-get install gnome-shell-extension-manager
+```
+
+### Browser Stuff
+[Vimium](https://vimium.github.io/)
+
+### Notes
+[Obsidian](https://obsidian.md/)
+
+[Obsidian Git Plugin](https://publish.obsidian.md/git-doc/Start+here)
+
+[Obsidian Ubuntu 24.04 Permissions](https://askubuntu.com/questions/1512287/obsidian-appimage-the-suid-sandbox-helper-binary-was-found-but-is-not-configu)
+
+Run Obsidian with the ``--disable-gpu`` flag to [prevent any glitches with Wayland](https://www.reddit.com/r/hyprland/comments/1aphbfq/comment/krv1np6/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)!
+
+Sometimes ``libfuse2`` is needed.
+```
+sudo apt update -y && sudo apt install -y libfuse2
+```
+
+### Citations
+
+[Zotero](https://www.zotero.org/download/)
+
+[Extra Zotero Install Help](https://www.zotero.org/support/installation)
+
+## Watch Count / Inotify
+
+[Updating Watch Count Stack Overflow](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently)
+
+## Space Preservation Part I 
+
+Check disk usage with the following.
+```
+sudo apt-get install baobab
+sudo baobab
+```
+
+If your ```overlay2``` folder gets huge, see the following.
+
+## When Docker Gets Greedy (Space Preservation Part II)
+
+Get rid of old docker images with the following.
+
+```
+docker system df
+# Clear builder cache with the following.
+docker builder prune -a -f
+```
+
+## Kubernetes 
+[Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
+
+[K9s](https://github.com/derailed/k9s):
+```
+wget https://github.com/derailed/k9s/releases/download/v0.32.7/k9s_linux_amd64.deb && apt install ./k9s_linux_amd64.deb && rm k9s_linux_amd64.deb
+```
+
+Handy commands that I always forget:
+```
+kubectl config get-contexts # Get all contexts
+kubectl get namespaces # Get all namespaces
+kubectl config use-context <CONTEXT> # Set Contexts
+kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace for the current context
 ```
 
 ## Keybindings 
@@ -78,29 +176,15 @@ u = S-'
 i = S-5
 ```
 
-## Remoting in
+## Tmux
 
-### Networking
+[Yank](https://github.com/tmux-plugins/tmux-yank)
 
-The free plan from [Tailscale](https://tailscale.com/) works great (up to 100 personal devices!). 
+## Fan stuff for PCs
 
-I tried to use WireGuard alone once and quickly retreated to the comfort of Tailscale.
+[Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
 
-### Remote Desktop
 
-I like to use [NoMachine](https://www.nomachine.com/).
-
-Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
-
-I want to try [Sunshine/Moonlight](https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide) but I haven't gotten around to it yet.
-
-I need to remember to always do the following. Settings -> Sharing -> Remote Desktop -> On.
-
-### Classic
-```
-sudo apt-get install openssh-client
-sudo apt-get install openssh-server
-```
 
 ## Local LLM + Coding 
 
@@ -133,88 +217,6 @@ ollama run deepseek-r1-60k-context-and-30k:70b --verbose
 
 # Afterwards, make sure to clean up with CTRL + C, CTRL + D, and then docker stop ollama
 ```
-
-## Browser Stuff
-[Vimium](https://vimium.github.io/)
-
-## Space Preservation Part I 
-
-Check disk usage with the following.
-```
-sudo apt-get install baobab
-sudo baobab
-```
-
-If your ```overlay2``` folder gets huge, see the following.
-
-## When Docker Gets Greedy (Space Preservation Part II)
-
-Get rid of old docker images with the following.
-
-```
-docker system df
-# Clear builder cache with the following.
-docker builder prune -a -f
-```
-
-
-## Kubernetes 
-[Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
-
-[K9s](https://github.com/derailed/k9s):
-```
-wget https://github.com/derailed/k9s/releases/download/v0.32.7/k9s_linux_amd64.deb && apt install ./k9s_linux_amd64.deb && rm k9s_linux_amd64.deb
-```
-
-Handy commands that I always forget:
-```
-kubectl config get-contexts # Get all contexts
-kubectl get namespaces # Get all namespaces
-kubectl config use-context <CONTEXT> # Set Contexts
-kubectl config set-context --current --namespace=<NAMESPACE> # Set the namespace for the current context
-```
-
-## Tmux
-
-[Yank](https://github.com/tmux-plugins/tmux-yank)
-
-## Fan stuff for PCs
-
-[Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
-
-## Github
-
-[Adding a new SSH agent Key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
-
-[Can be added to key agent here](https://github.com/settings/keys)
-
-[Creating a private fork from a public repo - make sure to have public repo link ready](https://github.com/new/import)
-
-[More information about private forks](https://stackoverflow.com/questions/10065526/github-how-to-make-a-fork-of-public-repository-private)
-
-## Notes
-[Obsidian](https://obsidian.md/)
-
-[Obsidian Git Plugin](https://publish.obsidian.md/git-doc/Start+here)
-
-[Obsidian Ubuntu 24.04 Permissions](https://askubuntu.com/questions/1512287/obsidian-appimage-the-suid-sandbox-helper-binary-was-found-but-is-not-configu)
-
-Run Obsidian with the ``--disable-gpu`` flag to [prevent any glitches with Wayland](https://www.reddit.com/r/hyprland/comments/1aphbfq/comment/krv1np6/?utm_source=share&utm_medium=web3x&utm_name=web3xcss&utm_term=1&utm_content=share_button)!
-
-Sometimes ``libfuse2`` is needed.
-```
-sudo apt update -y && sudo apt install -y libfuse2
-```
-
-## Citations
-
-[Zotero](https://www.zotero.org/download/)
-
-[Extra Zotero Install Help](https://www.zotero.org/support/installation)
-
-## Watch Count / Inotify
-
-[Updating Watch Count Stack Overflow](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently)
 
 ## Python Extract Method
 
