@@ -30,3 +30,43 @@ From my laptops, Aslan or Thunder, or my phone, I run the following.
 ```
 alias wake="ssh nudge '~/boom.sh'"
 ```
+
+## Troubleshooting: BMC Network Config Reset
+
+After BIOS/firmware updates, the BMC network config may reset to DHCP with IP `0.0.0.0`. To fix this, run from Minerva locally:
+
+```bash
+# Check current BMC LAN config
+sudo ipmitool lan print 1
+
+# If IP shows 0.0.0.0 or wrong address, reset to static:
+sudo ipmitool lan set 1 ipsrc static
+sudo ipmitool lan set 1 ipaddr 192.168.1.162
+sudo ipmitool lan set 1 netmask 255.255.255.0
+sudo ipmitool lan set 1 defgw ipaddr 192.168.1.1
+
+# Verify config was saved
+sudo ipmitool lan print 1
+
+# Reset the BMC to apply network changes (required!)
+sudo ipmitool mc reset cold
+
+# Wait 60 seconds for BMC to fully reinitialize
+```
+
+The BMC MAC address is `cc:28:aa:d1:92:56` - useful for finding it if DHCP is used.
+
+### Verify from Nudge
+
+After fixing the BMC config, verify from Nudge (or any machine on the LAN):
+
+```bash
+# Test connectivity
+ping -c 3 192.168.1.162
+
+# Test Redfish API
+curl -ks https://192.168.1.162/redfish/v1/
+
+# Test authentication and system status
+curl -ksu rescueadmin:StrongRescuePass https://192.168.1.162/redfish/v1/Systems/Self
+```
