@@ -57,6 +57,10 @@ The free plan from [Tailscale](https://tailscale.com/) works great (up to 100 pe
 
 I tried to use WireGuard alone once and quickly retreated to the comfort of Tailscale.
 
+### SSH Security
+
+[Locking down SSH to only be accessible via Tailscale](https://github.com/garylvov/dev_env/tree/main/ssh_security)
+
 ### Remote Desktop
 
 I like to use [NoMachine](https://www.nomachine.com/).
