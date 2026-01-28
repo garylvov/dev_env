@@ -12,6 +12,11 @@ Only use cluster resources for academic research.
 Please do not use more than 8 GPUs at one time. 
 If I see you consistently using many GPUs, I will definitely ask why ;) 
 
+To see the historic breakdown of GPU usage per user, one can run the following command.
+```
+bash slurm_usage_stats.bash 5 3090-gcondo "" 8 # last five days, on the 3090 condo, with 8 GPUs
+```
+
 Always check current cluster utilization, with ``bash check_util.bash`` and ``bash rank_users.bash``
 
 Only then, run ``bash allocate.bash``. This will reserve an entire node, with 8 GPUs, 128 CPU cores, and 1TB RAM. Once your terminal exits, the node will shut down (to get around this, we'd need to submit the job instead of doing it interactively, we'll get around to this soon...). Run multi-GPU training on this node! Please do not attempt to create more than one node at once. The node is reserved for 12 hours. 
@@ -34,3 +39,5 @@ For using more than one window, with the same compute node, is as easy as follow
 squeue -u $USER # read the compute node name
 ssh <COMPUTE_NODE_NAME> # e.g: ssh gpu2503
 ```
+
+
