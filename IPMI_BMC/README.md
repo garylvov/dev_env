@@ -11,18 +11,20 @@ this functionality despite it being enabled in BIOS.
 
 Nurdge is connected to a Network Switch, as is Minerva's BMC.
 
-Then, using ``ipmitool`` from Minerva I added some user perms to the BMC:
+Then, using ``ipmitool`` locally on Minerva, I added a rescue admin user to the BMC:
 
-```
+```bash
 # List existing BMC users
-ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user list
+sudo ipmitool user list 1
 
 # Create a new user in an unused slot (e.g., ID 3)
-ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user set name 3 rescueadmin
-ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user set password 3 StrongRescuePass
-ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN user enable 3
-ipmitool -I lanplus -H 192.168.1.162 -U ADMIN -P ADMIN channel setaccess 1 3 callin=on ipmi=on link=on privilege=4
+sudo ipmitool user set name 3 rescueadmin
+sudo ipmitool user set password 3 StrongRescuePass
+sudo ipmitool user enable 3
+sudo ipmitool channel setaccess 1 3 callin=on ipmi=on link=on privilege=4
 ```
+
+Note: BIOS/firmware updates can wipe BMC user accounts. If ``rescueadmin`` disappears, re-run the commands above from Minerva locally.
 
 Finally, the ``boom.sh`` script in this directory can be used from Nudge to remotely turn on Minerva from a complete shutdown ;)
 
