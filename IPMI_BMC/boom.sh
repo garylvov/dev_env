@@ -334,6 +334,10 @@ manager_reset() {
   fi
   tid="$(sed -n 's/.*"Id":"\([^"]*\)".*/\1/p' <<<"$payload" || true)"
   [[ -n "$tid" ]] && echo "    (task ${tid})"
+
+  # BMC reboot invalidates the session — clear it so ensure_auth() creates a new one
+  SESSION_TOKEN=""
+  SESSION_URI=""
 }
 
 try_power_on_loop() {
