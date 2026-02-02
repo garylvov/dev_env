@@ -67,6 +67,13 @@ I like to use [NoMachine](https://www.nomachine.com/).
 
 Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
 
+NoMachine can be installed headlessly with the following.
+
+```
+wget https://web9001.nomachine.com/download/9.3/Linux/nomachine_9.3.7_1_amd64.deb
+sudo dpkg -i nomachine_9.3.7_1_amd64.deb
+```
+
 I want to try [Sunshine/Moonlight](https://github.com/moonlight-stream/moonlight-docs/wiki/Setup-Guide) but I haven't gotten around to it yet.
 
 I need to remember to always do the following. Settings -> Sharing -> Remote Desktop -> On.
