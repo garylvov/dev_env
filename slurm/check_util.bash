@@ -38,7 +38,7 @@ while read -r node; do
     fi
 
     free=$((total - used))
-    state=$(echo "$info" | grep -oP '^State=\K\S+')
+    state=$(echo "$info" | grep -oP '(?<=State=)\S+')
 
     # Track free nodes per type
     if (( free >= 8 )); then
@@ -47,10 +47,12 @@ while read -r node; do
     fi
 
     # Collect detailed node info
-    node_infos+=$(printf "%3d\t%-10s (alloc=%d, used=%d, free=%d, hw=%d, type=%s, state=%s)" \
+    node_infos+=$(printf "%3d\t%-10s (cfg=%d, used=%d, free=%d, hw=%d, type=%s, state=%s)" \
         "$free" "$node" "$total" "$used" "$free" "$hw" "$gpu_type" "$state")$'\n'
 
-done < <(sinfo -p "$partition" -Nh -o "%N")
+done < <(sinfo -p "$partition" -Nh -o "%N" | sort -u)
+
+
 
 # Print summary
 echo "Summary of nodes with at least 8 free GPUs:"
