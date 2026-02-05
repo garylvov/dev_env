@@ -142,6 +142,13 @@ docker system df
 docker builder prune -a -f
 ```
 
+
+## Rebooting into recovery mode
+
+```
+sudo grub-reboot "gnulinux-advanced-$(findmnt -no UUID /)>gnulinux-$(uname -r)-recovery-$(findmnt -no UUID /)" && sudo reboot
+```
+
 ## Kubernetes 
 [Kubectl install](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
 
