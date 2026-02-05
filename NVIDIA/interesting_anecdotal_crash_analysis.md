@@ -224,11 +224,17 @@ This is the single highest-impact change. The proprietary module doesn't depend 
 
 The driver was installed via NVIDIA's runfile installer, not apt packages (`dpkg -l | grep nvidia.*kernel` returns nothing). Despite intending to install the proprietary module, the system is running the open module -- confirmed by `proc_driver_nvidia.log` showing `NVIDIA UNIX Open Kernel Module`, license `Dual MIT/GPL`, and `OpenRmEnableUnsupportedGpus: 1`. The runfile installer may have defaulted to the open module or it was selected inadvertently.
 
-Re-run the runfile installer with the `--no-openrm` flag to force the proprietary kernel module:
+Re-run the CUDA runfile installer with the `--kernel-module-type=proprietary` flag (or shorthand `-m=kernel`):
 
 ```bash
-sudo sh NVIDIA-Linux-x86_64-580.65.06.run --no-openrm
+# Reinstall driver only with proprietary kernel module
+sudo ./cuda_13.0.0_580.65.06_linux.run --driver --kernel-module-type=proprietary
+
+# Or full reinstall
+sudo ./cuda_13.0.0_580.65.06_linux.run --kernel-module-type=proprietary
 ```
+
+Note: `--no-openrm` is for standalone driver runfiles (`NVIDIA-Linux-x86_64-*.run`), not the CUDA bundle installer. The CUDA installer uses `--kernel-module-type=<proprietary|open>`.
 
 Disabling GSP is optional and only recommended as a fallback if Xid 119 timeouts persist after switching to the proprietary module. With the proprietary module, GSP is better tested and the driver can recover more gracefully. Only if problems continue:
 
