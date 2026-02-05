@@ -65,7 +65,7 @@ I tried to use WireGuard alone once and quickly retreated to the comfort of Tail
 
 I like to use [NoMachine](https://www.nomachine.com/).
 
-Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.
+~~Importantly, for NoMachine to work, in the Settings, under System, "Desktop Sharing" and "Remote Control" need to be enabled.~~ Edit: Turns out NoMachine does not depend on this, and this can lead to crashes on multi-gpu systems.
 
 NoMachine can be installed headlessly with the following.
 
