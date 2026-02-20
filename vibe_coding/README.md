@@ -37,6 +37,8 @@ My typical workflow is typically along the following lines.
 
 9.) I have the grizzly search for errors or missed parts
 
+10.) I review and test the functionality. If stuff doesn't work, I ask the grizzly for help lol.
+
 If returning to a work session, that wasn't completed or was interrupted, I have henry hudson evaluate the progress based on the plan file and codebase state, then I continue with the plan file. The grizzly is my favorite debugger (other than myself ;) ).
 
 
