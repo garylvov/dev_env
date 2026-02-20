@@ -3,13 +3,13 @@
 
 Here, are some agents and configs that help me vibe code.
 At Brown, I highly encourage my students and collaborators to vibe code; I think as long as the output is verified it's an incredibly powerful tool.
-
-# My Prompting Strategy
 I currently primarily use Claude Code.
 In my experience, *so far*, it's the best. 
 I've also tried Codex, Cursor, Gemini CLI, and some local coding agents.
 Most of my students at Brown use Codex as I think the $20 a month may get more tokens/milage (I'm not entirely sure about this tbh), and they already have ChatGPT Pro subscriptions. However, I still (at the time of writing) recommend Claude. 
 
+
+# My Prompting Strategy
 I download my agent prompts into ``~/.claude/agents``. I like to give my agents memorable names, I think it makes coding feel like playing pokemon. 
 I also like to enable "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 I demonstrate some of my older workflows in [this presentation](https://www.youtube.com/watch?v=dVa7uNDu1ig&t=1285s).
