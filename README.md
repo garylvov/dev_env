@@ -23,6 +23,7 @@ curl -fsSL https://pixi.sh/install.sh | sh
 [My Agentic Vibe Coding w/ Claude Code Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
 
 [Latest Written Guide to Vibe Coding and my Agents](/vibe_coding).
+
 Claude code can be installed with the following.
 
 ```
