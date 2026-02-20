@@ -20,9 +20,9 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 ## Vibe Coding
 
-[My Agentic Vibe Coding w/ Claude Code Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
+[My Agentic Vibe Coding w/ Claude Code Video Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
 
-[Latest Written Guide to Vibe Coding and my Agents](/vibe_coding).
+[My Latest Written Guide to Vibe Coding and my Agents](/vibe_coding).
 
 Claude code can be installed with the following.
 
@@ -36,8 +36,7 @@ sudo apt-get install terminator # Make sure to turn on infinite scrollback: righ
 sudo apt-get install htop
 sudo apt-get install nvtop
 sudo apt-get install btop
-```
-
+``` 
 ### Code Editors
 
 ```
@@ -62,6 +61,15 @@ I tried to use WireGuard alone once and quickly retreated to the comfort of Tail
 ### SSH Security
 
 [Locking down SSH to only be accessible via Tailscale](https://github.com/garylvov/dev_env/tree/main/ssh_security)
+
+
+### Slurm Stuff
+
+[Slurm stuff](/slurm)
+
+### IPMI / BMC
+
+[Remotely turning on WRX90 Sage SE](/IPMI_BMC)
 
 ### Remote Desktop
 
