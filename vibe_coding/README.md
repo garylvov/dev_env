@@ -35,7 +35,7 @@ My typical workflow is typically along the following lines.
 
 8.) Once they finish, I have henry hudson recap the codebase.
 
-9.) I have the grizzly search for errors or missed parts
+9.) I have the grizzly review the changes for errors or missed parts
 
 10.) I review and test the functionality. If stuff doesn't work, I ask the grizzly for help lol.
 
