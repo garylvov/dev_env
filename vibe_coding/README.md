@@ -11,7 +11,7 @@ Most of my students at Brown use Codex as I think the $20 a month may get more t
 
 # My Prompting Strategy
 I download my agent prompts into ``~/.claude/agents``. I like to give my agents memorable names, I think it makes coding feel like playing pokemon. 
-I also like to enable "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+I also like to enable ``CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS``.
 I demonstrate some of my older workflows in [this presentation](https://www.youtube.com/watch?v=dVa7uNDu1ig&t=1285s).
 
 
