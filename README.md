@@ -208,6 +208,9 @@ i = S-5
 
 [Yank](https://github.com/tmux-plugins/tmux-yank)
 
+[Cheat sheet](https://tmuxcheatsheet.com/)
+
+
 ## Fan stuff for PCs
 
 [Cooler Control](https://github.com/codifryed/coolercontrol/tree/main)
