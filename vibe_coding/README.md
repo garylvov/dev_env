@@ -27,17 +27,19 @@ My typical workflow is typically along the following lines.
 
 4.) I have some combination of the bloat killer, the tightly coupled hunter, and the grizzly review the plan file.
 
-5.) I have the solutions architect revise the plan file based on their feedback
+5.) I review the plan file itself. Oftentimes, I iterate with the solutions architect several times. It's best to catch mistakes in this stage.
 
-6.) I have the solutions architect identify what areas, if any, can be implemented in parallel, and update the plan file. 
+6.) I have the solutions architect revise the plan file based on their feedback
 
-7.) I have as swe-worker-bees work on implementation (often, just one, unless there are parts that can be parallelized). I have the worker bees write their progress and relevant things to the plan file.
+7.) I have the solutions architect identify what areas, if any, can be implemented in parallel, and update the plan file. 
 
-8.) Once they finish, I have henry hudson recap the codebase.
+8.) I have as swe-worker-bees work on implementation (often, just one, unless there are parts that can be parallelized). I have the worker bees write their progress and relevant things to the plan file.
 
-9.) I have the grizzly review the changes for errors or missed parts
+9.) Once they finish, I have henry hudson recap the codebase.
 
-10.) I review and test the functionality. If stuff doesn't work, I ask the grizzly for help lol.
+10.) I have the grizzly review the changes for errors or missed parts
+
+11.) I review and test the functionality. If stuff doesn't work, I ask the grizzly for help lol.
 
 If returning to a work session, that wasn't completed or was interrupted, I have henry hudson evaluate the progress based on the plan file and codebase state, then I continue with the plan file. The grizzly is my favorite debugger (other than myself ;) ).
 
