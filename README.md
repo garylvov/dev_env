@@ -52,13 +52,13 @@ sudo apt-get install openssh-client
 sudo apt-get install openssh-server
 ```
 
-### Networking
+## Networking
 
 The free plan from [Tailscale](https://tailscale.com/) works great (up to 100 personal devices!). 
 
 I tried to use WireGuard alone once and quickly retreated to the comfort of Tailscale.
 
-### SSH Security
+## SSH Security
 
 [Locking down SSH to only be accessible via Tailscale](https://github.com/garylvov/dev_env/tree/main/ssh_security)
 
@@ -67,11 +67,11 @@ I tried to use WireGuard alone once and quickly retreated to the comfort of Tail
 
 [Slurm stuff](/slurm)
 
-### IPMI / BMC
+## IPMI / BMC
 
 [Remotely turning on WRX90 Sage SE](/IPMI_BMC)
 
-### Remote Desktop
+## Remote Desktop
 
 I like to use [NoMachine](https://www.nomachine.com/).
 
@@ -105,7 +105,7 @@ Caffeine and Tactile are must have extensions IMO
 sudo apt-get install gnome-shell-extension-manager
 ```
 
-### Notifications to phone
+## Notifications to phone
 
 [ntfy.sh](https://docs.ntfy.sh/)
 
