@@ -99,13 +99,21 @@ I need to remember to always do the following. Settings -> Sharing -> Remote Des
 
 [More information about private forks](https://stackoverflow.com/questions/10065526/github-how-to-make-a-fork-of-public-repository-private)
 
-### Gnome Extensions 
+## Gnome Extensions 
 Caffeine and Tactile are must have extensions IMO
 ```
 sudo apt-get install gnome-shell-extension-manager
 ```
 
-### Browser Stuff
+### Notifications to phone
+
+[ntfy.sh](https://docs.ntfy.sh/)
+
+```
+curl -d "Backup successful 😀" ntfy.sh/mytopic
+```
+
+## Browser Stuff
 [Vimium](https://vimium.github.io/)
 
 ### Notes
@@ -122,7 +130,7 @@ Sometimes ``libfuse2`` is needed.
 sudo apt update -y && sudo apt install -y libfuse2
 ```
 
-### Citations
+## Citations
 
 [Zotero](https://www.zotero.org/download/)
 
@@ -230,6 +238,9 @@ ollama run SimonPu/Qwen3-Coder:30B-Instruct_Q4_K_XL
 
 
 Running Ollama: 
+
+EDIT: I no longer recommend using Ollama, the native [llama.cpp](https://github.com/ggml-org/llama.cpp) is great!
+
 ```
 docker rm ollama 2>/dev/null || true && docker run -d --gpus=all -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama
 docker exec -it ollama bash
