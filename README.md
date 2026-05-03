@@ -263,3 +263,11 @@ ollama run deepseek-r1-60k-context-and-30k:70b --verbose
 ## Python Extract Method
 
 Some VSCode Python extensions conflict with each other. I forgot how to resolve this. I think you may want just the Microsoft Python extension and as few others as possible. I also really like the rainbow indent extension it's great!
+
+
+## Extra commands
+
+```
+nvidia-smi --query-compute-apps=pid --format=csv,noheader | xargs -I{} ps -p {} -o pid,user,cmd ww
+srun --jobid=2199070 --overlap --pty bash
+```
