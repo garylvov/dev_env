@@ -32,11 +32,23 @@ curl -fsSL https://claude.ai/install.sh | bash
 
 ## The Classics
 ```
+# sudo add-apt-repository ppa:mattrose/terminator
+# sudo apt-get update
 sudo apt-get install terminator # Make sure to turn on infinite scrollback: right click->preferences->profiles->scrolling
 sudo apt-get install htop
 sudo apt-get install nvtop
 sudo apt-get install btop
-``` 
+```
+
+Terminator extras (most often not needed, but sometimes helpful):
+
+```
+mkdir -p ~/.config/terminator/
+touch ~/.config/terminator/config```
+gsettings set org.gnome.settings-daemon.plugins.media-keys terminal "['<Control><Alt>t']"
+gsettings set org.gnome.desktop.default-applications.terminal exec 'terminator'
+```
+
 ### Code Editors
 
 ```
