@@ -44,7 +44,7 @@ Terminator extras (most often not needed, but sometimes helpful):
 
 ```
 mkdir -p ~/.config/terminator/
-touch ~/.config/terminator/config```
+touch ~/.config/terminator/config
 gsettings set org.gnome.settings-daemon.plugins.media-keys terminal "['<Control><Alt>t']"
 gsettings set org.gnome.desktop.default-applications.terminal exec 'terminator'
 ```
