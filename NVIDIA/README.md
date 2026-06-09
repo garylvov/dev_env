@@ -55,7 +55,7 @@ sudo apt-get install build-essential
 
 Set GCC to the right version. I recommend 13. For Ubuntu versions newer than 22.04, you likely can omit this step, unless you get errors related to ``ftrivial``.
 ```
-wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/blob/main/NVIDIA/update_gcc_patch.sh | bash -s -- --default_version 13
+wget -qO- https://raw.githubusercontent.com/garylvov/dev_env/main/NVIDIA/update_gcc_patch.sh | bash -s -- --default_version 13
 ```
 
 Download the runfile [here](https://developer.nvidia.com/cuda-downloads).
