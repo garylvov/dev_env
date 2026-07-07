@@ -20,15 +20,23 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 ## Vibe Coding
 
-[My Agentic Vibe Coding w/ Claude Code Video Tutorial](https://www.youtube.com/watch?v=dVa7uNDu1ig)
-
-[My Latest Written Guide to Vibe Coding and my Agents](/vibe_coding).
-
 Claude code can be installed with the following.
 
 ```
 curl -fsSL https://claude.ai/install.sh | bash
 ```
+
+[Claude swap](https://github.com/realiti4/claude-swap) is great.
+
+```
+uv tool install claude-swap
+```
+
+[Strategic rolling window resets](https://www.reddit.com/r/ClaudeAI/comments/1u7i5ow/pro_tip_reset_your_usage_limits_on_your_schedule/)
+
+[Caveman](https://github.com/juliusbrussee/caveman)
+
+[RTK](https://github.com/rtk-ai/rtk)
 
 ## The Classics
 ```
