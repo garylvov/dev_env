@@ -34,9 +34,6 @@ uv tool install claude-swap
 
 [Strategic rolling window resets](https://www.reddit.com/r/ClaudeAI/comments/1u7i5ow/pro_tip_reset_your_usage_limits_on_your_schedule/)
 
-[Caveman](https://github.com/juliusbrussee/caveman)
-
-[RTK](https://github.com/rtk-ai/rtk)
 
 ## The Classics
 ```
