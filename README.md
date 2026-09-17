@@ -80,6 +80,10 @@ I tried to use WireGuard alone once and quickly retreated to the comfort of Tail
 [Locking down SSH to only be accessible via Tailscale](https://github.com/garylvov/dev_env/tree/main/ssh_security)
 
 
+### Custom MOTD
+
+[Replacing the Ubuntu login wall of text with your own color banner](/motd), rendered from [patorjk's generator](https://patorjk.com/software/taag/).
+
 ### Slurm Stuff
 
 [Slurm stuff](/slurm)
