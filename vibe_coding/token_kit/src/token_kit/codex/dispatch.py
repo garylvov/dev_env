@@ -40,11 +40,13 @@ TWO MEASURED CLUSTER FACTS THIS FILE ENCODES
        operator's `~/run_codex.bash` exports 4 by default, so a dispatcher that
        used it unchanged would see a silent, exit-0, empty server every time.
        We therefore raise the floor to MIN_TOKIO_WORKER_THREADS in the child
-       env; run_codex.bash reads it as `${TOKIO_WORKER_THREADS:-4}` and keeps
-       our value.
-    2. The launcher is the only sanctioned way to reach codex on this cluster:
-       it puts CODEX_HOME on node-local /tmp because SQLite over NFS fails with
-       locking errors.  Nothing here ever copies an auth file.
+       env; the launcher sets the caps as DEFAULTS, so our value survives.
+    2. CODEX_HOME must be on node-local disk wherever the home is a shared
+       filesystem: codex's SQLite store fails there with locking errors.  That
+       is `token_kit.codex.launcher`'s job -- it prepares the node-local home
+       in THIS process and we spawn the binary directly, no shell in between.
+       The profile decides; a machine that needs a node-local home never falls
+       back to a bare `codex` against the shared one.
 """
 
 from __future__ import annotations
@@ -120,16 +122,25 @@ class DispatchResult:
 # --------------------------------------------------------------------------
 
 def default_launcher() -> str | None:
-    """`codex_launcher` profile key, resolved by detection when unset.
+    """The EXPLICIT launcher path the profile names, or None.
 
-    The cluster wrapper wins when it exists; otherwise plain `codex` on PATH
-    (a workstation).  Returns None when neither is present -- rc 42, absent.
+    None is not "codex is missing": it means "this machine uses the kit's own
+    launcher" (`token_kit.codex.launcher`), which is the answer whenever the
+    profile says the codex home must be node-local.  Nothing here detects
+    anything -- the PROFILE is the authority, and the old detection (is
+    ~/run_codex.bash there? no? then bare `codex`) was the silent fall-through
+    that put SQLite back on the shared filesystem.
     """
-    cluster = Path(os.path.expanduser("~/run_codex.bash"))
-    if cluster.is_file():
-        return str(cluster)
-    found = shutil.which("codex")
-    return found
+    from token_kit.codex import launcher as launcher_mod
+
+    cfg = launcher_mod.load_config()
+    if cfg.node_local_home:
+        return None
+    named = cfg.launcher or "codex"
+    if os.path.sep in named:
+        path = os.path.expanduser(named)
+        return path if os.path.exists(path) else None
+    return shutil.which(named)
 
 
 def launcher_command(launcher: str) -> list[str]:
@@ -373,12 +384,16 @@ def dispatch(
     if not model or not effort:
         raise ValueError("model and effort are required; there is no default")
 
-    resolved = launcher or default_launcher()
-    if not resolved:
-        raise CodexUnavailable("absent", "no ~/run_codex.bash and no codex on PATH")
-    probe = resolved.split()[0]
-    if os.path.sep in probe and not os.path.exists(probe):
-        raise CodexUnavailable("absent", f"launcher not found: {probe}")
+    from token_kit.codex import launcher as launcher_mod
+
+    # The profile decides HOW codex is reached; a missing launcher, a missing
+    # binary or a node-local home that cannot be made are all rc 42 `absent`.
+    # There is no fall-through to a bare `codex` against a shared-filesystem
+    # CODEX_HOME -- that is the corruption the launcher exists to prevent.
+    try:
+        launch = launcher_mod.prepare(override=launcher)
+    except launcher_mod.LauncherUnavailable as exc:
+        raise CodexUnavailable(exc.reason, exc.detail) from exc
 
     log_file = None
     if log_path is not None:
@@ -392,7 +407,7 @@ def dispatch(
         log_file.flush()
 
     started = time.monotonic()
-    client = AppServerClient(launcher_command(resolved), child_env(), log)
+    client = AppServerClient(launch.argv, child_env(launch.env), log)
     try:
         # -- handshake ---------------------------------------------------
         init_id = client.request(
@@ -416,6 +431,9 @@ def dispatch(
                     reason = "auth" if any(m in detail.lower() for m in _AUTH_MARKERS) else "protocol"
                     raise CodexUnavailable(reason, detail)
                 break
+        # The handshake answered: codex's own first-run work on this node is
+        # done, so the next child may start.  The lock never covers the turn.
+        launch.release_startup()
         client.notify("initialized", {})
 
         # -- thread ------------------------------------------------------
@@ -531,6 +549,9 @@ def dispatch(
             )
     finally:
         client.close()
+        # Not an exec, so this always runs: auth.json back to the shared home
+        # (newer wins) and the startup lock dropped even on a failed turn.
+        launch.finish()
         if log_file is not None:
             log_file.close()
 

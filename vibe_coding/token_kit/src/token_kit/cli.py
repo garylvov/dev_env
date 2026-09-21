@@ -52,7 +52,7 @@ COMPONENTS = [
     ("sessionstart-menu", "the SessionStart row menu, generated from the table"),
     ("respawn-reader", "the PostToolUse(Agent)+Stop lane respawn reader"),
     ("supervisor", "token-kit-supervise, the rollover supervisor"),
-    ("codex-bin", "the codex-dispatch / codex-job shims"),
+    ("codex-bin", "the codex-dispatch / codex-job / codex-run shims"),
     ("agents", "the compressed personas and the codex wrapper agents"),
     ("row-agents", "one generated agent file per matrix row candidate"),
     ("agent-trigger-matrix", "agent_trigger_matrix.toml, the routing table"),
@@ -65,6 +65,9 @@ EXECUTABLES = [
     ("token-kit-supervise", "src/token_kit/supervisor/bin/token-kit-supervise"),
     ("codex-dispatch", "src/token_kit/codex/bin/codex-dispatch"),
     ("codex-job", "src/token_kit/codex/bin/codex-job"),
+    # The interactive entry point: the kit's own launcher, so a new cluster
+    # machine needs no hand-written wrapper in anybody's home directory.
+    ("codex-run", "src/token_kit/codex/bin/codex-run"),
 ]
 
 #: Where an adopted (pre-existing, real) agent file is moved to. It is MOVED,
@@ -231,13 +234,25 @@ def cmd_install(args) -> int:
         rep.ok(f"claude  {claude}")
     else:
         rep.fail("claude  MISSING (required: npm i -g @anthropic-ai/claude-code)")
-    codex = shutil.which("codex")
-    launcher = os.path.expanduser(prof.codex_launcher)
-    if codex or Path(launcher).is_file():
-        rep.ok(f"codex   {codex or launcher}")
+    # How codex is reached is the PROFILE's decision, so report what the kit's
+    # own launcher resolves, not what happens to be on PATH.
+    from token_kit.codex import launcher as codex_launcher
+
+    ccfg = codex_launcher.load_config(KIT_DIR / "profiles", prof.name)
+    codex = codex_launcher.resolve_binary(ccfg)
+    named = os.path.expanduser(ccfg.launcher or "codex")
+    if ccfg.node_local_home:
+        where = (f"codex   {codex or 'MISSING'} "
+                 f"(kit launcher; CODEX_HOME -> "
+                 f"{codex_launcher.node_local_home(ccfg)})")
+    else:
+        where = f"codex   {codex or named}"
+    if codex or Path(named).is_file():
+        rep.ok(where)
     else:
         rep.note(f"codex   not found (optional; codex-* agents will not dispatch). "
-                 f"profile launcher = {prof.codex_launcher}")
+                 f"profile launcher = {ccfg.launcher}, node_local_home = "
+                 f"{str(ccfg.node_local_home).lower()}")
     if rep.failures:
         print("\ninstall: REFUSING -- required dependencies are missing (above)")
         return 1

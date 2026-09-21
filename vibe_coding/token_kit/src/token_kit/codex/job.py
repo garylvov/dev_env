@@ -28,8 +28,22 @@ THE THREE DELIVERY PATHS (every message gets exactly one row)
                       `turn/start` on the SAME thread, same owner.
     resumed           no owner was alive: `send` started one, which did
                       `thread/resume {threadId}` + `turn/start`.
+    queued-remote(H)  the owner is LIVE on another node H: the file is in the
+                      shared inbox and H's owner lists that directory, so the
+                      message arrives.  No second owner is started here.
+    failed(remote-owner-gone)
+                      the owner on H has exited and the thread's rollout file
+                      is in H's node-local CODEX_HOME, so nothing on this node
+                      can resume it.  The message is moved to undelivered/ and
+                      the refusal is loud (rc 2) -- never a silent drop.
     failed(<why>)     the turn itself could not be started.  The message file
                       STAYS in inbox/ so the next owner delivers it.
+
+ONE JOB DIR, MANY NODES
+    The job dir is on the shared filesystem, so `send/status/stop/wait` may run
+    anywhere.  The owner process, its pid, its /proc start time and the codex
+    thread all live on ONE node, named in `meta.json` (`host`) and in the lock
+    (`owner.lock/host`).  Every verb compares hosts BEFORE it reads a pid.
 
 NO MESSAGE IS EVER LOST (the interesting invariant)
     `send` writes its file into `inbox/` BEFORE it looks at ownership; the
@@ -63,6 +77,7 @@ from pathlib import Path
 from typing import Any
 
 from token_kit.codex import errors
+from token_kit.codex import launcher as launcher_mod
 from token_kit.codex.dispatch import (
     EXIT_BUSY_OR_ABSENT,
     EXIT_CODEX_FAILED,
@@ -75,8 +90,6 @@ from token_kit.codex.dispatch import (
     _AUTH_MARKERS,
     cap_bytes,
     child_env,
-    default_launcher,
-    launcher_command,
 )
 
 #: How long an idle owner keeps the connection (and the chance to steer) alive.
@@ -205,6 +218,32 @@ class Job:
             return tail.split("\n", 1)[1].strip() if "\n" in tail else ""
         return text.strip()
 
+    # -- which HOST does this job live on? --------------------------------
+    #
+    # The job dir is on a SHARED filesystem: every login and compute node sees
+    # it.  The owner process, its pid, its /proc start time and the codex
+    # thread's rollout file are all on ONE node.  So a pid read from here means
+    # nothing until the host matches -- on another node that pid is absent
+    # (the job reads as "orphan" and a second owner starts on a thread that is
+    # not there) or, worse, alive and somebody else's.  Every verb compares
+    # hosts BEFORE it looks at a pid.
+    def host(self) -> str:
+        """The host the job was started on."""
+        return str(self.meta().get("host", ""))
+
+    def owner_host(self) -> str:
+        """The host of the CURRENT owner: the lock's, else the job's."""
+        try:
+            recorded = (self.lock / "host").read_text(encoding="utf-8").strip()
+        except OSError:
+            recorded = ""
+        return recorded or self.host()
+
+    def is_remote(self) -> bool:
+        """True when this job's owner lives on another node."""
+        owner = self.owner_host()
+        return bool(owner) and owner != launcher_mod.this_host()
+
     # -- ownership --------------------------------------------------------
     def owner_pid(self) -> int | None:
         try:
@@ -219,6 +258,11 @@ class Job:
             return ""
 
     def owner_alive(self) -> bool:
+        """LOCAL liveness only.  False on another node is "cannot see", not
+        "gone" -- callers ask `is_remote()` first and never conclude from this.
+        """
+        if self.is_remote():
+            return False
         pid = self.owner_pid()
         if pid is None:
             return False
@@ -246,6 +290,8 @@ class Job:
         self.lock.mkdir(parents=True, exist_ok=True)
         (self.lock / "pid").write_text(f"{pid}\n", encoding="utf-8")
         (self.lock / "starttime").write_text(pid_start_time(pid) + "\n", encoding="utf-8")
+        # The host goes in with the pid: the pid is only an identity ON it.
+        (self.lock / "host").write_text(launcher_mod.this_host() + "\n", encoding="utf-8")
 
     def release(self) -> None:
         shutil.rmtree(self.lock, ignore_errors=True)
@@ -277,6 +323,62 @@ def pid_start_time(pid: int) -> str:
 
 def jobs_root() -> Path:
     return errors.state_root()
+
+
+# --------------------------------------------------------------------------
+# the thread's rollout file -- the one piece of a thread that is NODE-LOCAL
+# --------------------------------------------------------------------------
+#
+# MEASURED (codex-cli 0.153.4, this host): a thread's transcript is written to
+# `<CODEX_HOME>/sessions/<YYYY>/<MM>/<DD>/rollout-<stamp>-<threadId>.jsonl`.
+# With CODEX_HOME on node-local tmp that file exists on ONE node, which is why
+# `thread/resume` cannot simply be re-issued from another one.  The owner
+# therefore copies the file into the job dir (shared) at the end of every turn,
+# and an owner starting on a node that does not have it puts it back first.
+#
+# UNPROVEN: that a resume from the seeded copy alone reconstitutes the thread.
+# It is built and guarded against the fake; only a real two-node run can say
+# whether codex needs anything else out of its store, so cross-host `send`
+# still REFUSES rather than relying on this.
+ROLLOUT_DIR = "rollout"
+_ROLLOUT_GLOB = "sessions/*/*/*/rollout-*{thread}*.jsonl"
+
+
+def codex_home_of(launch) -> Path | None:
+    home = launch.env.get("CODEX_HOME", "")
+    return Path(home) if home else None
+
+
+def _newest(base: Path, thread_id: str) -> Path | None:
+    if not thread_id:
+        return None
+    try:
+        matches = sorted(base.glob(_ROLLOUT_GLOB.format(thread=thread_id)))
+    except OSError:
+        return None
+    return matches[-1] if matches else None
+
+
+def archive_rollout(job: Job, home: Path | None, thread_id: str) -> Path | None:
+    """Copy this thread's rollout into the job dir, where every node sees it."""
+    if home is None:
+        return None
+    src = _newest(home, thread_id)
+    if src is None:
+        return None
+    dst = job.root / ROLLOUT_DIR / src.relative_to(home)
+    return dst if launcher_mod.atomic_copy(src, dst) else None
+
+
+def seed_rollout(job: Job, home: Path | None, thread_id: str) -> bool:
+    """Put an archived rollout back into THIS node's codex home before a resume."""
+    if home is None or _newest(home, thread_id) is not None:
+        return False
+    base = job.root / ROLLOUT_DIR
+    src = _newest(base, thread_id)
+    if src is None:
+        return False
+    return launcher_mod.atomic_copy(src, home / src.relative_to(base))
 
 
 def new_job_id(name: str | None) -> str:
@@ -394,21 +496,33 @@ def owner_main(job: Job, resume: bool) -> int:
     model, effort = meta.get("model", ""), meta.get("effort", "")
     cwd, sandbox = meta.get("cwd", ""), meta.get("sandbox", "read-only")
     linger_s = float(meta.get("linger_s", DEFAULT_LINGER_S))
-    launcher = meta.get("launcher") or default_launcher()
+    launcher = meta.get("launcher") or None
     turn_timeout_s = float(meta.get("turn_timeout_s", 1800.0))
 
     job.write_owner(os.getpid())
-    job.row("owner", f"pid={os.getpid()} resume={int(resume)}")
-
-    if not launcher:
-        return _finish(job, EXIT_BUSY_OR_ABSENT, "reason=absent no launcher")
+    job.row("owner", f"pid={os.getpid()} host={launcher_mod.this_host()} "
+                     f"resume={int(resume)}")
 
     def log(direction: str, obj: Any) -> None:
         job.event(direction, obj)
 
+    # The profile decides how codex is reached; on a machine whose codex home
+    # must be node-local this prepares that home in THIS process before the
+    # child exists.  An unpreparable home or a missing binary is rc 42 absent.
     try:
-        client = AppServerClient(launcher_command(launcher), child_env(), log)
+        launch = launcher_mod.prepare(override=launcher)
+    except launcher_mod.LauncherUnavailable as exc:
+        return _finish(job, EXIT_BUSY_OR_ABSENT, f"reason={exc.reason} {exc.detail}")
+    job.row("launcher", f"{' '.join(launch.argv[:2])} "
+                        f"CODEX_HOME={launch.env.get('CODEX_HOME', '<inherited>')}")
+    # We are the process the wrapper's EXIT trap belongs to: sync on the way
+    # out however we leave, SIGTERM from `stop --force` included.
+    launcher_mod.install_exit_sync(launch)
+
+    try:
+        client = AppServerClient(launch.argv, child_env(launch.env), log)
     except CodexUnavailable as exc:
+        launch.finish()
         return _finish(job, EXIT_BUSY_OR_ABSENT, f"reason={exc.reason} {exc.detail}")
 
     seen: set[str] = set()
@@ -446,11 +560,17 @@ def owner_main(job: Job, resume: bool) -> int:
                         else "protocol"
                     return _finish(job, EXIT_BUSY_OR_ABSENT, f"reason={reason} {detail}")
                 break
+        launch.release_startup()   # startup only: the next child may start now
         client.notify("initialized", {})
 
         # -- thread -------------------------------------------------------
         stored = job.thread_id()
+        codex_home = codex_home_of(launch)
         if resume and stored:
+            # The rollout file is node-local; if this node has never seen this
+            # thread, put the archived copy back before asking codex for it.
+            if seed_rollout(job, codex_home, stored):
+                job.row("rollout", f"seeded {stored} into {codex_home}")
             req = client.request("thread/resume", {"threadId": stored, "model": model,
                                                    "cwd": cwd, "sandbox": sandbox})
         else:
@@ -673,12 +793,19 @@ def owner_main(job: Job, resume: bool) -> int:
             active_turn = ""
             turn_req_id = None
             turn_msgs = []
+            # The transcript this node just extended goes where every node can
+            # read it.  Cheap (one copy of one jsonl), and it is the only part
+            # of the thread that does not live in the shared job dir already.
+            archived = archive_rollout(job, codex_home, thread_id)
+            if archived is not None:
+                job.row("rollout", f"archived {archived.name}")
             idle_until = time.monotonic() + linger_s
             job.row(STATE_IDLE, f"turn {turns} {status}; lingering {linger_s:g}s")
     except CodexUnavailable as exc:
         return _finish(job, EXIT_BUSY_OR_ABSENT, f"reason={exc.reason} {exc.detail}")
     finally:
         client.close()
+        launch.finish()
 
 
 # --------------------------------------------------------------------------
@@ -707,8 +834,11 @@ def cmd_start(args) -> int:
     (job.root / "meta.json").write_text(json.dumps({
         "job_id": job.job_id, "name": args.name or "", "model": args.model,
         "effort": args.effort, "cwd": args.cwd, "sandbox": args.sandbox,
-        "task_file": str(task_file), "launcher": args.launcher or default_launcher() or "",
+        "task_file": str(task_file), "launcher": args.launcher or "",
         "linger_s": args.linger_s, "turn_timeout_s": args.turn_timeout_s,
+        # The job dir is shared by every node; the owner, its pid and the
+        # codex thread's rollout file are not. The host is part of the record.
+        "host": launcher_mod.this_host(),
         "created": time.time(),
     }, indent=2) + "\n", encoding="utf-8")
     job.row(STATE_STARTING, f"model={args.model} effort={args.effort}")
@@ -731,6 +861,41 @@ def cmd_send(args) -> int:
         return EXIT_USAGE
     # ORDER MATTERS: the file lands before ownership is even looked at.
     message = put_message(job, text)
+
+    # HOST FIRST. The owner watches this inbox by LISTING it, so a file written
+    # from another node reaches a live owner exactly as a local one does. What
+    # must never happen here is the second half of the old code path: claiming
+    # the lock and spawning a second owner that resumes a thread whose rollout
+    # file lives in the OTHER node's CODEX_HOME.
+    if job.is_remote():
+        owner = job.owner_host()
+        if not job.done_file.exists():
+            # A ROUTING row, not a delivery row: the owner on the other node
+            # writes the delivery row when it actually takes the message, and
+            # the invariant "one delivery row per message" holds across nodes.
+            job.event("routing", {"message": message.message_id,
+                                  "disposition": f"queued-remote({owner})"})
+            job.row("routing", f"{message.message_id} queued-remote({owner})")
+            print(f"{message.message_id} queued-remote({owner}) "
+                  f"-- the owner on {owner} picks it up from the shared inbox")
+            return EXIT_OK
+        # The owner's linger has ended on the other node. Nothing here can
+        # resume that thread, and the message must not sit in the inbox
+        # pretending it will be delivered: it is retired to undelivered/ with
+        # a row, and the refusal is loud.
+        undelivered = job.root / "undelivered"
+        undelivered.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(message.path, undelivered / message.path.name)
+        except OSError:
+            pass
+        job.delivery(message.message_id, "failed(remote-owner-gone)",
+                     f"host={owner} kept at undelivered/{message.path.name}")
+        print(f"codex-job: thread lives on {owner}; run `codex-job send` there "
+              f"or start a new job. Your message is kept at "
+              f"{undelivered / message.path.name}", file=sys.stderr)
+        return EXIT_USAGE
+
     if job.owner_alive() and not job.done_file.exists():
         print(f"{message.message_id} queued (owner pid {job.owner_pid()} is live)")
         return EXIT_OK
@@ -755,8 +920,15 @@ def cmd_send(args) -> int:
 
 def _job_line(job: Job) -> str:
     meta = job.meta()
-    state = "done" if job.done_file.exists() else ("live" if job.owner_alive() else "orphan")
-    return (f"{job.job_id}\t{state}\trc={job.rc()}\tthread={job.thread_id() or '-'}\t"
+    if job.done_file.exists():
+        state = "done"
+    elif job.is_remote():
+        # Never "orphan" from here: a pid on another node is not ours to read.
+        state = "remote"
+    else:
+        state = "live" if job.owner_alive() else "orphan"
+    return (f"{job.job_id}\t{state}\thost={job.owner_host() or '?'}\trc={job.rc()}\t"
+            f"thread={job.thread_id() or '-'}\t"
             f"{meta.get('model', '?')}/{meta.get('effort', '?')}\t"
             f"inbox={inbox_pending(job)}\t{job.last_status()}")
 
@@ -784,6 +956,22 @@ def cmd_list(args) -> int:
 def cmd_stop(args) -> int:
     job = find_job(args.job)
     put_message(job, "stop", kind="stop")
+
+    # HOST FIRST, for two reasons: the owner's pid is meaningless here (absent,
+    # or alive and someone else's), and `_finish` would write `rc` and `done`
+    # for a job that is still running on the other node. A stop across nodes is
+    # a REQUEST FILE the owner honours (turn/interrupt, then exit) -- never a
+    # kill, never a terminal row written from here.
+    if job.is_remote():
+        owner = job.owner_host()
+        print(f"stop requested on {owner} (stop file written to the shared inbox); "
+              f"its owner interrupts the turn within {TICK_S:g}s")
+        if args.force:
+            print(f"codex-job: --force cannot reach a process on {owner} -- "
+                  f"run `codex-job stop --force` there", file=sys.stderr)
+            return EXIT_USAGE
+        return EXIT_OK
+
     pid = job.owner_pid()
     if not job.owner_alive():
         return _finish(job, job.rc() if job.rc() is not None else EXIT_OK, "stopped, no owner")
@@ -807,6 +995,8 @@ def cmd_wait(args) -> int:
     background command exits, so the completion notice costs no polling call.
     """
     job = find_job(args.job)
+    # Cross-host, the status file is the ONLY thing that means anything here:
+    # `done` is written by the owner wherever it runs, and no pid is consulted.
     deadline = time.monotonic() + args.timeout_s
     while not job.done_file.exists():
         if time.monotonic() >= deadline:

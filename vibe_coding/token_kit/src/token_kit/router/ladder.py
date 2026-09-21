@@ -176,11 +176,32 @@ def codex_slots_full(codex: dict) -> bool:
     return held >= max_children
 
 
+def profile_codex_reachable() -> bool:
+    """Agree with the dispatcher: the PROFILE decides how codex is reached.
+
+    Cheap on purpose -- one TOML parse and two stat()s; it never prepares a
+    home.  A profile that cannot be read says nothing, so it does not veto.
+    """
+    try:
+        from token_kit.codex import launcher as launcher_mod
+        cfg = launcher_mod.load_config()
+    except Exception:  # noqa: BLE001 -- availability never raises on the hook path
+        return True
+    if cfg.node_local_home:
+        return bool(launcher_mod.resolve_binary(cfg)) and os.access(cfg.tmp_root, os.W_OK)
+    named = os.path.expanduser(cfg.launcher or "codex")
+    if os.path.sep in named:
+        return Path(named).exists()
+    return shutil.which(named) is not None
+
+
 def codex_binary_present(codex: dict) -> bool:
     binary = str(codex.get("binary", "codex"))
     if os.path.sep in binary:
         return Path(os.path.expanduser(binary)).exists()
-    return shutil.which(binary) is not None
+    if binary != "codex":  # an explicit matrix override decides alone
+        return shutil.which(binary) is not None
+    return profile_codex_reachable()
 
 
 def codex_unavailable_reason(codex: dict, session_state: Path,

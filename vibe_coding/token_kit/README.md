@@ -29,6 +29,7 @@ It writes only to `~/.claude` (hooks in `settings.json`, links in `agents/`) and
 | row agents | Generated from the table, one per row, with `model` and `effort` in the frontmatter. |
 | `codex-dispatch` | One Codex turn, on demand, over `codex app-server` stdio. No daemon, no port. Exit 42 = Codex unavailable (absent, auth, busy, quota). |
 | `codex-job` | Codex jobs you can talk to: `start`, `send` (steers a running turn, or continues the thread after it), `wait` (run in the background to be told when it ends), `status`, `list`, `stop`. No message is ever dropped silently. |
+| `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. On a machine whose home is on NFS (profile key `node_local_home`) it keeps `CODEX_HOME` on node-local `/tmp` — Codex's SQLite breaks on NFS — seeds it once per node, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. Jobs record their host, so commands from another node queue or refuse instead of corrupting a thread. |
 | `token-kit-supervise` | Runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from the campaign's `STATE.md`. Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. |
 | `respawn-reader` | Tells the main thread, once, when a background agent asked to be restarted. |
 

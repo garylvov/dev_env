@@ -71,6 +71,20 @@ class TestAvailability(unittest.TestCase):
         m = load_fixture(self.tmp, (r"^binary = .*", 'binary = "sh"'))
         self.assertIsNone(ladder.codex_unavailable_reason(m.codex, self.tmp / "s"))
 
+    def test_profile_decides_when_the_matrix_names_plain_codex(self):
+        from unittest import mock
+        m = load_fixture(self.tmp, (r"^binary = .*", 'binary = "codex"'))
+        with mock.patch.object(ladder, "profile_codex_reachable", return_value=False):
+            self.assertEqual(ladder.codex_unavailable_reason(m.codex, self.tmp / "s"),
+                             "binary_absent")
+
+    def test_profile_with_a_missing_launcher_path_is_unreachable(self):
+        from unittest import mock
+        from token_kit.codex import launcher as launcher_mod
+        cfg = launcher_mod.CodexConfig(launcher=str(self.tmp / "no-such-launcher"))
+        with mock.patch.object(launcher_mod, "load_config", return_value=cfg):
+            self.assertFalse(ladder.profile_codex_reachable())
+
     def test_binary_absent(self):
         m = load_fixture(self.tmp, (r"^binary = .*", 'binary = "codex-no-such-binary"'))
         self.assertEqual(ladder.codex_unavailable_reason(m.codex, self.tmp / "s"),

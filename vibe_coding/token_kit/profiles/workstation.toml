@@ -25,6 +25,13 @@ reference_source = "~/token_kit/reference"
 # job and no endpoint. `launcher` is what gets exec'd; on a plain workstation
 # that is codex itself.
 launcher = "codex"
+# "codex's home must be on node-local disk": false here. A workstation's $HOME
+# is local disk already, so ~/.codex is fine and nothing is copied anywhere.
+node_local_home = false
+node_local_tmp_root = "/tmp"
+node_local_home_prefix = "codex-home"
+binary = ""
+bypass_approvals = true
 
 [host]
 # May a hook be a Python program on this machine? (A workstation has no

@@ -218,6 +218,25 @@ class TestEveryComponentLands(ScratchHome):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertNotIn("No module named", p.stderr)
 
+    def test_8c_codex_run_is_installed_and_uninstalled(self):
+        """The interactive launcher shim: a new machine gets it from the kit.
+
+        It exists because the kit must not depend on a hand-written wrapper in
+        somebody's home directory, so an install that does not put it on the
+        machine leaves a human with no sanctioned way to start codex there.
+        """
+        self.assertIn("codex-run", [name for name, _rel in cli.EXECUTABLES])
+        self.install()
+        shim = self.home / ".config/token_kit/bin/codex-run"
+        self.assertTrue(shim.is_symlink(), "codex-run was not linked")
+        self.assertEqual(Path(os.readlink(shim)),
+                         cli.KIT_DIR / "src/token_kit/codex/bin/codex-run")
+        self.assertTrue(os.access(shim, os.X_OK))
+        manifest = (self.home / ".config/token_kit/manifest.tsv").read_text()
+        self.assertIn(str(shim), manifest, "codex-run is not in the manifest")
+        run_cli(self.home, "uninstall")
+        self.assertFalse(shim.exists(), "codex-run left behind by uninstall")
+
     def test_9_generated_row_agents_land_one_per_candidate(self):
         self.install()
         agents = self.home / ".claude/agents"
