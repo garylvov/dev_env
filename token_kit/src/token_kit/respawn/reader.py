@@ -34,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -54,6 +55,13 @@ class Config:
         self.ledger_name = "RESPAWN_CONSUMED.md"
         from token_kit import config as config_mod
         self.state_root = str(config_mod.state_home() / "respawn")
+        # The handoff nudge. Its two dials live under [supervisor] with the
+        # rollover's own, because they are the same decision seen from two
+        # sides: the supervisor checks the file at the ceiling, this asks for
+        # it to be current long before the ceiling. Empty registry = derive it.
+        self.supervise_registry = ""
+        self.nudge_min_calls = 0        # 0 = take the supervisor's default
+        self.nudge_every_mins = 0
 
         if config_file:
             import tomllib
@@ -77,6 +85,175 @@ class Config:
     @property
     def registry(self) -> Path:
         return Path(self.state_root) / "respawn_registry.tsv"
+
+    @property
+    def nudge_ledger(self) -> Path:
+        """Every nudge decision, appended. A nudge that left no row would be a
+        thing the machinery did to a session with nobody able to audit it."""
+        return Path(self.state_root) / "nudge_ledger.tsv"
+
+    def dials(self) -> tuple[int, int]:
+        """(min calls, minutes between nudges), from [supervisor] or defaults."""
+        calls, mins = self.nudge_min_calls, self.nudge_every_mins
+        if calls and mins:
+            return calls, mins
+        try:
+            from token_kit.supervisor import config as supcfg
+            sup = supcfg.load(None, {})
+            return calls or sup.nudge_min_calls, mins or sup.nudge_every_mins
+        except Exception:                      # noqa: BLE001 -- defaults will do
+            return calls or 25, mins or 20
+
+
+# ------------------------------------------------------------- the handoff nudge
+#: The Stop hook's BLOCK contract, verified against the installed CLI's own
+#: bundle rather than from memory: stdout carries `{"decision": "block",
+#: "reason": "..."}`, the reason reaches the model as "Stop hook feedback", the
+#: input carries `stop_hook_active` which a hook must honour ("check
+#: stop_hook_active in the input and return success while it's true"), and
+#: consecutive blocks are capped (CLAUDE_CODE_STOP_HOOK_BLOCK_CAP, default 8)
+#: before the CLI overrides the hook and ends the turn anyway. So: one block,
+#: never a loop, and never a block while stop_hook_active is true.
+BLOCK_DECISION = "block"
+
+
+def state_file_for(cfg: Config, cwd: str) -> Path | None:
+    """The handoff file this session is judged against, or None for silence.
+
+    Order: the state file the SUPERVISOR is watching for this directory (its
+    registry is the only thing that knows, because the run directory is keyed
+    by an irreversible hash of the path), else ./STATE.md when it exists. With
+    neither, there is no handoff to nudge about and the hook says nothing at
+    all: a nudge about a file nobody chose is noise.
+    """
+    if not cwd:
+        return None
+    registry = Path(cfg.supervise_registry) if cfg.supervise_registry else None
+    if registry is None:
+        try:
+            from token_kit.supervisor import config as supcfg
+            registry = supcfg.Config().registry
+        except Exception:                      # noqa: BLE001
+            registry = None
+    if registry is not None:
+        try:
+            rows = registry.read_text(errors="replace").splitlines()
+        except OSError:
+            rows = []
+        for line in reversed(rows):            # newest wins
+            parts = line.split("\t")
+            if len(parts) >= 3 and parts[1].rstrip("/") == cwd.rstrip("/"):
+                candidate = Path(parts[2])
+                if candidate.is_file():
+                    return candidate
+    fallback = Path(cwd) / "STATE.md"
+    return fallback if fallback.is_file() else None
+
+
+def tool_calls_since(transcript: str, since: float) -> int:
+    """Main thread tool calls in the CLI's own transcript after `since`.
+
+    Sidechain records are a SUBAGENT's calls and are not the main thread's to
+    answer for. Streamed line by line, and a line with no `tool_use` in it is
+    never parsed: this runs at the end of every turn.
+    """
+    from datetime import timezone
+
+    if not transcript:
+        return 0
+    cutoff = datetime.fromtimestamp(since, tz=timezone.utc)
+    count = 0
+    try:
+        with open(transcript, "r", errors="replace") as fh:
+            for line in fh:
+                if '"tool_use"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") != "assistant" or rec.get("isSidechain"):
+                    continue
+                when = rec.get("timestamp")
+                try:
+                    at = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
+                except (TypeError, ValueError):
+                    continue
+                if at <= cutoff:
+                    continue
+                content = (rec.get("message") or {}).get("content")
+                if isinstance(content, list):
+                    count += sum(1 for b in content if isinstance(b, dict)
+                                 and b.get("type") == "tool_use")
+    except OSError:
+        return 0
+    return count
+
+
+def last_nudge(cfg: Config, session: str) -> float:
+    """When this session was last BLOCKED, as a POSIX time, or 0."""
+    try:
+        rows = cfg.nudge_ledger.read_text(errors="replace").splitlines()
+    except OSError:
+        return 0.0
+    for line in reversed(rows):
+        parts = line.split("\t")
+        if len(parts) >= 6 and parts[1] == session and parts[5] == "blocked":
+            try:
+                return datetime.fromisoformat(parts[0]).timestamp()
+            except ValueError:
+                return 0.0
+    return 0.0
+
+
+def nudge_row(cfg: Config, session, cwd, state, calls, decision) -> None:
+    try:
+        cfg.nudge_ledger.parent.mkdir(parents=True, exist_ok=True)
+        with cfg.nudge_ledger.open("a") as fh:
+            fh.write(f"{stamp()}\t{session}\t{cwd}\t{state}\t{calls}\t{decision}\n")
+    except OSError:
+        pass
+
+
+NUDGE_TEXT = (
+    "Bring the handoff file current before you stop: {state} was last written "
+    "{minutes} minutes ago and you have made {calls} tool calls since. Write "
+    "what you DECIDED, what is IN FLIGHT, and what to do NEXT. If its title or "
+    "Summary no longer describes the work, run token-kit-task retitle. Then "
+    "stop.")
+
+
+def nudge(cfg: Config, event_json: dict) -> str:
+    """The reason to block the stop with, or "" for silence.
+
+    THE DEFECT IT CLOSES: nothing checked that the handoff was current between
+    rollovers. The supervisor only ASKS at the soft ceiling, which is hours of
+    work later and may be the first time anyone looked.
+    """
+    if event_json.get("stop_hook_active"):
+        return ""                              # honour the CLI's loop guard
+    cwd = str(event_json.get("cwd") or "")
+    state = state_file_for(cfg, cwd)
+    if state is None:
+        return ""                              # no handoff chosen: say nothing
+    session = str(event_json.get("session_id") or "none")
+    min_calls, every_mins = cfg.dials()
+    try:
+        mtime = state.stat().st_mtime
+    except OSError:
+        return ""
+    calls = tool_calls_since(str(event_json.get("transcript_path") or ""), mtime)
+    now = time.time()
+    if calls < min_calls:
+        nudge_row(cfg, session, cwd, state, calls, "below_call_floor")
+        return ""
+    since_last = now - last_nudge(cfg, session)
+    if since_last < every_mins * 60:
+        nudge_row(cfg, session, cwd, state, calls, "rate_limited")
+        return ""
+    nudge_row(cfg, session, cwd, state, calls, "blocked")
+    return NUDGE_TEXT.format(state=state, calls=calls,
+                             minutes=max(0, int((now - mtime) // 60)))
 
 
 def stamp() -> str:
@@ -232,10 +409,19 @@ def main(argv=None) -> int:
         raw = sys.stdin.read()
         if not raw.strip():
             return 0
-        text = handle(cfg, json.loads(raw))
+        payload = json.loads(raw)
+        text = handle(cfg, payload)
+        event = payload.get("hook_event_name")
+        reason = nudge(cfg, payload) if event == "Stop" else ""
+        if reason:
+            # A BLOCK, not additionalContext: the whole point is that the turn
+            # does not end until the handoff is current. One block only, and
+            # never while stop_hook_active is true, so no turn can loop here.
+            print(json.dumps({"decision": BLOCK_DECISION,
+                              "reason": "\n".join([t for t in (text, reason) if t])}))
+            return 0
         if not text:
             return 0
-        event = json.loads(raw).get("hook_event_name")
         print(json.dumps({"hookSpecificOutput": {
             "hookEventName": event, "additionalContext": text}}))
         return 0

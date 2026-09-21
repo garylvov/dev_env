@@ -63,12 +63,23 @@ the lead reads it. Every level is bounded by the same call budget.
 
 ## Working folder
 
-Agents talk through files, not through long replies. One folder per piece of delegated work:
+Agents talk through files, not through long replies. One folder per piece of delegated work, and the
+folder titles itself so it sorts by age and can be found again from anywhere:
 
 ```
-<task>/
-  STATE.md                 # the main thread's only memory: decisions, what is in flight, and a last
-                           #   line saying what to do NEXT
+token-kit-task new "migrate the date parsing"        # -> tasks/2026-09-21_2242_migrate-the-date-parsing
+token-kit-task retitle <task-dir> "replace the date helper" --summary "what it turned out to be"
+token-kit-task find date parsing --all               # then resume it: token-kit-task resume <words>
+```
+
+The date and time keep their place at the front of the name through a retitle, and the old name stays
+as a symlink, so paths already written into briefs and out.md files still resolve. A nested lane is
+`token-kit-task lane <task-dir> <name> --under <lane-dir>`.
+
+```
+tasks/2026-09-21_2242_migrate-the-date-parsing/
+  STATE.md                 # "# <title>", then Started: / Status: / Cwd: / Summary:, then the main
+                           #   thread's only memory: decisions, what is in flight, what to do NEXT
   PROMPTS.md               # what the user typed, verbatim, extracted from the session transcripts by
                            #   `token-kit-prompts`; refreshed at every rollover
   lanes/<name>/v0/         # one agent, one attempt; a retry is v1, never an overwrite
@@ -97,6 +108,12 @@ At 180k context tokens the watcher asks the session to bring `STATE.md` current;
 session and starts a fresh one, with the same flags, whose only instruction is to read `STATE.md` and
 continue from it. The ceiling is a cost choice, not a window limit; change it under `[supervisor]` in
 `~/.config/token_kit/config.toml`. Keep `STATE.md` current as you go and a rollover loses nothing.
+
+How you know it IS current, without overselling it: the Stop hook nudges the main thread to bring the
+file up to date once enough tool calls have gone by since it was last written (at most one nudge every
+20 minutes), and a rollover that finds it unwritten since the soft request opens the new session's
+seed with a dated warning naming the previous transcript to read the tail of. That is a nudge plus a
+staleness warning, not a guarantee: nothing forces the file to be written.
 
 ## Examples
 

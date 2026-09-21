@@ -4,6 +4,7 @@
 #
 #   bash token_kit/install.sh [--dry-run] [--uninstall] [--probe] [--census]
 #                             [--config] [--prompts [--out FILE] [--since D]]
+#                             [--task new "<title>" | --task list ...]
 #
 # There is no profile to pick: every machine fact is detected at run time.
 # `--config` prints what this machine decided and where each value came from.
@@ -29,6 +30,7 @@ for a in "$@"; do
     --census)     SUB=census ;;
     --config)     SUB=config ;;
     --prompts)    SUB=prompts ;;
+    --task)       SUB=task ;;
     --help-full)  SUB=""; ;;
     *)            ARGS+=("$a") ;;
   esac

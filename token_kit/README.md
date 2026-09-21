@@ -31,11 +31,19 @@ It installs no agent prompts of its own and never touches yours.
 
 ## Working folder
 
-Agents talk through files, not long replies. The kit's hooks and the supervisor expect this shape:
+Agents talk through files, not long replies.
+
+`token-kit-task` names the folder so you do not have to, and can find it again later:
 
 ```
-<task>/
-  STATE.md               # the main thread's memory: decisions, what is in flight, what to do next
+token-kit-task new "migrate the date parsing"      # -> tasks/2026-09-21_2242_migrate-the-date-parsing
+token-kit-task retitle <task-dir> "replace the date helper" --summary "one line"
+token-kit-task find date parsing --all             # then: token-kit-task resume <words-or-path>
+```
+
+```
+tasks/2026-09-21_2242_migrate-the-date-parsing/
+  STATE.md               # "# <title>", then Started: / Status: / Cwd: / Summary:, then your own text
   PROMPTS.md             # what you typed, verbatim; extracted by token-kit-prompts, refreshed at rollover
   lanes/<name>/v0/       # one agent, one attempt; a retry is v1, never an overwrite
     in.md                # the brief, written before the spawn
@@ -43,8 +51,16 @@ Agents talk through files, not long replies. The kit's hooks and the supervisor 
     RESPAWN_REQUEST.md   # written by an agent that ran out of calls; the main thread is told once
 ```
 
+The date and time stay in the folder name through a `retitle`, so `ls` sorts by age and the old name
+is left as a symlink to the new one; every task also lands in an append-only index under the XDG
+state dir, which is what `list --all`, `find` and `resume` read.
+
 Only the main thread writes `STATE.md`. It reads `out.md` files, never an agent's transcript. A
-nested agent's folder goes under its parent's. More in `agent_trigger_matrix.md`.
+nested agent's folder goes under its parent's (`token-kit-task lane <task> <name> --under <lane>`).
+How current is `STATE.md`? Two things watch it, and neither is a guarantee: the Stop hook nudges the
+main thread once in a while to bring it up to date, and a rollover that finds it unwritten since the
+soft request puts a dated staleness warning at the top of the new session's seed. More in
+`agent_trigger_matrix.md`.
 
 ## What you get
 
@@ -52,13 +68,14 @@ nested agent's folder goes under its parent's. More in `agent_trigger_matrix.md`
 |---|---|
 | `agent_trigger_matrix.md` | A markdown chart you edit by hand: kind of task → model, effort, and a `prefer` list like `codex:gpt-5.6-luna:high, claude:opus:medium`. First available entry wins; every list ends in Claude, so a maxed-out Codex never blocks a spawn. The chart and its worked examples live in that one file. |
 | router hook | Reads the chart on every subagent spawn and rewrites model / agent / prompt. Also caps tool calls per subagent (warn → write your result → stop). |
-| row agents | Generated from the chart at install time, one per row candidate, with `model` and `effort` in the frontmatter. Nothing checked in is installed as an agent. |
+| kind agents | Generated from the chart at install time, one per ladder candidate, with `model` and `effort` in the frontmatter. Nothing checked in is installed as an agent. |
 | `codex-dispatch` | One Codex turn, on demand, over `codex app-server` stdio. No daemon, no port. Exit 42 = Codex unavailable (absent, auth, busy, quota). |
 | `codex-job` | Codex jobs you can talk to: `start`, `send` (steers a running turn, or continues the thread after it), `wait` (run in the background to be told when it ends), `status`, `list`, `stop`. No message is ever dropped silently. |
 | `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. When your home is on a network filesystem it keeps `CODEX_HOME` on node-local `/tmp` (Codex's SQLite breaks on network filesystems), seeds it once per machine, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. |
 | `token-kit-supervise` | `launch [--state-file FILE] [--cwd DIR]`: runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from that handoff file (default `./STATE.md`). Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. Its bookkeeping goes under the XDG state dir keyed by a hash of the file's path, so two projects never collide. |
 | `respawn-reader` | Tells the main thread, once, when a background agent asked to be restarted. |
 | `token-kit-prompts` | `--cwd DIR --out FILE [--since YYYY-MM-DD] [--session ID] [--stdout]`: writes what you actually typed, verbatim, from this directory's session transcripts into one markdown file (default `./PROMPTS.md`, mode 0600). Tool output, subagent transcripts, compaction summaries and harness notices are excluded; re-running rewrites the same bytes. A rollover refreshes it beside the handoff file. |
+| `token-kit-task` | `new "<title>"` makes a titled, sortable working folder; `retitle` renames it once the work is understood, keeping the date stamp and leaving a symlink at the old name; `lane`, `list [--all]`, `find`, `resume`, `done`, `reopen`. Every task is in a machine-wide append-only index, so discovery does not depend on where you are standing. |
 | `canary` | Proves mechanically whether an instruction file is really in a model's context: LOADED / NOT_LOADED / PROBE_BROKEN, never collapsed. |
 
 Details for the Codex commands: `src/token_kit/codex/USAGE.md`.

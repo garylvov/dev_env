@@ -307,9 +307,21 @@ def render(prompts: list[Prompt], cwd: str, limit: int = MAX_PROMPT_BYTES) -> st
         "notices are excluded; this file is only what was typed.",
         "",
     ]
+    # A PERSON reads this file, so the times are written the way a person says
+    # them: the date once, as a heading, and then a clock time per prompt. The
+    # ORDER and the de-duplication still run on the real timestamp, so the
+    # output stays byte-identical across re-runs.
+    from token_kit import timefmt
+
     body = []
+    day = ""
     for p in prompts:
-        body.append(f"### {p.when.strftime('%Y-%m-%d %H:%M')} · {p.session[:8]}")
+        today = timefmt.human_day(p.when)
+        if today != day:
+            day = today
+            body.append(f"## {today}")
+            body.append("")
+        body.append(f"### {timefmt.human_short(p.when)} · {p.session[:8]}")
         body.append("")
         body.append(quote(cap(p.text, limit)))
         body.append("")

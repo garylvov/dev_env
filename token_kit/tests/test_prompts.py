@@ -319,7 +319,9 @@ class Rendering(Base):
         self.assertIn(f"· {SESSION[:8]}", text)
         self.assertIn("> line one", text)
         self.assertIn("> line two", text)
-        self.assertRegex(text, r"### \d{4}-\d{2}-\d{2} \d{2}:\d{2} · ")
+        # A person reads this file: the date is a heading, the clock is human.
+        self.assertRegex(text, r"## [A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} \d{4}\n")
+        self.assertRegex(text, r"### \d{1,2}:\d{2}[ap]m · ")
 
 
 if __name__ == "__main__":

@@ -292,6 +292,34 @@ class TestEveryComponentLands(ScratchHome):
         run_cli(self.home, "uninstall")
         self.assertFalse(shim.exists(), "token-kit-prompts left behind by uninstall")
 
+    def test_8e_the_task_command_is_installed_and_runs_from_the_link(self):
+        """`token-kit-task` names the working folder and finds it again.
+
+        It is on PATH for the same reason the other shims are: a person and the
+        main thread both type it, and its index is machine-wide, so it must work
+        from any directory. Linked, therefore it must resolve its clone through
+        its link target like every other shim here.
+        """
+        self.assertIn("token-kit-task", [name for name, _rel in cli.EXECUTABLES])
+        self.install()
+        shim = self.home / ".config/token_kit/bin/token-kit-task"
+        self.assertTrue(shim.is_symlink(), "token-kit-task was not linked")
+        self.assertEqual(Path(os.readlink(shim)),
+                         cli.KIT_DIR / "src/token_kit/bin/token-kit-task")
+        p = subprocess.run([str(shim), "new", "a piece of work",
+                            "--root", str(self.home / "tasks")],
+                           capture_output=True, text=True,
+                           env={**os.environ, "HOME": str(self.home),
+                                "XDG_STATE_HOME": str(self.home / ".local/state")})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("No module named", p.stderr)
+        made = Path(p.stdout.strip())
+        self.assertTrue((made / "STATE.md").is_file(), p.stdout)
+        manifest = (self.home / ".config/token_kit/manifest.tsv").read_text()
+        self.assertIn(str(shim), manifest, "token-kit-task is not in the manifest")
+        run_cli(self.home, "uninstall")
+        self.assertFalse(shim.exists(), "token-kit-task left behind by uninstall")
+
     def test_9_generated_row_agents_land_one_per_candidate(self):
         self.install()
         agents = self.home / ".claude/agents"

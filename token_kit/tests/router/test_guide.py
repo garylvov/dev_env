@@ -83,6 +83,62 @@ class TestExampleCommandsParse(unittest.TestCase):
                     "--model gpt-5.6-luna --effort high --message 'one sub-step'"))
 
 
+def all_fenced(text: str) -> list[str]:
+    """Every line inside a ``` fence, anywhere in the file.
+
+    The Examples guard above starts at one heading. The working-folder commands
+    are NOT in Examples, and a command line that could not run is exactly as
+    wrong there: prose is not executed, so it is parsed here instead.
+    """
+    out, inside = [], False
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            inside = not inside
+            continue
+        if inside and line.strip():
+            out.append(line.strip())
+    return out
+
+
+class TestTaskCommandLinesParse(unittest.TestCase):
+    """Every `token-kit-task ...` line the docs ship, through its own parser."""
+
+    DOCS = (KIT_DIR / "agent_trigger_matrix.md", KIT_DIR / "README.md")
+
+    def lines(self):
+        out = []
+        for doc in self.DOCS:
+            out += [ln for ln in all_fenced(doc.read_text(encoding="utf-8"))
+                    if ln.split("#")[0].strip().startswith("token-kit-task")]
+        return out
+
+    def test_the_docs_actually_ship_task_commands(self):
+        """Arms the next test: a guard with nothing to check is inert."""
+        self.assertGreaterEqual(len(self.lines()), 4,
+                                "no fenced token-kit-task command in the docs")
+
+    def test_every_task_command_line_parses(self):
+        from token_kit import task as task_mod
+
+        parser = task_mod.build_parser()
+        for line in self.lines():
+            argv = shlex.split(line.split("#")[0].strip(), comments=True)
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    parser.parse_args(argv[1:])
+                except SystemExit as exc:
+                    self.fail(f"the docs ship a command the CLI would refuse:\n"
+                              f"  {line}\n  argparse exited {exc.code}")
+
+    def test_the_guard_notices_a_flag_that_does_not_exist(self):
+        from token_kit import task as task_mod
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                task_mod.build_parser().parse_args(
+                    shlex.split("new 'a title' --titled-by-hand"))
+
+
 class TestInjection(unittest.TestCase):
     def test_the_injection_is_the_document_itself(self):
         m = matrix_mod.load(SHIPPED)

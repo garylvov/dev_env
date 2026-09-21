@@ -322,6 +322,116 @@ class Launch(Fixture):
         self.assertEqual([], self.rows(cfg, "watch_spawned"))
 
 
+class HandoffFreshness(Fixture):
+    """Cases 25 to 29: is the handoff we are about to hand over current?
+
+    THE DEFECT: nothing checked. The supervisor ASKED at SOFT and rolled over at
+    HARD whether or not the file had changed, so a session that ignored the
+    request handed its successor a stale file and nobody was told.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.argv = self.root / "tmux.argv"
+        self.child = subprocess.Popen(["sleep", "30"])
+        self.addCleanup(self._reap)
+        self.pane_pid = self.child.pid
+        self.register(self.pane_pid, S.proc_start(self.pane_pid))
+
+    def _reap(self):
+        self.child.kill()
+        self.child.wait()
+
+    def fake_tmux(self):
+        path = self.root / "tmux"
+        path.write_text('#!/usr/bin/env bash\n'
+                        f'printf "%s\\n" "$*" >> {self.argv}\n'
+                        f'if [ "$1" = list-panes ]; then echo {self.pane_pid}; fi\n'
+                        'exit 0\n')
+        path.chmod(0o755)
+        return str(path)
+
+    def launched(self, cfg):
+        cfg.flags_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg.flags_file.write_text("--model haiku\n")
+        sup.launch_from_file(cfg, outgoing_pid=self.pane_pid)
+        return sorted(cfg.run_dir.glob("seed.*.md"))[-1].read_text()
+
+    def age(self, path, minutes):
+        old = time.time() - minutes * 60
+        os.utime(path, (old, old))
+
+    def test_25_a_handoff_not_written_since_the_soft_request_is_a_warning_first(self):
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        self.grow(150)
+        sup.one_pass(cfg, PID, self.transcript, "busy")     # the soft request
+        self.age(self.state_file, 90)                       # and nobody wrote it
+        seed = self.launched(cfg)
+
+        first = seed.splitlines()[0]
+        self.assertIn("OUT OF DATE", first.upper(),
+                      "the warning must be the FIRST thing the new session reads")
+        self.assertIn(str(self.state_file), seed)
+        self.assertIn("90 minutes", seed)
+        self.assertRegex(seed, r"\d{1,2}:\d{2}[ap]m",
+                         "the time a person reads must be human, not ISO")
+        self.assertIn("PROMPTS.md", seed)
+        self.assertIn("sess-1.jsonl", seed, "the previous transcript is not named")
+        self.assertIn("TAIL", seed, "reading the whole transcript is not bounded")
+        rows = self.rows(cfg, "state_stale")
+        self.assertEqual(1, len(rows))
+        self.assertIn("age_mins=90", rows[0])
+        self.assertIn("basis=since_soft_request", rows[0])
+
+    def test_26_a_handoff_written_after_the_request_is_logged_fresh_and_silent(self):
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        self.grow(150)
+        sup.one_pass(cfg, PID, self.transcript, "busy")
+        time.sleep(0.01)
+        self.state_file.write_text("# handoff, brought current\n")
+        seed = self.launched(cfg)
+
+        self.assertTrue(seed.startswith("Rollover:"), seed.splitlines()[0])
+        self.assertNotIn("OUT OF DATE", seed.upper())
+        self.assertEqual(1, len(self.rows(cfg, "state_fresh")))
+        self.assertEqual([], self.rows(cfg, "state_stale"))
+
+    def test_27_with_no_soft_request_the_window_decides(self):
+        """A session can cross from below SOFT to past HARD between two polls."""
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False,
+                       state_stale_mins=30)
+        self.age(self.state_file, 5)
+        fresh, _m, why = sup.state_freshness(cfg)
+        self.assertTrue(fresh)
+        self.assertIn("no_soft_request", why)
+        self.age(self.state_file, 45)
+        fresh, _m, _why = sup.state_freshness(cfg)
+        self.assertFalse(fresh)
+        self.assertIn("OUT OF DATE", self.launched(cfg).upper())
+
+    def test_28_the_check_never_delays_or_blocks_the_rollover(self):
+        """A broken check is a row, and the relaunch happens anyway."""
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        real = sup.state_freshness
+        sup.state_freshness = lambda *a, **k: (_ for _ in ()).throw(
+            OSError("the state file is on a filesystem that just went away"))
+        self.addCleanup(setattr, sup, "state_freshness", real)
+        cfg.flags_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg.flags_file.write_text("--model haiku\n")
+        self.assertEqual(self.pane_pid,
+                         sup.launch_from_file(cfg, outgoing_pid=self.pane_pid))
+        self.assertEqual(1, len(self.rows(cfg, "state_check_failed")))
+
+    def test_29_the_supervised_state_file_is_findable_by_cwd(self):
+        """The run dir is keyed by an irreversible hash, so the Stop hook needs
+        this row to know which handoff file belongs to its directory."""
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        self.launched(cfg)
+        rows = [r.split("\t") for r in cfg.registry.read_text().splitlines()]
+        self.assertIn([str(cfg.work_dir), str(cfg.state_path)],
+                      [r[1:3] for r in rows])
+
+
 class Kill(Fixture):
     def test_14_a_kill_that_does_not_land_refuses(self):
         mine = os.getpid()

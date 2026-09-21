@@ -927,7 +927,15 @@ def _job_line(job: Job) -> str:
         state = "remote"
     else:
         state = "live" if job.owner_alive() else "orphan"
-    return (f"{job.job_id}\t{state}\thost={job.owner_host() or '?'}\trc={job.rc()}\t"
+    # A HUMAN reads `list` and `status`, so the start time is written the way a
+    # person says it. The job's own machine records (events.tsv, meta.json)
+    # keep their ISO stamps: those are parsed and sorted.
+    from token_kit import timefmt
+
+    started = meta.get("created")
+    human = timefmt.human(float(started)) if started else "?"
+    return (f"{job.job_id}\t{state}\tstarted={human}\t"
+            f"host={job.owner_host() or '?'}\trc={job.rc()}\t"
             f"thread={job.thread_id() or '-'}\t"
             f"{meta.get('model', '?')}/{meta.get('effort', '?')}\t"
             f"inbox={inbox_pending(job)}\t{job.last_status()}")

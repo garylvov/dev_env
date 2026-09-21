@@ -86,6 +86,21 @@ class Config:
     # --- heartbeat -----------------------------------------------------------
     heartbeat_stale_secs: int = 240
 
+    # --- handoff freshness ---------------------------------------------------
+    # NOTHING USED TO CHECK THAT THE HANDOFF WAS CURRENT. The supervisor ASKED
+    # at SOFT and then rolled over at HARD whether or not the file had changed,
+    # so a session that ignored the request handed its successor a stale file
+    # and nobody was told. Two mechanisms close that, and neither of them ever
+    # delays a rollover: the ceiling is a cost decision.
+    #  * at rollover, the file is compared against the moment of the soft
+    #    request (or, with no soft request, against this window), and a stale
+    #    file becomes a warning at the TOP of the seed plus a ledger row;
+    #  * between rollovers, the Stop hook nudges the main thread once in a
+    #    while to bring the file current.
+    state_stale_mins: int = 30       # with no soft request, older than this is stale
+    nudge_min_calls: int = 25        # tool calls since the last write before nudging
+    nudge_every_mins: int = 20       # at most one nudge per session per this many
+
     # --- test seams ----------------------------------------------------------
     # Recorders stand in for the real actions so a guard can run with nothing
     # real launched or killed. Empty means "do the real thing".
@@ -142,6 +157,29 @@ class Config:
     @property
     def pid_file(self) -> Path:
         return self.run_dir / "session.pid"
+
+    @property
+    def state_at_soft(self) -> Path:
+        """The state file's mtime AS IT WAS when the soft request was made.
+
+        Recorded there and read at rollover: "was this file written after we
+        asked for it?" cannot be answered from the mtime alone.
+        """
+        return self.run_dir / "state_at_soft"
+
+    @property
+    def registry(self) -> Path:
+        """Machine wide: which state file is supervised for which directory.
+
+        The run directory is keyed by a HASH of the state file's path, which
+        cannot be reversed, so a hook that knows only its own cwd has no way to
+        find the handoff file. This is that missing direction: one appended row
+        per launch and per watcher start.
+        """
+        if self.run_root:
+            return Path(os.path.expanduser(self.run_root)) / "registry.tsv"
+        from token_kit import config as config_mod
+        return config_mod.state_home() / "supervise" / "registry.tsv"
 
 
 _NAMES = {f.name: f.type for f in fields(Config)}

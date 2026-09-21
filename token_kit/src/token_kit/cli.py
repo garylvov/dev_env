@@ -65,6 +65,7 @@ COMPONENTS = [
     ("supervisor", "token-kit-supervise, the rollover supervisor"),
     ("codex-bin", "the codex-dispatch / codex-job / codex-run shims"),
     ("prompts", "token-kit-prompts, the verbatim user-prompt extractor"),
+    ("task", "token-kit-task, titled working folders that can be found again"),
     ("kind-agents", "one generated agent file per kind and Claude candidate"),
     ("agent-trigger-matrix", "the routing chart itself"),
 ]
@@ -82,6 +83,9 @@ EXECUTABLES = [
     # What the user typed, extracted from the transcripts on demand and at
     # every rollover. An operator runs it by hand too, so it is on PATH.
     ("token-kit-prompts", "src/token_kit/bin/token-kit-prompts"),
+    # The working folder itself: titled at creation, retitled once the work is
+    # understood, and findable from any directory through the machine wide index.
+    ("token-kit-task", "src/token_kit/bin/token-kit-task"),
 ]
 
 # --------------------------------------------------------------------------
@@ -868,6 +872,17 @@ def cmd_prompts(args) -> int:
 # --------------------------------------------------------------------------
 # hook -- the PreToolUse entry point
 # --------------------------------------------------------------------------
+def cmd_task(args) -> int:
+    """Titled working folders. Same argument surface as the `token-kit-task`
+    shim, so either spelling does the same thing."""
+    from token_kit import task as task_mod
+
+    return task_mod.main(args.rest)
+
+
+# --------------------------------------------------------------------------
+# hook -- the PreToolUse entry point
+# --------------------------------------------------------------------------
 def cmd_hook(args) -> int:
     """Read the hook event on stdin and hand it to the router.
 
@@ -915,6 +930,10 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("config", help="print the resolved machine facts and their origin")
     p.set_defaults(fn=cmd_config)
+
+    p = sub.add_parser("task", help="create, retitle, find and resume task folders")
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_task)
 
     p = sub.add_parser("hook", help="PreToolUse hook entry point (reads stdin)")
     p.set_defaults(fn=cmd_hook)
