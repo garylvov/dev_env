@@ -1,10 +1,10 @@
 """Offline guards for token_kit.codex.dispatch, against a FAKE codex.
 
     uv run --python 3.11 --no-project python -m unittest discover \
-        -s vibe_coding/token_kit/tests/codex -t vibe_coding/token_kit/tests/codex
+        -s tests/codex -t .
 
 Every test drives the real CLI in a child process, through a launcher script
-shaped exactly like ~/run_codex.bash, so argv, env and the wire are the things
+shaped exactly like the kit's own, so argv, env and the wire are the things
 under test -- not a mock of them.
 """
 

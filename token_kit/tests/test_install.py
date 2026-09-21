@@ -8,7 +8,8 @@ Cases, in the order they appear below:
   3 a pre-existing settings.json keeps its keys, its key ORDER, and its
     unrelated hook entry; our hook appears exactly once even on a re-run;
     a dated backup exists
-  4 a real (non-symlink) agent file is a CONFLICT and its bytes do not change
+  4 a personal agent file of the operator's is left alone: the installer links
+    NOTHING checked in, so it is not even a conflict
   5 uninstall removes every symlink and restores settings.json
   6 the SAME assertions as case 3, run against a deliberately broken merge,
     FAIL -- so this guard is known to be capable of failing
@@ -69,7 +70,7 @@ class ScratchHome(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def install(self, *args):
-        p = run_cli(self.home, "install", "--profile", "workstation", *args)
+        p = run_cli(self.home, "install", *args)
         self.assertNotIn("Traceback", p.stderr, msg=p.stderr)
         return p
 
@@ -179,15 +180,43 @@ class TestPreservesExistingSettings(ScratchHome):
                          "an event was left behind by uninstall")
 
 
-class TestConflictFileUntouched(ScratchHome):
-    def test_4_real_agent_file_is_never_overwritten(self):
-        mine = self.home / ".claude/agents/architect.md"
-        mine.write_text("MY OWN ARCHITECT PROMPT -- DO NOT TOUCH\n")
+class TestNoPersonasAreInstalled(ScratchHome):
+    """The kit ships no agent PROMPTS. Every agent file it installs is
+    generated from the chart at install time, so a person's own agent files are
+    none of its business -- not adopted, not linked over, not even a conflict."""
+
+    def test_4_a_personal_agent_file_is_left_entirely_alone(self):
+        mine = self.home / ".claude/agents/my-helper.md"
+        mine.write_text("MY OWN PROMPT -- DO NOT TOUCH\n")
         p = self.install()
-        self.assertEqual(mine.read_text(), "MY OWN ARCHITECT PROMPT -- DO NOT TOUCH\n")
-        self.assertIn("CONFLICT architect.md", p.stdout)
-        # the conflict must not stop the rest of the install
-        self.assertTrue((self.home / ".claude/agents/codex-log-read.md").is_symlink())
+        self.assertEqual(mine.read_text(), "MY OWN PROMPT -- DO NOT TOUCH\n")
+        self.assertNotIn("CONFLICT my-helper.md", p.stdout)
+        self.assertIn("install = PASS", p.stdout, msg=p.stdout + p.stderr)
+
+    def test_4b_nothing_checked_in_is_linked_as_an_agent(self):
+        self.install()
+        gen = self.home / ".config/token_kit/agents"
+        linked = sorted(p for p in (self.home / ".claude/agents").glob("*.md")
+                        if p.is_symlink())
+        self.assertTrue(linked, "no agent was installed at all")
+        from_clone = [p.name for p in linked
+                      if str(cli.KIT_DIR) in os.readlink(p)]
+        self.assertEqual([], from_clone,
+                         f"a checked-in agent file was linked: {from_clone}")
+        for p in linked:
+            self.assertEqual(gen, Path(os.readlink(p)).parent,
+                             "a generated agent must come from this machine's "
+                             "own config dir, not from the clone")
+
+    def test_4c_the_persona_flag_is_gone(self):
+        p = run_cli(self.home, "install", "--adopt-personas", "--dry-run")
+        self.assertNotEqual(0, p.returncode)
+        self.assertIn("unrecognized arguments", p.stderr)
+
+    def test_4d_a_dry_run_on_this_machine_passes_with_no_conflicts(self):
+        p = self.install("--dry-run")
+        self.assertIn("dry-run = PASS", p.stdout, msg=p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"conflicts=0 failures=0")
 
 
 class TestEveryComponentLands(ScratchHome):
@@ -240,7 +269,7 @@ class TestEveryComponentLands(ScratchHome):
     def test_9_generated_row_agents_land_one_per_candidate(self):
         self.install()
         agents = self.home / ".claude/agents"
-        generated = sorted(p for p in agents.glob("row-*.md") if p.is_symlink())
+        generated = sorted(p for p in agents.glob("*.md") if p.is_symlink())
         self.assertTrue(generated, "no generated row agent was installed")
         for p in generated:
             head = p.read_text().splitlines()
@@ -252,56 +281,21 @@ class TestEveryComponentLands(ScratchHome):
 
     def test_9b_uninstall_removes_the_generated_files_too(self):
         self.install()
+        gen = self.home / ".config/token_kit/agents"
+        self.assertTrue(list(gen.glob("*.md")), "nothing was generated")
         run_cli(self.home, "uninstall")
-        left = list((self.home / ".claude/agents").glob("row-*.md"))
-        self.assertEqual(left, [], "generated row agent links left behind")
-        self.assertEqual(sorted((cli.KIT_DIR / "agents" / "generated").glob("row-*.md")), [],
-                         "generated row agent files left in the clone")
+        left = list((self.home / ".claude/agents").glob("*.md"))
+        self.assertEqual(left, [], "generated agent links left behind")
+        self.assertEqual(sorted(gen.glob("*.md")), [],
+                         "generated agent files left behind")
 
-    def test_10_the_installed_matrix_validates(self):
+    def test_10_the_installed_chart_validates(self):
         p = self.install()
-        self.assertNotIn("CONFLICT matrix:", p.stdout,
-                         "the table the installer links is not internally sound")
-        self.assertTrue((self.home / ".config/token_kit/agent_trigger_matrix.toml").is_symlink())
-
-
-class TestAdoptPersonas(ScratchHome):
-    """--adopt-personas: a real file is MOVED aside, never deleted, and comes
-    back where it was on uninstall. Off by default."""
-
-    def setUp(self):
-        super().setUp()
-        self.mine = self.home / ".claude/agents/architect.md"
-        self.mine.write_text("MY OWN ARCHITECT PROMPT\n")
-        self.aside = self.home / ".claude/agents" / cli.ADOPT_DIR / "architect.md"
-
-    def test_11_off_by_default_the_file_is_a_conflict(self):
-        p = self.install()
-        self.assertIn("CONFLICT architect.md", p.stdout)
-        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n")
-        self.assertFalse(self.aside.exists(), "nothing may move without the flag")
-
-    def test_12_adopt_moves_aside_and_links(self):
-        p = self.install("--adopt-personas")
-        self.assertNotIn("CONFLICT architect.md", p.stdout)
-        self.assertTrue(self.aside.is_file(), "the operator's file was not preserved")
-        self.assertEqual(self.aside.read_text(), "MY OWN ARCHITECT PROMPT\n",
-                         "the operator's bytes changed")
-        self.assertTrue(self.mine.is_symlink(), "the kit's persona was not linked")
-        self.assertEqual(Path(os.readlink(self.mine)), cli.KIT_DIR / "agents" / "architect.md")
-
-    def test_13_uninstall_puts_it_back(self):
-        self.install("--adopt-personas")
-        run_cli(self.home, "uninstall")
-        self.assertFalse(self.mine.is_symlink())
-        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n",
-                         "the adopted file did not come back")
-
-    def test_14_dry_run_moves_nothing(self):
-        p = self.install("--adopt-personas", "--dry-run")
-        self.assertIn("would    adopt architect.md", p.stdout)
-        self.assertFalse(self.aside.exists())
-        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n")
+        self.assertNotIn("CONFLICT chart:", p.stdout,
+                         "the chart the installer links is not internally sound")
+        chart = self.home / ".config/token_kit" / cli.matrix_path().name
+        self.assertTrue(chart.is_symlink(), f"{chart} was not linked")
+        self.assertIn(cli.matrix_path().name, cli.MATRIX_NAMES)
 
 
 class TestMergeUnit(unittest.TestCase):

@@ -1,9 +1,13 @@
-"""matrix.py -- read agent_trigger_matrix.toml and say whether it is sound.
+"""matrix.py -- read agent_trigger_matrix.md and say whether it is sound.
 
-The table is the spec; this module is the only place that knows its shape.
-tomllib replaces the awk compiler the bash reader had to carry, so the whole
-"compile to JSON, cache on mtime" apparatus is gone: a 34 KB table parses in
-about a millisecond and the hook pays that once per call.
+The guide is a MARKDOWN document, because a person reads it as often as the
+router does: prose, one chart of kinds, one budget table, then worked examples.
+This module is the only place that knows its shape.
+
+Two tables are parsed and nothing else.  They are located by their HEADER ROW,
+never by position, so prose, code fences and the whole Examples section can be
+rewritten without touching a parsed row -- that is what
+`test_examples_do_not_affect_parsing` pins.
 
 A parse failure is NOT an exception the caller may ignore: it raises
 MatrixError, and every caller on the hook path turns that into "allow, and say
@@ -15,59 +19,139 @@ from __future__ import annotations
 
 import os
 import re
-import tomllib
 from pathlib import Path
 
-#: `prefer` grammar, fixed by the operator ruling of 2026-09-20.
+#: `prefer` grammar.  One grammar for every engine.
 CANDIDATE_RE = re.compile(r"^(codex|claude):([A-Za-z0-9][A-Za-z0-9._-]*):(low|medium|high)$")
 
-#: The closed set of work shapes.  A row outside it is a defect, not a default.
-SHAPES = ("codex-direct", "claude-direct", "claude-plans-codex-executes", "refuse")
+#: The closed set of work shapes, written in the chart the way a person says
+#: them.  The value is the name the hook and the tests use.
+SHAPE_WORDS = {
+    "codex does it all": "codex-direct",
+    "claude does it all": "claude-direct",
+    "claude plans, codex executes": "claude-plans-codex-executes",
+}
+SHAPES = tuple(sorted(set(SHAPE_WORDS.values())))
 
-#: Used only when the table carries no [budget] at all.  The table is the
+#: Claude tiers, cheapest first.  MEASURED per-token list price, not folklore:
+#: sonnet $2, opus $5, fable $10 per million input tokens.  The ladder rule
+#: below is stated against this order and nothing else.
+CLAUDE_TIERS = ("sonnet", "opus", "fable")
+
+#: Used only when the budget table cannot be read.  The document is the
 #: authority -- these exist so a torn file cannot leave the cap unbounded.
 DEFAULT_WARN, DEFAULT_FLOOR, DEFAULT_HARD = 150, 230, 250
 
 #: The kit root: .../token_kit, three parents up from this file.
 KIT_DIR = Path(__file__).resolve().parent.parent.parent.parent
 
+#: Nothing shipped in this kit may name a project, a repo, a cluster, a
+#: doctrine file or one user's history.  The guard greps the shipped guide and
+#: every generated agent against this list; it is never run on the hook path.
+BANNED_WORDS = ("agrescap", "mega", "wbc", "grove4", "imprint", "retread",
+                "oscar", "stellex", "curric", "protomotions", "isaac")
+
+CHART_COLUMNS = ("kind", "use when", "who does it", "prefer", "done when")
+BUDGET_COLUMNS = ("threshold", "calls", "what happens")
+
 
 class MatrixError(Exception):
-    """The table could not be read as a routing table."""
+    """The guide could not be read as a routing guide."""
+
+
+# --------------------------------------------------------------------------
+# the markdown table parser -- strict, small, and located by header row
+# --------------------------------------------------------------------------
+def _cells(line: str) -> list[str]:
+    inner = line.strip()
+    if not inner.startswith("|"):
+        return []
+    inner = inner[1:]
+    if inner.endswith("|"):
+        inner = inner[:-1]
+    return [c.strip().strip("`").strip() for c in inner.split("|")]
+
+
+def _is_separator(line: str) -> bool:
+    cells = _cells(line)
+    return bool(cells) and all(re.fullmatch(r":?-{2,}:?", c or "") for c in cells)
+
+
+def find_table(text: str, columns: tuple[str, ...]) -> list[dict]:
+    """Every row of the ONE table whose header row is exactly `columns`.
+
+    Matching on the header row is what makes the surrounding document free:
+    a code fence in the examples is not a table, and a table with different
+    columns is not this one.
+    """
+    lines = text.splitlines()
+    want = [c.lower() for c in columns]
+    for i, line in enumerate(lines):
+        if [c.lower() for c in _cells(line)] != want:
+            continue
+        if i + 1 >= len(lines) or not _is_separator(lines[i + 1]):
+            raise MatrixError(f"table '{columns[0]}' has no separator row under its header")
+        rows = []
+        for raw in lines[i + 2:]:
+            if not raw.strip().startswith("|"):
+                break
+            cells = _cells(raw)
+            if len(cells) != len(columns):
+                raise MatrixError(
+                    f"table '{columns[0]}': a row has {len(cells)} cells, not {len(columns)}: "
+                    f"{raw.strip()[:80]}")
+            rows.append(dict(zip(want, cells)))
+        return rows
+    raise MatrixError(f"no table whose header row is {list(columns)}")
+
+
+def parse_prefer(cell: str) -> list[str]:
+    return [p.strip().strip("`").strip() for p in cell.split(">") if p.strip()]
 
 
 class Matrix:
-    """One parsed agent_trigger_matrix.toml."""
+    """One parsed agent_trigger_matrix.md."""
 
-    def __init__(self, data: dict, source: Path):
+    def __init__(self, text: str, source: Path):
         self.source = source
-        self.data = data
-        self.rows: list[dict] = [r for r in data.get("row", []) if isinstance(r, dict)]
-        self.defaults: dict = data.get("defaults", {}) or {}
-        self.codex: dict = data.get("codex", {}) or {}
-        self.concurrency: dict = data.get("concurrency", {}) or {}
-        self.personas: dict = data.get("personas", {}) or {}
+        self.text = text
+        self.rows: list[dict] = []
+        for r in find_table(text, CHART_COLUMNS):
+            self.rows.append({
+                "name": r["kind"],
+                "use_when": r["use when"],
+                "shape_words": r["who does it"],
+                "shape": SHAPE_WORDS.get(r["who does it"].lower(), r["who does it"]),
+                "prefer": parse_prefer(r["prefer"]),
+                "stop": r["done when"],
+            })
+        self._budget_rows = find_table(text, BUDGET_COLUMNS)
 
     # -- lookups ----------------------------------------------------------
     def names(self) -> list[str]:
-        return [str(r.get("name", "")) for r in self.rows if r.get("name")]
+        return [r["name"] for r in self.rows if r["name"]]
 
     def row(self, name: str) -> dict | None:
         for r in self.rows:
-            if r.get("name") == name:
+            if r["name"] == name:
                 return r
         return None
 
     def budget(self) -> tuple[int, int, int]:
-        """warn / floor / hard.  The table is the READ; env is an override.
+        """warn / floor / hard, read from the budget table.  env overrides.
 
-        The one case in router_cases.jsonl that cannot be faked: change
-        `warn` in the TOML and the cap changes.  Nothing else may define it.
+        The one thing that cannot be faked: change a number in the document
+        and the cap changes.  Nothing else may define it.
         """
-        b = self.data.get("budget", {}) or {}
+        table = {}
+        for r in self._budget_rows:
+            try:
+                table[r["threshold"].lower()] = int(re.sub(r"[^0-9]", "", r["calls"]))
+            except (KeyError, ValueError):
+                continue
 
         def pick(env: str, key: str, fallback: int) -> int:
-            raw = os.environ.get(env) or b.get(key, fallback)
+            raw = os.environ.get(env) or table.get(key, fallback)
             try:
                 return int(raw)
             except (TypeError, ValueError):
@@ -77,125 +161,169 @@ class Matrix:
                 pick("LANE_RECYCLER_FLOOR", "floor", DEFAULT_FLOOR),
                 pick("LANE_RECYCLER_HARD", "hard", DEFAULT_HARD))
 
-    def default_model(self) -> str:
-        return str(self.defaults.get("model", "sonnet"))
-
 
 def matrix_path() -> Path:
-    """Where the table lives.  env.sh sets LANE_RECYCLER_MATRIX at install."""
+    """Where the guide lives.  env.sh sets LANE_RECYCLER_MATRIX at install."""
     env = os.environ.get("LANE_RECYCLER_MATRIX")
-    return Path(env) if env else KIT_DIR / "agent_trigger_matrix.toml"
+    return Path(env) if env else KIT_DIR / "agent_trigger_matrix.md"
+
+
+#: (path, mtime, size) -> Matrix.  The hook pays one parse per EDIT of the
+#: guide, not one per tool call.  Measured: see the lane's out.md.
+_CACHE: dict[tuple[str, float, int], Matrix] = {}
 
 
 def load(path: Path | str | None = None) -> Matrix:
     src = Path(path) if path is not None else matrix_path()
     try:
-        with src.open("rb") as fh:
-            data = tomllib.load(fh)
-    except (OSError, tomllib.TOMLDecodeError) as exc:
+        st = src.stat()
+        key = (str(src), st.st_mtime, st.st_size)
+        hit = _CACHE.get(key)
+        if hit is not None:
+            return hit
+        text = src.read_text(encoding="utf-8")
+    except OSError as exc:
         raise MatrixError(f"{src}: {exc}") from exc
-    m = Matrix(data, src)
+    m = Matrix(text, src)
     if not m.rows:
-        raise MatrixError(f"{src}: no [[row]] blocks")
+        raise MatrixError(f"{src}: the chart has no rows")
+    _CACHE.clear()
+    _CACHE[key] = m
     return m
 
 
 # --------------------------------------------------------------------------
-# validation -- what `install --probe` and the guard test assert
+# the optional per-machine overrides
 # --------------------------------------------------------------------------
-def validate(m: Matrix) -> list[str]:
-    """Every way this table can be internally wrong, as one line each.
+def config_path() -> Path:
+    env = os.environ.get("TOKEN_KIT_CONFIG")
+    if env:
+        return Path(env)
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return Path(base) / "token_kit" / "config.toml"
 
-    An empty list means sound.  This is the Python half of the bash
-    guard_matrix.sh checks A6/A14; it is called by the tests and is worth
-    calling from an installer probe.
+
+def router_config() -> dict:
+    """The `[router]` table of the one optional config file, or {}.
+
+    Everything here is an OVERRIDE of a code default.  The file being absent
+    is the normal case and is never an error: a kit that needs a config file
+    to run is not project-agnostic.
     """
+    import tomllib
+    try:
+        with config_path().open("rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, ValueError):
+        return {}
+    table = data.get("router")
+    return table if isinstance(table, dict) else {}
+
+
+# --------------------------------------------------------------------------
+# validation -- what `install --probe`, `--validate` and the guards assert
+# --------------------------------------------------------------------------
+def tier_index(model: str) -> int:
+    return CLAUDE_TIERS.index(model) if model in CLAUDE_TIERS else -1
+
+
+def validate(m: Matrix) -> list[str]:
+    """Every way this guide can be internally wrong, as one line each."""
     problems: list[str] = []
     seen: set[str] = set()
     for i, r in enumerate(m.rows):
-        name = str(r.get("name", "")) or f"<row {i}>"
-        if not r.get("name"):
-            problems.append(f"row {i}: no name")
+        name = r["name"] or f"<row {i}>"
+        if not r["name"]:
+            problems.append(f"row {i}: no kind name")
         elif name in seen:
-            problems.append(f"{name}: duplicate row name")
+            problems.append(f"{name}: duplicate kind")
         seen.add(name)
 
-        shape = r.get("shape")
-        if shape not in SHAPES:
-            problems.append(f"{name}: shape {shape!r} is not one of {SHAPES}")
-        if not str(r.get("use_when", "")).strip():
-            problems.append(f"{name}: no use_when (the menu is generated from it)")
+        if r["shape"] not in SHAPES:
+            problems.append(f"{name}: 'who does it' is {r['shape_words']!r}, "
+                            f"not one of {sorted(SHAPE_WORDS)}")
+        if not r["use_when"]:
+            problems.append(f"{name}: no 'use when' (the guide is generated from it)")
+        if not r["stop"]:
+            problems.append(f"{name}: no 'done when'")
 
-        prefer = r.get("prefer")
-        if prefer is None:
-            problems.append(f"{name}: no prefer list")
-            continue
-        if not isinstance(prefer, list):
-            problems.append(f"{name}: prefer is not a list")
+        prefer = r["prefer"]
+        if not prefer:
+            problems.append(f"{name}: empty prefer ladder")
             continue
         for cand in prefer:
-            if not isinstance(cand, str) or not CANDIDATE_RE.match(cand):
+            if not CANDIDATE_RE.match(cand):
                 problems.append(f"{name}: prefer entry {cand!r} is not <engine>:<model>:<effort>")
-        if shape == "refuse":
-            if prefer:
-                problems.append(f"{name}: a refuse row must have an empty prefer list")
-            continue
-        if not prefer:
-            problems.append(f"{name}: empty prefer list on a non-refuse row")
-        elif not str(prefer[-1]).startswith("claude:"):
+        if not prefer[-1].startswith("claude:"):
             problems.append(
-                f"{name}: prefer list does not END in a claude candidate "
-                f"(last is {prefer[-1]!r}) -- the row could be blocked by codex being full")
+                f"{name}: prefer ladder does not END in a claude candidate "
+                f"(last is {prefer[-1]!r}) -- the kind could be blocked by codex being full")
+        problems.extend(climb_problems(name, prefer))
 
     for key in ("warn", "floor", "hard"):
-        if key not in (m.data.get("budget") or {}):
-            problems.append(f"[budget] has no {key}")
-    b = m.data.get("budget") or {}
-    if all(k in b for k in ("warn", "floor", "hard")) and not (b["warn"] <= b["floor"] <= b["hard"]):
-        problems.append(f"[budget] is not ordered: {b['warn']}/{b['floor']}/{b['hard']}")
+        if not any(r.get("threshold", "").lower() == key for r in m._budget_rows):
+            problems.append(f"the budget table has no {key} row")
+    warn, floor, hard = m.budget()
+    if not warn <= floor <= hard:
+        problems.append(f"the budget table is not ordered: {warn}/{floor}/{hard}")
     return problems
 
 
-# --------------------------------------------------------------------------
-# the row menu -- generated FROM the table, so it cannot drift
-# --------------------------------------------------------------------------
-def menu_text(m: Matrix) -> str:
-    lines = [
-        "AGENT TRIGGER MATRIX - put a line 'ROW: <name>' in every Agent spawn prompt.",
-        "The row sets the model, the agent and the work shape. Pick by 'use when'.",
-    ]
-    for r in m.rows:
-        name = r.get("name")
-        if not name:
-            continue
-        lines.append(f"  ROW: {name} [{r.get('shape', 'claude-direct')}]"
-                     f" - {r.get('use_when', '(no use_when)')}")
-    lines += [
-        "Shapes: codex-direct = the codex candidate does it all;"
-        " claude-direct = the Claude model does it;",
-        "claude-plans-codex-executes = Claude judges, every mechanistic sub-step goes to codex;",
-        "refuse = the spawn is denied and a shell substitute is given.",
-    ]
-    lines += codex_menu_lines(m)
-    return "\n".join(lines)
+def climb_problems(name: str, prefer: list[str]) -> list[str]:
+    """THE NO-POINTLESS-CLIMB RULE, in code.
 
-
-def codex_menu_lines(m: Matrix) -> list[str]:
-    """The codex surface, as a POINTER rather than a paste.
-
-    The `[codex] usage_text` key names the file that documents the four job
-    commands. The menu rides on every session start, so it names the commands
-    and the file instead of inlining it -- a reader who needs the detail opens
-    one file, and the menu stays small enough to be free.
+    A dearer Claude model at the same effort is an AVAILABILITY FLOOR, never
+    an upgrade.  So: consecutive claude candidates may step at most ONE tier
+    up, and no candidate may sit more than one tier above the ladder's FIRST
+    claude candidate.  Cheap work that falls through stays cheap; that is the
+    rule that forbids a sonnet-medium kind from listing the top tier at the
+    same effort as its floor.
     """
-    dispatch = str(m.codex.get("dispatch") or "").split()[0:1]
-    job = str(m.codex.get("job") or "")
-    usage = os.path.expandvars(os.path.expanduser(str(m.codex.get("usage_text") or "")))
-    if not job and not dispatch:
-        return []
-    out = [f"codex: `{dispatch[0] if dispatch else 'codex-dispatch'}` for one turn you read "
-           f"right away; `{job or 'codex-job'} start|send|wait|status` for a background turn "
-           "you can message (run `wait` as a BACKGROUND command)."]
-    if usage and Path(usage).is_file():
-        out.append(f"  the four commands in full: {usage}")
+    out: list[str] = []
+    tiers = [tier_index(c.split(":")[1]) for c in prefer if c.startswith("claude:")]
+    tiers = [t for t in tiers if t >= 0]
+    if not tiers:
+        return out
+    first = tiers[0]
+    for prev, nxt in zip(tiers, tiers[1:]):
+        if nxt - prev > 1:
+            out.append(f"{name}: prefer climbs {CLAUDE_TIERS[prev]} -> {CLAUDE_TIERS[nxt]}, "
+                       f"more than one tier -- a dearer model is a floor, not an upgrade")
+    for t in tiers:
+        if t - first > 1:
+            out.append(f"{name}: prefer reaches {CLAUDE_TIERS[t]}, more than one tier above its "
+                       f"first claude candidate {CLAUDE_TIERS[first]}")
+            break
     return out
+
+
+def banned_words_in(text: str) -> list[str]:
+    """Project words that may not appear in anything this kit ships."""
+    hay = text.lower()
+    return [w for w in BANNED_WORDS if re.search(rf"\b{re.escape(w)}\b", hay)]
+
+
+# --------------------------------------------------------------------------
+# the SessionStart guide -- generated FROM the document, so it cannot drift
+# --------------------------------------------------------------------------
+EXAMPLES_HEADING = "## Examples"
+
+
+def guide_text(m: Matrix, with_examples: bool = True) -> str:
+    """The document itself, whole or without its Examples section.
+
+    There is nothing to generate and nothing to drift: the file a person reads
+    IS the context the delegating thread gets.  The only choice is whether the
+    worked examples ride along; `session_start` decides that by measured size.
+    """
+    if with_examples:
+        return m.text.rstrip("\n")
+    head = m.text.split(EXAMPLES_HEADING)[0].rstrip("\n")
+    return (f"{head}\n\nWorked examples -- dispatching a big task, interrupting it, resuming "
+            f"versus respawning it, and a Claude agent running its mechanical steps through "
+            f"codex -- are in the '{EXAMPLES_HEADING.strip('# ')}' section of {m.source}.")
+
+
+def approx_tokens(text: str) -> int:
+    """chars/4.  A rough count, named as one wherever it is reported."""
+    return len(text) // 4

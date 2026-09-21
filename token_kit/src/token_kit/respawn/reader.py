@@ -1,7 +1,7 @@
-"""The READER for the directive lane_recycler writes.
+"""The READER for the directive a lane recycler writes.
 
-THE DEFECT IT CLOSES: the recycler appends a row to <LANE_DIR>/RESPAWN_REQUEST.md
-when it recycles a lane at FLOOR, and nothing ever read that file. A
+THE DEFECT IT CLOSES: a recycler appends a row to <LANE_DIR>/RESPAWN_REQUEST.md
+when it recycles a lane at its call floor, and nothing ever read that file. A
 stamped-but-unread directive is the same defect as a writer with no reader.
 
 WHY NOT SubagentStop -- it is the obvious event and the WRONG one. The installed
@@ -43,17 +43,17 @@ AGENT_RE = re.compile(r"agent=(\S+)")
 
 
 class Config:
-    """Dials. A TOML file or CLI arguments; the two env names below are part of
-    the language-neutral acceptance contract (`run_respawn_cases.sh` sets them
-    to point the reader at a throwaway state root), so they are read here and
-    nowhere else in the kit."""
+    """Dials: a TOML file or CLI arguments, and nothing else. No env dials --
+    an ambient variable would decide this reader's behaviour by who exported
+    what, which is exactly the bug the workspace key below closes."""
 
     def __init__(self, state_root=None, max_respawns=None, config_file=None,
                  request_name=None, ledger_name=None):
         self.max_respawns = 3
         self.request_name = "RESPAWN_REQUEST.md"
         self.ledger_name = "RESPAWN_CONSUMED.md"
-        self.state_root = str(Path.home() / ".lane_recycler")
+        from token_kit import config as config_mod
+        self.state_root = str(config_mod.state_home() / "respawn")
 
         if config_file:
             import tomllib
@@ -64,13 +64,6 @@ class Config:
                 if not hasattr(self, key):
                     raise SystemExit(f"respawn-reader: unknown config key: {key}")
                 setattr(self, key, type(getattr(self, key))(value))
-
-        env_state = os.environ.get("RESPAWN_READER_STATE")
-        env_max = os.environ.get("RESPAWN_MAX")
-        if env_state:
-            self.state_root = env_state
-        if env_max:
-            self.max_respawns = int(env_max)
 
         if state_root:
             self.state_root = state_root
@@ -104,7 +97,7 @@ def lane_from_prompt(prompt: str) -> str:
     return match.group(1) if match else ""
 
 
-def campaign_of(event_json: dict) -> str:
+def workspace_of(event_json: dict) -> str:
     """The WORK this session belongs to, which outlives the session.
 
     THE DEFECT THIS CLOSES: the sweep used to key on `session_id` alone. A
@@ -112,30 +105,31 @@ def campaign_of(event_json: dict) -> str:
     before the rollover fell out of the sweep and a background lane that died
     afterwards was never reported -- silently, because the registry rows were
     still there and simply did not match. Registration therefore records the
-    campaign as well, and the sweep matches EITHER key.
+    workspace as well, and the sweep matches EITHER key.
 
     The key is the event's own `cwd`, which every hook event carries and which
     a rollover preserves (the supervisor relaunches in the same directory).
-    It is deliberately NOT an environment variable: an ambient `CAMPAIGN_DIR`
-    would make two unrelated sessions on one machine sweep each other's lanes,
-    and would make this reader's behaviour depend on who exported what.
-    Empty means "no campaign key", and an empty key never matches anything.
+    It is deliberately NOT an environment variable: an ambient one would make
+    two unrelated sessions on one machine sweep each other's lanes, and would
+    make this reader's behaviour depend on who exported what.
+    Empty means "no workspace key", and an empty key never matches anything.
     """
     return str(event_json.get("cwd") or "").rstrip("/")
 
 
-def register(cfg: Config, session: str, lane: str, campaign: str = "") -> None:
+def register(cfg: Config, session: str, lane: str, workspace: str = "") -> None:
     """Append-only; duplicates are fine, reads dedup."""
     if not lane or not Path(lane).is_dir():
         return
+    cfg.registry.parent.mkdir(parents=True, exist_ok=True)
     with cfg.registry.open("a") as fh:
-        fh.write(f"{stamp()}\t{session}\t{lane}\t{campaign}\n")
+        fh.write(f"{stamp()}\t{session}\t{lane}\t{workspace}\n")
 
 
-def registered_lanes(cfg: Config, session: str, campaign: str = "") -> list[str]:
+def registered_lanes(cfg: Config, session: str, workspace: str = "") -> list[str]:
     """Lane dirs to sweep, in order, deduplicated.
 
-    A row matches on its session id OR on its campaign, so the sweep survives
+    A row matches on its session id OR on its workspace, so the sweep survives
     a rollover. Rows written before this column existed have three fields and
     still match on the session. Registry rows only: no directory walk, no
     process scan."""
@@ -148,10 +142,10 @@ def registered_lanes(cfg: Config, session: str, campaign: str = "") -> list[str]
         parts = line.split("\t")
         if len(parts) < 3:
             continue
-        row_campaign = parts[3].rstrip("/") if len(parts) > 3 else ""
+        row_workspace = parts[3].rstrip("/") if len(parts) > 3 else ""
         same_session = parts[1] == session
-        same_campaign = bool(campaign) and row_campaign == campaign
-        if (same_session or same_campaign) and parts[2] not in out:
+        same_workspace = bool(workspace) and row_workspace == workspace
+        if (same_session or same_workspace) and parts[2] not in out:
             out.append(parts[2])
     return out
 
@@ -201,7 +195,7 @@ def handle(cfg: Config, event_json: dict) -> str:
     if event_json.get("stop_hook_active"):
         return ""
     session = event_json.get("session_id") or "none"
-    campaign = campaign_of(event_json)
+    workspace = workspace_of(event_json)
     Path(cfg.state_root).mkdir(parents=True, exist_ok=True)
 
     messages: list[str] = []
@@ -209,11 +203,11 @@ def handle(cfg: Config, event_json: dict) -> str:
         if event_json.get("tool_name") not in ("Agent", "Task"):
             return ""
         lane = lane_from_prompt((event_json.get("tool_input") or {}).get("prompt", ""))
-        register(cfg, session, lane, campaign)
+        register(cfg, session, lane, workspace)
         if lane:
             messages.append(report_lane(cfg, event, session, lane))
     elif event == "Stop":
-        for lane in registered_lanes(cfg, session, campaign):
+        for lane in registered_lanes(cfg, session, workspace):
             messages.append(report_lane(cfg, event, session, lane))
     else:
         # SubagentStop lands here on purpose: its additionalContext reaches the
@@ -247,7 +241,8 @@ def main(argv=None) -> int:
         return 0
     except Exception as exc:                      # FAIL OPEN, LOUDLY
         try:
-            root = Path(cfg.state_root if cfg else Path.home() / ".lane_recycler")
+            from token_kit import config as config_mod
+            root = Path(cfg.state_root if cfg else config_mod.state_home() / "respawn")
             root.mkdir(parents=True, exist_ok=True)
             with (root / "respawn_reader_errors.log").open("a") as fh:
                 fh.write(f"{stamp()}\terror\t{type(exc).__name__}: {exc}\n")

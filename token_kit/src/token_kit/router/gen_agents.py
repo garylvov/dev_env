@@ -1,28 +1,21 @@
-"""gen_agents.py -- one agent file per (row, claude candidate), from the table.
+"""gen_agents.py -- thin generic agent files, generated from the guide.
 
-WHY THIS FILE EXISTS, and what changed the answer.  The previous lane searched
-the binary for an agent-frontmatter `effort` key, did not find one, and
-concluded that effort could only ride in the prompt header.  That conclusion
-was wrong, and it was wrong in the expensive direction.  Measured here, live,
-CLI 2.1.278, with a PreToolUse hook that dumped its own stdin:
+WHY FILES EXIST AT ALL.  Effort is a real agent-frontmatter key and it reaches
+the runtime per FILE.  Measured live, CLI 2.1.278, with a PreToolUse hook that
+dumped its own stdin:
 
     agent frontmatter `effort: low`   -> the SUBAGENT's hook stdin carried
                                          effort = {"level": "low"}
     the same file changed to `high`   -> effort = {"level": "high"}
     the main thread, both runs        -> effort = {"level": "medium"}
 
-So `effort` IS a frontmatter key, it reaches the runtime, and it is per FILE.
-That is why this generator emits one file per (row, claude candidate) rather
-than one per row: a row whose `prefer` list names two Claude tiers at two
-efforts needs two files, because a file can only carry one of each.
+A file can carry one model and one effort, so the unit is one file per (kind,
+distinct claude candidate), plus ONE generic codex runner whose body is the
+dispatch instructions.
 
-WHAT IT DOES NOT DO.  It does not re-point the router at these files.  The
-behaviour contract (router_cases.jsonl) pins `subagent_type` to each row's
-`agent` column -- grizzly-veteran for harness-broker, general-purpose for
-cluster-state -- and a persona IS the load for those rows (measured: the four
-persona bodies are 0.04% of all spend, so replacing them saves nothing and
-loses the judgement).  Switching subagent_type to a generated file is a
-separate, guarded change to the cases; see the lane's out.md.
+WHAT THESE FILES ARE NOT.  They carry no persona, no project, no doctrine
+pointer and no prose worth reading: the guide holds the judgement and the
+spawn header carries the rest.  Every body below is four facts and a budget.
 """
 
 from __future__ import annotations
@@ -34,63 +27,90 @@ from . import ladder, matrix as matrix_mod
 
 #: A description the CLI's own auto-selection will never pick by accident:
 #: these files are for the router to name, not for a model to choose.
-DESC_PREFIX = "matrix row"
+DESC_PREFIX = "kit agent for the"
+
+PREFIX = "kit"
 
 
-def agent_name(row_name: str, cand: ladder.Candidate) -> str:
-    return f"row-{row_name}-{cand.model}-{cand.effort}"
+def agent_name(kind: str, model: str, effort: str) -> str:
+    return f"{PREFIX}-{kind}-{model}-{effort}"
+
+
+def runner_name(codex: dict | None = None) -> str:
+    codex = codex if codex is not None else ladder.codex_settings()
+    return str(codex.get("runner_agent") or "kit-codex-runner")
 
 
 def body(row: dict, cand: ladder.Candidate, budget: tuple[int, int, int]) -> str:
     warn, floor, hard = budget
-    lines = [
+    kind = str(row.get("name"))
+    return "\n".join([
         "---",
-        f"name: {agent_name(str(row.get('name')), cand)}",
-        f"description: {DESC_PREFIX} {row.get('name')} - {row.get('use_when', '')}",
+        f"name: {agent_name(kind, cand.model, cand.effort)}",
+        f"description: {DESC_PREFIX} '{kind}' kind - {row.get('use_when', '')}",
         f"model: {cand.model}",
         f"effort: {cand.effort}",
-    ]
-    tools = row.get("tools")
-    if tools:
-        lines.append(f"tools: {', '.join(tools) if isinstance(tools, list) else tools}")
-    lines += [
         "---",
         "",
-        f"[MATRIX ROW: {row.get('name')} | shape={row.get('shape', 'claude-direct')}]",
-        f"load: {row.get('load') or 'none - the row carries its own judgement'}",
-        f"stop: {row.get('stop') or '(none named)'}",
-        f"max_report: {row.get('max_report', 2000)} bytes - a longer report is truncated "
-        f"with a pointer",
-        f"repo_home: {row.get('repo_home', 'unset')} (law 7)",
-        f"effort: {cand.effort}",
-    ]
-    if row.get("reviewer"):
-        lines.append(f"reviewer: {row['reviewer']} must run on the result before it is done")
-    lines += [
+        f"[KIND: {kind} | {row.get('shape_words', row.get('shape', ''))}]",
+        f"use when: {row.get('use_when', '')}",
+        f"done when: {row.get('stop', '')} -- stop there, and say so.",
         f"budget: warn {warn} / floor {floor} / hard {hard} calls; past the floor only a",
         "write of your own out.md and SubagentHandback are permitted.",
         "",
-    ]
-    return "\n".join(lines)
+    ])
+
+
+def runner_body(codex: dict, budget: tuple[int, int, int]) -> str:
+    warn, floor, hard = budget
+    return "\n".join([
+        "---",
+        f"name: {runner_name(codex)}",
+        f"description: {DESC_PREFIX} codex dispatch - runs one step through codex and reports it",
+        "model: sonnet",
+        "effort: low",
+        "---",
+        "",
+        "You do not do this step yourself: you dispatch it to codex and report what came back.",
+        "The spawn header names the model and the effort to use; codex refuses to assume either.",
+        "",
+        f"  {codex.get('dispatch', '')}",
+        "",
+        f"For a long step you want to steer or be told about, use "
+        f"`{codex.get('job', 'codex-job')} start|send|wait|stop` instead and run `wait` as a",
+        "BACKGROUND command, so being told it finished costs no polling call.",
+        "",
+        f"Exit {codex.get('refusal_code', 42)} means codex is unavailable "
+        f"(reason=absent|auth|busy|protocol|quota): do the step yourself with the Claude model in",
+        "the header, and say in your report that codex refused and why.",
+        "",
+        f"budget: warn {warn} / floor {floor} / hard {hard} calls; past the floor only a",
+        "write of your own out.md and SubagentHandback are permitted.",
+        "",
+    ])
 
 
 def generate(m, out_dir: Path) -> list[Path]:
-    """Write one file per (row, distinct claude candidate).  Returns the paths."""
+    """One file per (kind, distinct claude candidate), plus the codex runner."""
     out_dir.mkdir(parents=True, exist_ok=True)
     budget = m.budget()
+    codex = ladder.codex_settings()
     written: list[Path] = []
     for row in m.rows:
-        name = str(row.get("name") or "")
-        if not name or row.get("shape") == "refuse":
+        kind = str(row.get("name") or "")
+        if not kind:
             continue
         seen: set[tuple[str, str]] = set()
         for cand in ladder.candidates(row):
             if cand.is_codex or (cand.model, cand.effort) in seen:
                 continue
             seen.add((cand.model, cand.effort))
-            path = out_dir / f"{agent_name(name, cand)}.md"
+            path = out_dir / f"{agent_name(kind, cand.model, cand.effort)}.md"
             path.write_text(body(row, cand, budget), encoding="utf-8")
             written.append(path)
+    runner = out_dir / f"{runner_name(codex)}.md"
+    runner.write_text(runner_body(codex, budget), encoding="utf-8")
+    written.append(runner)
     return written
 
 

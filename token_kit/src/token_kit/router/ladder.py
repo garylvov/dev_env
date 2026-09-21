@@ -1,6 +1,6 @@
 """ladder.py -- "prefer codex, if not available use opus", executed.
 
-A row carries an ORDERED `prefer` list in one grammar for every engine:
+A kind carries an ORDERED `prefer` ladder in one grammar for every engine:
 
     "<engine>:<model>:<effort>"      engine in {codex, claude}
                                      effort in {low, medium, high}
@@ -11,27 +11,26 @@ The router takes the FIRST AVAILABLE candidate.  Availability is a CLOSED SET
     codex   binary/launcher absent from this host        -> binary_absent
             a live quota-cooldown marker for the session -> quota_cooldown
             the per-host codex bound is full             -> codex_bound_full
-            the codex wrapper agents_dir does not exist  -> wrapper_unavailable
-    claude  [concurrency] for that model is full         -> concurrency_full
+            the codex runner agent's directory is absent -> wrapper_unavailable
+    claude  always available
 
-Every skip appends `skip_candidate<TAB><row>/<candidate>/<reason>` and the
-chosen one appends `candidate<TAB><row>/<candidate>`.  That log is the whole
-point: it is how the operator sees the dynamics without asking anybody.
+Every skip appends `skip_candidate<TAB><kind>/<candidate>/<reason>` and the
+chosen one appends `candidate<TAB><kind>/<candidate>`.  That log is the whole
+point: it is how the dynamics are visible without asking anybody.
 
-THE HONEST GAP, stated rather than faked: there is no cheap live count of
-Claude subagents per model.  A PreToolUse hook's stdin carries no
-`background_tasks` (measured, CLI 2.1.278: the keys are cwd, effort,
-hook_event_name, permission_mode, prompt_id, session_id, tool_input, tool_name,
-tool_use_id, transcript_path, plus agent_id and agent_type inside a subagent),
-and the `agent-<id>.meta.json` sidecars beside each transcript carry
-{agentType, description, toolUseId, spawnDepth, requestShape, model} with NO
-start time, no end time and no exit marker -- so "is this one still running"
-could only be guessed from the transcript's mtime, which says "silent", not
-"finished".  A long-thinking agent and a finished one look identical.  So a
-claude candidate is treated as AVAILABLE unless its configured limit is zero or
-negative, i.e. the operator has taken that tier out of service.  That is the
-one criterion here with no live producer; it is named in the lane's out.md
-under UNPROVEN and it is what `[concurrency] fable = 0` exercises in the cases.
+A CLAUDE CANDIDATE IS ALWAYS AVAILABLE, and the per-model concurrency table
+that used to sit in the guide is DELETED rather than faked.  There is no cheap
+live count of Claude subagents per model: a PreToolUse hook's stdin carries no
+`background_tasks` (measured, CLI 2.1.278), and the `agent-<id>.meta.json`
+sidecars beside each transcript carry no start time, no end time and no exit
+marker -- so "is this one still running" could only be guessed from a
+transcript's mtime, which says "silent", not "finished".  A criterion with no
+live producer is a defect, so the criterion is gone, not softened.
+
+CODEX SETTINGS ARE CODE DEFAULTS.  They are machine facts, not delegation
+guidance, so they do not belong in a document a person reads for advice.  Every
+one can be overridden from the `[router]` table of the one optional config file
+(`~/.config/token_kit/config.toml`), which is normally absent.
 """
 
 from __future__ import annotations
@@ -43,9 +42,32 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .matrix import CANDIDATE_RE
+from .matrix import CANDIDATE_RE, router_config
 
 DEFAULT_QUOTA_COOLDOWN_S = 1800
+
+#: Code defaults; `[router]` in the optional config file overrides any of them.
+CODEX_DEFAULTS = {
+    "binary": "codex",
+    "refusal_code": 42,
+    "quota_cooldown_s": DEFAULT_QUOTA_COOLDOWN_S,
+    "cooldown_marker": "codex_quota_cooldown",
+    "max_children": None,      # None = the dispatcher's own per-host bound
+    "agents_dir": "~/.claude/agents",
+    "runner_agent": "kit-codex-runner",
+    "dispatch": ("codex-dispatch --model <model> --effort <effort> "
+                 "--cwd <abs dir> --task-file <abs step.md> --out <abs answer.md>"),
+    "job": "codex-job",
+}
+
+
+def codex_settings() -> dict:
+    """The codex facts, as code defaults plus the optional `[router]` table."""
+    out = dict(CODEX_DEFAULTS)
+    for key, value in router_config().items():
+        if key in out:
+            out[key] = value
+    return out
 
 
 @dataclass(frozen=True)
@@ -219,35 +241,23 @@ def codex_unavailable_reason(codex: dict, session_state: Path,
     return None
 
 
-def claude_unavailable_reason(model: str, concurrency: dict) -> str | None:
-    """See THE HONEST GAP in the module docstring: only a zero limit refuses."""
-    limit = concurrency.get(model)
-    if limit is None:
-        return None
-    try:
-        limit = int(limit)
-    except (TypeError, ValueError):
-        return None
-    return "concurrency_full" if limit <= 0 else None
-
-
 # --------------------------------------------------------------------------
 # the choice
 # --------------------------------------------------------------------------
-def choose(row: dict, matrix, session_state: Path,
+def choose(row: dict, codex: dict, session_state: Path,
            now: float | None = None) -> tuple[Candidate | None, list[tuple[Candidate, str]]]:
-    """(chosen, skipped) for one row.  Both are what the event log records."""
+    """(chosen, skipped) for one kind.  Both are what the event log records."""
     skipped: list[tuple[Candidate, str]] = []
     codex_reason: str | None = None
     codex_checked = False
     for cand in candidates(row):
         if cand.is_codex:
             if not codex_checked:
-                codex_reason = codex_unavailable_reason(matrix.codex, session_state, now)
+                codex_reason = codex_unavailable_reason(codex, session_state, now)
                 codex_checked = True
             reason = codex_reason
         else:
-            reason = claude_unavailable_reason(cand.model, matrix.concurrency)
+            reason = None
         if reason is None:
             return cand, skipped
         skipped.append((cand, reason))
@@ -255,11 +265,11 @@ def choose(row: dict, matrix, session_state: Path,
 
 
 def dispatch_command(codex: dict, cand: Candidate) -> str:
-    """The row's dispatch one-liner, re-pointed at THIS candidate.
+    """The dispatch one-liner, re-pointed at THIS candidate.
 
-    The table carries one template; a candidate carries the model and the
-    effort.  Never trust the template's own defaults -- ruling R2 says every
-    codex call names both explicitly.
+    One template; the candidate carries the model and the effort.  Never trust
+    the template's own defaults -- every codex call names both explicitly,
+    because `codex-dispatch` itself refuses to assume either.
     """
     template = str(codex.get("dispatch", "") or "")
     if not template:

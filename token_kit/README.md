@@ -9,37 +9,38 @@ Standard-library Python (run through `uv`, needs ≥3.11). Bash only as thin shi
 ## Install
 
 ```
-bash vibe_coding/token_kit/install.sh --dry-run   # show what would change
-bash vibe_coding/token_kit/install.sh             # do it (backs up settings.json first)
-bash vibe_coding/token_kit/install.sh --uninstall # restores settings.json byte for byte
+bash token_kit/install.sh --dry-run   # show what would change
+bash token_kit/install.sh             # do it (backs up settings.json first)
+bash token_kit/install.sh --uninstall # removes exactly what it added, nothing else
+bash token_kit/install.sh --config    # what this machine detected, and why
 ```
 
-`--adopt-personas` moves your existing agent files aside (never deletes) and links the kit's.
-`--profile <name>` picks a file from `profiles/`; otherwise the installer detects the machine.
-On a new machine, the profile file is the only thing to edit — all machine paths live there.
+Nothing to edit on a new machine: every machine fact is detected at run time (whether your home
+is on a network filesystem, where tmp is, where codex is). `~/.config/token_kit/config.toml` may
+override any of it — tables `[codex]`, `[supervisor]`, `[router]` — and is never required.
 
 It writes only to `~/.claude` (hooks in `settings.json`, links in `agents/`) and `~/.config/token_kit`.
+It installs no agent prompts of its own and never touches yours.
 
 ## What you get
 
 | Part | What it does |
 |---|---|
-| `agent_trigger_matrix.toml` | One table: kind of task → model, effort, and a `prefer` list like `codex:gpt-5.6-luna:high, claude:opus:medium`. First available entry wins; every list ends in Claude, so a maxed-out Codex never blocks a spawn. |
-| router hook | Reads the table on every subagent spawn and rewrites model / agent / prompt. Matches a `ROW:` line, then the spawn description, then file paths. Also caps tool calls per subagent (warn → write your result → stop). |
-| row agents | Generated from the table, one per row, with `model` and `effort` in the frontmatter. |
+| `agent_trigger_matrix.md` | A markdown chart you edit by hand: kind of task → model, effort, and a `prefer` list like `codex:gpt-5.6-luna:high, claude:opus:medium`. First available entry wins; every list ends in Claude, so a maxed-out Codex never blocks a spawn. The chart and its worked examples live in that one file. |
+| router hook | Reads the chart on every subagent spawn and rewrites model / agent / prompt. Also caps tool calls per subagent (warn → write your result → stop). |
+| row agents | Generated from the chart at install time, one per row candidate, with `model` and `effort` in the frontmatter. Nothing checked in is installed as an agent. |
 | `codex-dispatch` | One Codex turn, on demand, over `codex app-server` stdio. No daemon, no port. Exit 42 = Codex unavailable (absent, auth, busy, quota). |
 | `codex-job` | Codex jobs you can talk to: `start`, `send` (steers a running turn, or continues the thread after it), `wait` (run in the background to be told when it ends), `status`, `list`, `stop`. No message is ever dropped silently. |
-| `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. On a machine whose home is on NFS (profile key `node_local_home`) it keeps `CODEX_HOME` on node-local `/tmp` — Codex's SQLite breaks on NFS — seeds it once per node, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. Jobs record their host, so commands from another node queue or refuse instead of corrupting a thread. |
-| `token-kit-supervise` | Runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from the campaign's `STATE.md`. Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. |
+| `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. When your home is on a network filesystem it keeps `CODEX_HOME` on node-local `/tmp` — Codex's SQLite breaks there — seeds it once per machine, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. |
+| `token-kit-supervise` | `launch [--state-file FILE] [--cwd DIR]` — runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from that handoff file (default `./STATE.md`). Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. Its bookkeeping goes under the XDG state dir keyed by a hash of the file's path, so two projects never collide. |
 | `respawn-reader` | Tells the main thread, once, when a background agent asked to be restarted. |
+| `canary` | Proves mechanically whether an instruction file is really in a model's context: LOADED / NOT_LOADED / PROBE_BROKEN, never collapsed. |
 
 Details for the Codex commands: `src/token_kit/codex/USAGE.md`.
 
 ## Test
 
 ```
-cd vibe_coding/token_kit
+cd token_kit
 uv run --python '>=3.11' --no-project -m unittest discover -s tests -t .
 ```
-
-`reference_bash/` holds the original bash tools. They are frozen: the behaviour spec the Python passes case for case.

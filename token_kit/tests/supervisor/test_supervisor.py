@@ -31,6 +31,10 @@ Cases, in order below:
  17 status reports ALIVE on a fresh heartbeat and DEAD on a stale one
  18 `once` is one bounded pass: it returns without a second poll row
  19 dials come from TOML and CLI only; an unknown key refuses loudly
+ 20 the state file is an ARGUMENT: two state files in two directories get two
+    run directories, two locks and two logs, and neither names a project
+ 21 the default state file is ./STATE.md in the current directory
+ 22 the SOFT request lands beside the state file, and the seed names it
 """
 
 from __future__ import annotations
@@ -66,10 +70,12 @@ class Fixture(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.campaign = self.root / "campaign"
+        self.work = self.root / "work"
         self.home = self.root / "claude_home"
         (self.home / "sessions").mkdir(parents=True)
-        self.campaign.mkdir()
+        self.work.mkdir()
+        self.state_file = self.work / "STATE.md"
+        self.state_file.write_text("# handoff\n")
         self.transcript = self.root / "t.jsonl"
         self.transcript.write_text("")
         self.rolled = self.root / "rolled.tsv"
@@ -91,7 +97,8 @@ class Fixture(unittest.TestCase):
             {"sessionId": sid, "cwd": cwd, "status": status, "procStart": start}))
 
     def cfg(self, **over):
-        dials = dict(campaign_dir=str(self.campaign), claude_home=str(self.home),
+        dials = dict(state_file=str(self.state_file), run_root=str(self.root / "runs"),
+                     claude_home=str(self.home),
                      soft_tokens=100, hard_tokens=1000, drain_wait_secs=600,
                      poll_secs=0, rollover_cmd=self.stub, launch_pid_wait_secs=2)
         dials.update(over)
@@ -127,9 +134,9 @@ class Measurement(Fixture):
         self.assertEqual("", S.proc_start(999999))
 
     def test_3_transcript_derived_from_session_id_and_cwd_slug(self):
-        self.register(PID, "1", cwd="/oscar_like/path-x", sid="abc")
+        self.register(PID, "1", cwd="/some_root/path-x", sid="abc")
         got = S.transcript_of_pid(self.home, PID)
-        self.assertEqual(self.home / "projects" / "-oscar-like-path-x" / "abc.jsonl", got)
+        self.assertEqual(self.home / "projects" / "-some-root-path-x" / "abc.jsonl", got)
 
 
 class Thresholds(Fixture):
@@ -311,6 +318,47 @@ class LockAndStatus(Fixture):
         old = time.time() - 4000
         os.utime(cfg.heartbeat, (old, old))
         self.assertEqual(1, sup.cmd_status(cfg))
+
+
+class RunsFromAnywhere(Fixture):
+    """The state file is an argument; its absolute path is the identity."""
+
+    # 20
+    def test_20_two_state_files_never_share_a_run_dir(self):
+        other = self.root / "other"
+        other.mkdir()
+        (other / "STATE.md").write_text("# a different piece of work\n")
+        a = self.cfg()
+        b = self.cfg(state_file=str(other / "STATE.md"))
+        self.assertNotEqual(a.session_key, b.session_key)
+        self.assertNotEqual(a.run_dir, b.run_dir)
+        self.assertNotEqual(a.log, b.log)
+        self.assertNotEqual(a.lock_dir, b.lock_dir)
+        # and the key is a hash: no part of anyone's directory names leaks
+        self.assertNotIn("other", a.session_key + b.session_key)
+        self.assertTrue(sup.acquire_lock(a, PID))
+        self.assertTrue(sup.acquire_lock(b, PID),
+                        "a lock in one directory blocked an unrelated one")
+
+    # 21
+    def test_21_the_default_state_file_is_state_md_in_the_cwd(self):
+        here = Path.cwd()
+        cfg = cfgmod.Config()
+        self.assertEqual("STATE.md", cfg.state_file)
+        self.assertEqual(here / "STATE.md", cfg.state_path)
+        self.assertEqual(here, cfg.work_dir)
+
+    # 22
+    def test_22_the_soft_request_lands_beside_the_state_file(self):
+        cfg = self.cfg()
+        self.register(PID, S.proc_start(os.getpid()))
+        self.grow(150)
+        sup.one_pass(cfg, PID, self.transcript, "busy")
+        self.assertEqual(self.work / "ROLLOVER_REQUEST.md", cfg.request)
+        self.assertTrue(cfg.request.is_file())
+        self.assertIn(str(self.state_file), cfg.request.read_text())
+        self.assertIn(str(self.state_file), sup.seed_text(cfg))
+        self.assertIn(str(self.work), sup.seed_text(cfg))
 
 
 class Dials(Fixture):

@@ -2,7 +2,7 @@
 
 Two jobs, one file, exactly as the bash reader had them:
 
-  A) THE ROUTER, on `tool_name == "Agent"`.  Reads agent_trigger_matrix.toml,
+  A) THE ROUTER, on `tool_name == "Agent"`.  Reads agent_trigger_matrix.md,
      picks a row, runs the `prefer` ladder, and REWRITES the spawn through
      hookSpecificOutput.updatedInput -- model, subagent_type and a header
      prepended to the prompt.  Proven to take effect in CLI 2.1.278.
@@ -12,7 +12,7 @@ Two jobs, one file, exactly as the bash reader had them:
      <projects>/<slug>/<session>/subagents/agent-<id>.jsonl and never keep a
      counter of our own.  The discriminator is `agent_id`: a subagent's stdin
      carries one, the main thread's does not, and session_id is shared.  No
-     process scan happens anywhere here, so law 14 cannot bite.
+     process scan happens anywhere here.
 
   and SessionStart, which injects the generated row menu as additionalContext.
 
@@ -56,22 +56,6 @@ def projects_root() -> Path:
         return Path(env)
     claude = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
     return Path(claude) / "projects"
-
-
-def data_root(payload: dict) -> str:
-    """Paths in a brief are matched relative to this.
-
-    The session's own cwd is the honest default: it is the project root the
-    globs in the table are written against.  The installer overrides it.
-    """
-    return os.environ.get("LANE_RECYCLER_DATA_ROOT") or str(payload.get("cwd") or "")
-
-
-def evidence_dir(payload: dict) -> str:
-    env = os.environ.get("TK_EVIDENCE_DIR")
-    if env:
-        return env.rstrip("/")
-    return f"{data_root(payload).rstrip('/')}/agrescap/evidence"
 
 
 def slug(cwd: str) -> str:
@@ -145,11 +129,28 @@ def _budget_line(warn: int, floor: int, hard: int) -> str:
 
 
 def _spawn(payload: dict) -> int:
+    """A spawn.  The router is SOFT: it never denies, and it never guesses.
+
+    Named kind   -> resolve the ladder, rewrite model + agent + header.
+    Unknown name -> allow UNTOUCHED, one `unknown_kind` event row.
+    No name      -> allow UNTOUCHED, one `unrouted` event row carrying the
+                    description, which is the only signal anybody needs that a
+                    kind might be missing from the guide.
+    """
     from . import ladder, matrix as matrix_mod, route as route_mod
 
     session = str(payload.get("session_id") or "nosession")
     sstate = state_root() / session
     events = Events(sstate / "spawn_events.tsv", calls=0)
+
+    tool_input = payload.get("tool_input") or {}
+    desc = str(tool_input.get("description") or "")
+    prompt = str(tool_input.get("prompt") or "")
+
+    name = route_mod.named_kind(prompt)
+    if not name:
+        events.row("unrouted", desc or "(no description)")
+        return allow()
 
     try:
         m = matrix_mod.load()
@@ -157,39 +158,17 @@ def _spawn(payload: dict) -> int:
         events.row("matrix_parse_failed", str(exc)[:200])
         return allow()
 
-    tool_input = payload.get("tool_input") or {}
-    desc = str(tool_input.get("description") or "")
-    prompt = str(tool_input.get("prompt") or "")
+    row = m.row(name)
+    if row is None:
+        events.row("unknown_kind", f"{name}/{','.join(m.names())}")
+        return allow()
+
     warn, floor, hard = m.budget()
-
-    try:
-        name, how = route_mod.route(m, desc, prompt, data_root(payload))
-    except route_mod.UnknownRow as exc:
-        events.row("deny_unknown_row", exc.name)
-        return deny(f"MATRIX - unknown row '{exc.name}'. The valid rows are:\n"
-                    f"{matrix_mod.menu_text(m)}\n"
-                    "Fix the ROW: line in the spawn prompt, or delete it and let the "
-                    "description route.")
-
-    if name is None:
-        return _unrouted(payload, m, events, sstate, desc, prompt, warn, floor, hard)
-
-    row = m.row(name) or {}
     shape = str(row.get("shape", "claude-direct"))
-
-    if shape == "refuse" or row.get("action") == "refuse-and-substitute":
-        events.row("refuse", name)
-        watch = f"{evidence_dir(payload)}/watch/<name>.tsv"
-        return deny(
-            f"MATRIX ROW {name} - REFUSED. A model may not be the loop. Do this instead: "
-            f"write a shell loop that appends ONE line per sample to a status file at "
-            f"{watch}, start it with nohup, and read the file ONCE when you next need it. "
-            f"A model may read the status file; a model may not be the waiting. "
-            f"Done when: {row.get('stop', '')}. If you believe this spawn is not a "
-            f"watch/poll/wait, put an explicit 'ROW: <name>' line in the prompt.")
+    codex = ladder.codex_settings()
 
     # -- the ladder --------------------------------------------------------
-    chosen, skipped = ladder.choose(row, m, sstate)
+    chosen, skipped = ladder.choose(row, codex, sstate)
     for cand, reason in skipped:
         events.row("skip_candidate", f"{name}/{cand.text}/{reason}")
     if chosen is not None:
@@ -197,90 +176,79 @@ def _spawn(payload: dict) -> int:
     else:
         events.row("no_candidate", name)
 
-    claude_models = [c.model for c in ladder.candidates(row) if not c.is_codex]
+    claude_cands = [c for c in ladder.candidates(row) if not c.is_codex]
+    fallback = claude_cands[0] if claude_cands else None
     out_model = (chosen.model if (chosen and not chosen.is_codex)
-                 else (claude_models[0] if claude_models
-                       else str(row.get("model") or m.default_model())))
-    out_agent = str(row.get("agent") or "general-purpose")
-    effort = (chosen.effort if chosen else str(row.get("effort")
-                                               or m.defaults.get("effort", "medium")))
+                 else (fallback.model if fallback else "sonnet"))
+    effort = (chosen.effort if chosen else (fallback.effort if fallback else "medium"))
+    out_agent = agent_for(name, out_model, effort, codex)
 
     # -- the shape header --------------------------------------------------
     shape_line = ""
-    codex_reason = ladder.codex_unavailable_reason(m.codex, sstate)
-    rc = m.codex.get("refusal_code", 42)
+    codex_reason = ladder.codex_unavailable_reason(codex, sstate)
+    rc = codex.get("refusal_code", 42)
 
     if chosen is not None and chosen.is_codex:
-        cmd = ladder.dispatch_command(m.codex, chosen)
-        wrapper = Path(os.path.expanduser(str(m.codex.get("agents_dir", "")))) / f"codex-{name}.md"
-        if str(m.codex.get("agents_dir", "")) and wrapper.is_file():
-            out_agent = wrapper.stem
+        cmd = ladder.dispatch_command(codex, chosen)
+        runner = (Path(os.path.expanduser(str(codex.get("agents_dir", ""))))
+                  / f"{codex.get('runner_agent')}.md")
+        if str(codex.get("agents_dir", "")) and runner.is_file():
+            out_agent = runner.stem
         shape_line = (
-            f"codex runs this row. Dispatch it with EXACTLY this command - the model and "
-            f"the effort are the chosen candidate's, never the config default:\n  {cmd}\n"
-            f"You cannot spawn an agent; that dispatcher IS the delegation path. If it exits "
+            f"codex runs this kind. Dispatch it with this command - the model and the effort "
+            f"are the chosen candidate's, and codex-dispatch refuses to assume either:\n  {cmd}\n"
+            f"For a mechanical step prefer that dispatcher over spawning an agent: it costs one call. If it exits "
             f"{rc} (its refusal code) with reason=quota, report it back with "
             f"`router cooldown --arm` so later spawns skip codex, and do the work yourself.")
     elif shape == "codex-direct":
         events.row("codex_fallback", name)
         shape_line = (f"codex is not available here ({codex_reason or 'no codex candidate'}), so "
-                      f"this row FELL BACK to its Claude candidate {out_model}. Do the work "
+                      f"this kind FELL BACK to its Claude candidate {out_model}. Do the work "
                       f"yourself.")
     elif shape == "claude-plans-codex-executes":
         if codex_reason is None:
-            cmd = str(m.codex.get("dispatch", ""))
             shape_line = (
                 "delegation: you own the judgement. Do NOT do mechanistic reads yourself - hand "
-                "every lookup, log read, grep and deterministic transform to codex with:\n"
-                f"  {cmd}\n"
-                f"You cannot spawn an agent; that dispatcher script IS the delegation path. If "
-                f"it exits {rc} (its refusal code), stop delegating and do the reads yourself "
-                f"for the rest of this lane.")
+                "every lookup, log read, search and deterministic transform to codex with:\n"
+                f"  {codex.get('dispatch', '')}\n"
+                f"and `{codex.get('job', 'codex-job')} start|send|wait|stop` for a long step you "
+                f"want to steer. For mechanical steps prefer those shims over spawning an agent: each costs one call. "
+                f"If one exits {rc} (its refusal code), stop delegating and do the reads "
+                f"yourself for the rest of this lane.")
         else:
             events.row("codex_fallback", name)
 
-    reviewer = str(row.get("reviewer") or "")
     header = (
-        f"[MATRIX ROW: {name} | shape={shape} | routed by {how}]\n"
-        f"candidate: {chosen.text if chosen else 'none available - row model ' + out_model}\n"
-        f"load: {row.get('load') or 'none - the row carries its own judgement'}\n"
-        f"stop: {row.get('stop') or '(none named)'}\n"
-        f"max_report: {row.get('max_report', m.defaults.get('max_report', 2000))} bytes - a "
-        f"longer report is truncated with a pointer\n"
-        f"repo_home: {row.get('repo_home', 'unset')} (law 7)\n"
+        f"[KIND: {name} | {row.get('shape_words', shape)}]\n"
+        f"candidate: {chosen.text if chosen else 'none available - falling back to ' + out_model}\n"
+        f"done when: {row.get('stop') or '(none named)'}\n"
         f"effort: {effort}\n"
-        + (f"reviewer: {reviewer} must run on the result before it is done\n" if reviewer else "")
         + _budget_line(warn, floor, hard)
         + (f"\n{shape_line}" if shape_line else "")
     )
 
-    events.row("routed", f"{name}/{how}/{out_agent}/{out_model}")
+    events.row("routed", f"{name}/{out_agent}/{out_model}")
     return rewrite(payload,
-                   f"matrix: row {name} ({how}) -> {out_agent}/{out_model}",
+                   f"matrix: kind {name} -> {out_agent}/{out_model}",
                    {"subagent_type": out_agent, "model": out_model,
                     "prompt": header + "\n\n" + prompt})
 
 
-def _unrouted(payload, m, events, sstate, desc, prompt, warn, floor, hard) -> int:
-    from . import matrix as matrix_mod
+def agent_for(name: str, model: str, effort: str, codex: dict) -> str:
+    """The generated agent file for this (kind, model, effort), if installed.
 
-    events.row("unrouted", desc or "(no description)")
-    default_model = m.default_model()
-    if claim(sstate / "menu_denied"):
-        return deny(
-            f"MATRIX - this spawn matched no row, so it would run on [defaults] "
-            f"(model {default_model}, no load, no stop condition, no shape). This deny happens "
-            f"ONCE per session; retry the SAME spawn and it will go through unrouted. Before "
-            f"you retry, add a 'ROW: <name>' line as the FIRST line of the spawn prompt:\n"
-            f"{matrix_mod.menu_text(m)}\n"
-            f"If none fits, retry unchanged and open a row for it.")
-    header = (
-        f"[MATRIX: UNROUTED - no row matched description \"{desc}\"]\n"
-        f"This spawn is running on [defaults] (model {default_model}). An unrouted spawn is the\n"
-        f"signal that the table needs a row. Say so in one line of your report.\n"
-        f"{_budget_line(warn, floor, hard)}")
-    return rewrite(payload, "matrix: unrouted, defaults applied",
-                   {"model": default_model, "prompt": header + "\n\n" + prompt})
+    Effort is a frontmatter key and reaches the runtime per FILE (measured,
+    CLI 2.1.278), so the only way to set it is to name a file that carries it.
+    When the installer has not put one there, general-purpose is the honest
+    answer and the header still names the effort.
+    """
+    from .gen_agents import agent_name
+
+    want = agent_name(name, model, effort)
+    agents_dir = str(codex.get("agents_dir") or "")
+    if agents_dir and (Path(os.path.expanduser(agents_dir)) / f"{want}.md").is_file():
+        return want
+    return "general-purpose"
 
 
 # --------------------------------------------------------------------------
@@ -445,6 +413,25 @@ def handle(payload: dict) -> int:
         return allow()
 
 
+#: Above this (chars/4, a rough count) the worked examples stay out of the
+#: injection and are replaced by one line naming the file and the section.
+GUIDE_TOKEN_BUDGET = 700
+
+
+def guide_for_injection(m) -> str:
+    """The whole document when it fits, otherwise everything but Examples.
+
+    One source, so nothing can drift: what a person opens IS what the
+    delegating thread is given.  The only choice is the size.
+    """
+    from . import matrix as matrix_mod
+
+    whole = matrix_mod.guide_text(m, with_examples=True)
+    if matrix_mod.approx_tokens(whole) <= GUIDE_TOKEN_BUDGET:
+        return whole
+    return matrix_mod.guide_text(m, with_examples=False)
+
+
 def session_start() -> int:
     from . import matrix as matrix_mod
 
@@ -453,7 +440,7 @@ def session_start() -> int:
     except matrix_mod.MatrixError:
         return allow()
     return _emit({"hookSpecificOutput": {"hookEventName": "SessionStart",
-                                         "additionalContext": matrix_mod.menu_text(m)}})
+                                         "additionalContext": guide_for_injection(m)}})
 
 
 # --------------------------------------------------------------------------
@@ -466,15 +453,15 @@ def main(argv: list[str] | None = None) -> int:
     mode = argv[0] if argv else ""
 
     if mode == "--menu":
-        print(matrix_mod.menu_text(matrix_mod.load()))
+        print(guide_for_injection(matrix_mod.load()))
         return 0
     if mode == "--session-start":
         return session_start()
     if mode == "--compile":
+        from . import ladder
         m = matrix_mod.load()
         print(json.dumps({"budget": dict(zip(("warn", "floor", "hard"), m.budget())),
-                          "defaults": m.defaults, "codex": m.codex,
-                          "concurrency": m.concurrency, "rows": m.rows}, indent=2))
+                          "codex": ladder.codex_settings(), "rows": m.rows}, indent=2))
         return 0
     if mode == "--validate":
         problems = matrix_mod.validate(matrix_mod.load())
@@ -503,7 +490,7 @@ def _cooldown(argv: list[str]) -> int:
     back here, and every later spawn in the session skips codex candidates
     until the window passes.
     """
-    from . import ladder, matrix as matrix_mod
+    from . import ladder
 
     arm = "--arm" in argv
     session = "nosession"
@@ -520,9 +507,8 @@ def _cooldown(argv: list[str]) -> int:
         print(f"cooldown: reason={reason} does not arm the cooldown (only 'quota' does; "
               f"'absent' and 'busy' are per-call)", file=sys.stderr)
         return 0
-    m = matrix_mod.load()
     sstate = state_root() / session
-    marker = ladder.arm_cooldown(m.codex, sstate)
+    marker = ladder.arm_cooldown(ladder.codex_settings(), sstate)
     Events(sstate / "spawn_events.tsv").row("cooldown_armed", f"{reason}/{marker}")
     print(str(marker))
     return 0

@@ -139,24 +139,24 @@ class ReaderCases(unittest.TestCase):
     # 14 -- THE ROLLOVER CASE. A background lane spawned before a rollover
     #       must still be swept after it, when the session id has changed.
     def test_a_rollover_between_spawn_and_stop_still_sweeps(self):
-        campaign = str(Path(self.tmp.name) / "campaign")
-        Path(campaign).mkdir()
-        spawn = dict(post("s-before", self.lane), cwd=campaign)
+        workspace = str(Path(self.tmp.name) / "workspace")
+        Path(workspace).mkdir()
+        spawn = dict(post("s-before", self.lane), cwd=workspace)
         self.assertEqual("", reader.handle(self.cfg, spawn))
         # ... the lane dies in the background, AFTER the supervisor rolled the
-        # session over. New session id, same campaign, same cwd.
+        # session over. New session id, same workspace, same cwd.
         self.recycle(self.lane, 244)
-        rolled = dict(stop("s-after"), cwd=campaign)
+        rolled = dict(stop("s-after"), cwd=workspace)
         msg = reader.handle(self.cfg, rolled)
         self.assertIn("recycled at 244 calls", msg,
                       "the sweep lost the lane at the rollover")
         self.assertEqual(1, self.ledger_rows(self.lane))
 
-    # 15 -- and it is still not a global sweep: a DIFFERENT campaign sees
+    # 15 -- and it is still not a global sweep: a DIFFERENT workspace sees
     #       nothing, which is what keeps case 6 honest.
-    def test_another_campaign_still_sweeps_nothing(self):
-        mine = str(Path(self.tmp.name) / "campaign_a")
-        theirs = str(Path(self.tmp.name) / "campaign_b")
+    def test_another_workspace_still_sweeps_nothing(self):
+        mine = str(Path(self.tmp.name) / "workspace_a")
+        theirs = str(Path(self.tmp.name) / "workspace_b")
         for d in (mine, theirs):
             Path(d).mkdir()
         reader.handle(self.cfg, dict(post("s1", self.lane), cwd=mine))

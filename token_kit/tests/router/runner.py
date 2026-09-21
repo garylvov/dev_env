@@ -1,15 +1,13 @@
 """runner.py -- feed router_cases.jsonl to hook.py and check every expectation.
 
-The case file is the language-neutral behaviour contract; the bash reader was
-its first implementation and this package is its second.  The bash runner
-(cases_runner.sh) SKIPS the six `implemented_in_bash: false` cases -- the
-`prefer` ladder -- because the bash never built them.  This runner skips
-nothing: 25 of 25 or the port is not the same tool.
+The case file is the behaviour contract of the SOFT router, one case per line,
+and this module is the only thing that knows how to stage one: a tmp world, a
+markdown guide built from the fixture, an optional `[router]` config file, an
+optional fake subagent transcript, then hook.handle() with the case stdin.
 
-Two substitutions and no others are applied to the stored case text, so the
-kit carries no machine path: `$DATA_ROOT` for the session's project root and
-`$AGENTS_DIR` for the codex wrapper agents directory.  Re-expanding them
-reproduces the contract byte for byte.
+Three substitutions and no others are applied to the stored case text, so the
+kit carries no machine path: `$CWD` for the session's working directory,
+`$AGENTS_DIR` for the codex runner agents directory and `$TMP` for the world.
 """
 
 from __future__ import annotations
@@ -24,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CASES = HERE / "router_cases.jsonl"
-FIXTURE_MATRIX = HERE / "fixtures" / "matrix.toml"
+FIXTURE_MATRIX = HERE / "fixtures" / "matrix.md"
 
 
 class Env:
@@ -41,7 +39,8 @@ class Env:
             d.mkdir(parents=True, exist_ok=True)
 
     def expand(self, text: str) -> str:
-        return (text.replace("$DATA_ROOT", str(self.root))
+        return (text.replace("$CWD", str(self.root))
+                    .replace("$DATA_ROOT", str(self.root))
                     .replace("$AGENTS_DIR", str(self.agents))
                     .replace("$TMP", str(self.tmp)))
 
@@ -69,6 +68,30 @@ def build_matrix(case: dict, env: Env, base_text: str, dest: Path) -> Path:
     return dest
 
 
+def write_router_config(case: dict, env: Env, index: int) -> None:
+    """The `[router]` overrides for this case, or no config file at all.
+
+    Codex settings are code defaults now, so this ONE optional file is the
+    only way a case can make codex present, absent, bound-out or wrapper-less
+    -- and writing it exercises the reader that production also uses.
+    """
+    cfg = case.get("router_config")
+    if not cfg:
+        os.environ["TOKEN_KIT_CONFIG"] = str(env.tmp / "no-such-config.toml")
+        return
+    lines = ["[router]"]
+    for key, value in cfg.items():
+        if isinstance(value, bool):
+            lines.append(f"{key} = {str(value).lower()}")
+        elif isinstance(value, (int, float)):
+            lines.append(f"{key} = {value}")
+        else:
+            lines.append(f'{key} = "{env.expand(str(value))}"')
+    path = env.tmp / f"config.{index}.toml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.environ["TOKEN_KIT_CONFIG"] = str(path)
+
+
 def write_transcript(env: Env, case: dict, session: str, cwd: str) -> None:
     pf = case.get("projects_fixture")
     if not pf:
@@ -91,15 +114,19 @@ def run_one(case: dict, env: Env, base_text: str, index: int) -> list[str]:
     """Returns the list of failure messages for this case (empty == pass)."""
     from token_kit.router import hook as hook_mod
 
-    mx = build_matrix(case, env, base_text, env.tmp / f"mx.{index}.toml")
+    mx = build_matrix(case, env, base_text, env.tmp / f"mx.{index}.md")
     os.environ.update({
         "LANE_RECYCLER_MATRIX": str(mx),
         "LANE_RECYCLER_STATE": str(env.state),
         "LANE_RECYCLER_PROJECTS_ROOT": str(env.projects),
         "TOKEN_KIT_CODEX_SLOT_DIR": str(env.slots),
+        # the machine-wide dispatcher marker, pointed at nothing: a real one
+        # on this host must not decide a case.
+        "TOKEN_KIT_CODEX_COOLDOWN_MARKER": str(env.tmp / "no-dispatcher-cooldown.json"),
     })
     os.environ.pop("LANE_RECYCLER_DATA_ROOT", None)
     os.environ.pop("TK_EVIDENCE_DIR", None)
+    write_router_config(case, env, index)
     for key in ("LANE_RECYCLER_WARN", "LANE_RECYCLER_FLOOR", "LANE_RECYCLER_HARD"):
         os.environ.pop(key, None)
 
@@ -151,6 +178,11 @@ def run_one(case: dict, env: Env, base_text: str, index: int) -> list[str]:
         age = float(pre.get("age_s", 0))
         os.utime(marker, (time.time() - age, time.time() - age))
 
+    if "write_agent" in pre:
+        env.agents.mkdir(parents=True, exist_ok=True)
+        (env.agents / f"{pre['write_agent']}.md").write_text(
+            f"---\nname: {pre['write_agent']}\n---\n", encoding="utf-8")
+
     buf = io.StringIO()
     with redirect_stdout(buf):
         hook_mod.handle(stdin)
@@ -182,8 +214,13 @@ def run_one(case: dict, env: Env, base_text: str, index: int) -> list[str]:
         if s not in reason:
             bad.append(f"reason missing: {s}")
 
-    events_path = env.state / session / "spawn_events.tsv"
-    events = events_path.read_text(encoding="utf-8") if events_path.is_file() else ""
+    # the router writes spawn_events.tsv per session; the cap writes
+    # events.tsv per agent.  A case may expect a row from either.
+    agent_id = str(stdin.get("agent_id") or "")
+    paths = [env.state / session / "spawn_events.tsv"]
+    if agent_id:
+        paths.append(env.state / session / agent_id / "events.tsv")
+    events = "".join(p.read_text(encoding="utf-8") for p in paths if p.is_file())
     if expected.get("event_row") and expected["event_row"] not in events:
         bad.append(f"no event row matching: {expected['event_row']!r}")
     if expected.get("candidate"):

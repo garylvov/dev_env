@@ -1,11 +1,11 @@
-"""The row-agent generator, and the fact that made it worth building.
+"""The agent generator, and the fact that made it worth building.
 
 MEASURED live (CLI 2.1.278, a PreToolUse hook dumping its own stdin): an agent
 file carrying `effort: low` in its frontmatter gives the SUBAGENT
 effort={"level":"low"}; the same file at `effort: high` gives
 effort={"level":"high"}; the main thread reads medium in both runs.  So effort
 is a real frontmatter key and it is per FILE -- which is why one file per
-(row, claude candidate) is the unit, not one per row.
+(kind, claude candidate) is the unit, not one per kind.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .runner import FIXTURE_MATRIX
 
 
 def fixture(tmp: Path, text: str | None = None) -> matrix_mod.Matrix:
-    src = tmp / "m.toml"
+    src = tmp / "m.md"
     body = text if text is not None else FIXTURE_MATRIX.read_text(encoding="utf-8")
     src.write_text(body.replace("$AGENTS_DIR", str(tmp / "agents")), encoding="utf-8")
     return matrix_mod.load(src)
@@ -33,26 +33,27 @@ class TestGenerate(unittest.TestCase):
             m = fixture(tmp)
             written = gen_agents.generate(m, tmp / "out")
             names = {p.name for p in written}
-            self.assertIn("row-design-review-fable-high.md", names)
-            self.assertIn("row-design-review-opus-high.md", names)
-            self.assertNotIn("row-watch-poll-wait-NONE-medium.md", names,
-                             "a refuse row has no candidate, so it gets no file")
-            body = (tmp / "out" / "row-design-review-fable-high.md").read_text()
+            self.assertIn("kit-design-opus-high.md", names)
+            self.assertIn("kit-design-fable-high.md", names)
+            self.assertIn("kit-codex-runner.md", names,
+                          "one generic codex runner, not one wrapper per topic")
+            self.assertNotIn("kit-lookup-gpt-5.6-luna-high.md", names,
+                             "a codex candidate is dispatched, never given an agent file")
+            body = (tmp / "out" / "kit-design-fable-high.md").read_text()
             self.assertIn("\nmodel: fable\n", body)
             self.assertIn("\neffort: high\n", body)
-            self.assertIn("[MATRIX ROW: design-review", body)
+            self.assertIn("[KIND: design", body)
 
     def test_editing_a_row_changes_the_output(self):
         """The guard: the generator is a READ of the table, not a copy of it."""
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
-            before = gen_agents.body(fixture(tmp).row("design-review"),
+            before = gen_agents.body(fixture(tmp).row("design"),
                                      gen_agents.ladder.parse("claude:fable:high"),
                                      (150, 230, 250))
             text = FIXTURE_MATRIX.read_text(encoding="utf-8").replace(
-                'stop = "each objection names the section it attacks and what would change '
-                'the verdict"', 'stop = "CHANGED BY THE GUARD"')
-            after = gen_agents.body(fixture(tmp, text).row("design-review"),
+                "one approach is recommended with its cost", "CHANGED BY THE GUARD")
+            after = gen_agents.body(fixture(tmp, text).row("design"),
                                     gen_agents.ladder.parse("claude:fable:high"),
                                     (150, 230, 250))
             self.assertNotEqual(before, after)

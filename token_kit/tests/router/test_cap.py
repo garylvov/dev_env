@@ -29,7 +29,7 @@ class CapHarness(unittest.TestCase):
         self.tmp = Path(self._tmp.name)
         self.lane = self.tmp / "lanes" / "demo" / "v0"
         self.lane.mkdir(parents=True)
-        matrix = self.tmp / "m.toml"
+        matrix = self.tmp / "m.md"
         matrix.write_text(
             FIXTURE_MATRIX.read_text(encoding="utf-8").replace("$AGENTS_DIR",
                                                                str(self.tmp / "agents")),
@@ -138,11 +138,11 @@ class TestThresholds(CapHarness):
                          "the out.md write is STILL never denied")
 
     def test_the_budget_is_a_READ_of_the_matrix(self):
-        """Change the number in the TOML and the cap changes. Nothing else."""
+        """Change the number in the document and the cap changes. Nothing else."""
         self.transcript("b6", 10)
         self.assertEqual(self.call("b6"), {})
         path = Path(os.environ["LANE_RECYCLER_MATRIX"])
-        path.write_text(path.read_text().replace("warn = 150", "warn = 5"), encoding="utf-8")
+        path.write_text(path.read_text().replace("| warn | 150 |", "| warn | 5 |"), encoding="utf-8")
         r = self.call("b6")
         self.assertEqual(r["permissionDecision"], "deny")
         self.assertIn("warn=5", r["permissionDecisionReason"])

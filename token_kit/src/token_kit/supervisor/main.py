@@ -1,18 +1,23 @@
 """token-kit-supervise -- external rollover supervisor for a long-running
 interactive Claude Code session.
 
-    supervise launch [--config F] [dials] [-- <claude flags>]
+    supervise launch [--state-file F] [--cwd D] [--config F] [dials]
+                     [-- <claude flags>]
     supervise watch  --session-pid N [--transcript F] [--status-override S]
     supervise once   --session-pid N [...]      one bounded pass (step mode)
     supervise status
     supervise stop
 
-It watches the session's own transcript, asks the session to bring STATE.md
-current at SOFT, lets in-flight work drain, and rolls the session over at HARD.
-There is NO global token cap: this is a rollover supervisor, not a rationer.
+It watches the session's own transcript, asks the session to bring its handoff
+file current at SOFT, lets in-flight work drain, and rolls the session over at
+HARD. There is NO global token cap: this is a rollover supervisor, not a
+rationer.
 
-Every state change appends a ROW to <campaign>/.ccsup/ccsup.log. Nothing here
-rewrites a file in place; every hold or refusal is a row with a reason.
+The handoff file is an ARGUMENT (`--state-file`, default ./STATE.md), so the
+supervisor runs in any directory. Every state change appends a ROW to the run
+directory's ccsup.log, under the XDG state dir keyed by a hash of that file's
+absolute path. Nothing here rewrites a file in place; every hold or refusal is
+a row with a reason.
 The seed reaches a relaunched session as ONE short CLI argument naming the seed
 FILE -- never `tmux send-keys` into a prompt.
 """
@@ -64,15 +69,16 @@ def claim(marker: Path, payload: str) -> bool:
 def soft_request(cfg, pid, tokens) -> None:
     """The SOFT channel: an appended request the session's own tick reads.
 
-    Not send-keys, not a terminal write -- the session brings STATE.md current
-    itself while its context is still cached.
+    Not send-keys, not a terminal write -- the session brings its own handoff
+    file current while its context is still cached.
     """
-    Path(cfg.campaign_dir).mkdir(parents=True, exist_ok=True)
+    cfg.request.parent.mkdir(parents=True, exist_ok=True)
     with cfg.request.open("a") as fh:
         fh.write(f"## {stamp()}  SOFT threshold crossed\n")
         fh.write(f"- session pid: {pid}  context tokens: {tokens}"
                  f"  soft: {cfg.soft_tokens}  hard: {cfg.hard_tokens}\n")
-        fh.write("- ACTION FOR THE SESSION: bring STATE.md current now, in this turn.\n")
+        fh.write(f"- ACTION FOR THE SESSION: bring {cfg.state_path} current now, "
+                 "in this turn.\n")
         fh.write("- Rollover follows once in-flight work drains, or at HARD regardless.\n\n")
     say(f"SOFT {tokens}/{cfg.soft_tokens} -- asked session {pid} to bring STATE.md current")
     row(cfg, "soft_request",
@@ -146,12 +152,13 @@ def seed_arg(seed: Path) -> str:
 
 
 def seed_text(cfg) -> str:
-    c = cfg.campaign_dir
-    return ("Rollover: previous session ended at context limit. Read, in order:\n"
-            f"- {c}/AGENTS.md\n"
-            f"- {c}/STATE.md   (the handoff)\n"
-            f"- tail of {c}/PROMPTS.log\n"
-            "Then continue from STATE.md. Treat every claim in it as a lead to verify.\n")
+    """The handoff, naming the state file the operator pointed us at."""
+    state = cfg.state_path
+    return ("Rollover: the previous session ended at its context ceiling.\n"
+            f"Working directory: {cfg.work_dir}\n"
+            f"Read {state} -- the handoff -- and continue from it.\n"
+            f"Anything {state.parent} names as required reading, read too.\n"
+            "Treat every claim in it as a lead to verify.\n")
 
 
 def resolve_session_pid(cfg, tmux_name: str) -> int | None:
@@ -183,7 +190,8 @@ def launch_from_file(cfg) -> int | None:
     if cfg.seed_as_arg:
         cmd = f"{cmd} {shlex.quote(seed_arg(seed))}"
     # Detached tmux: the server is reparented to init, so it outlives us.
-    rc = subprocess.run([cfg.tmux_bin, "new-session", "-d", "-s", name, cmd],
+    rc = subprocess.run([cfg.tmux_bin, "new-session", "-d", "-s", name,
+                         "-c", str(cfg.work_dir), cmd],
                         check=False).returncode
     if rc != 0:
         row(cfg, "launch_failed", f"name={name} rc={rc}")
@@ -217,7 +225,7 @@ def launch_from_file(cfg) -> int | None:
 
 # ---------------------------------------------------------------------- watch
 def acquire_lock(cfg, pid) -> bool:
-    """One watcher per campaign. An atomic mkdir is the lock; a stale heartbeat
+    """One watcher per state file. An atomic mkdir is the lock; a stale heartbeat
     is a takeover, and both outcomes are a ledger row with a reason."""
     try:
         cfg.lock_dir.mkdir(parents=True)
@@ -313,7 +321,8 @@ def cmd_status(cfg) -> int:
         state = "ALIVE" if age < cfg.heartbeat_stale_secs else "DEAD"
     print(f"watcher={state} heartbeat={age} stale_after={cfg.heartbeat_stale_secs}s "
           f"lock={'held' if cfg.lock_dir.is_dir() else 'free'}")
-    print(f"campaign={cfg.campaign_dir} soft={cfg.soft_tokens} hard={cfg.hard_tokens} "
+    print(f"state_file={cfg.state_path} cwd={cfg.work_dir} key={cfg.session_key}")
+    print(f"run_dir={cfg.run_dir} soft={cfg.soft_tokens} hard={cfg.hard_tokens} "
           f"poll={cfg.poll_secs} drain={cfg.drain_wait_secs}")
     if cfg.pid_file.is_file():
         pid = cfg.pid_file.read_text().strip()
@@ -334,7 +343,7 @@ def cmd_stop(cfg) -> int:
 
 # ------------------------------------------------------------------------ cli
 DIALS = ("soft_tokens", "hard_tokens", "drain_wait_secs", "poll_secs",
-         "campaign_dir", "claude_home", "claude_bin", "claude_flags",
+         "state_file", "cwd", "run_root", "claude_home", "claude_bin", "claude_flags",
          "tmux_bin", "tmux_prefix", "seed_as_arg", "autowatch",
          "launch_pid_wait_secs", "supervisor_cmd", "term_wait_secs",
          "kill_poll_secs", "heartbeat_stale_secs", "rollover_cmd", "kill_cmd")
@@ -345,7 +354,6 @@ def build_parser() -> argparse.ArgumentParser:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["launch", "watch", "once", "status", "stop"])
     p.add_argument("--config", default="")
-    p.add_argument("--profile", default=None)
     p.add_argument("--session-pid", default=None)
     p.add_argument("--transcript", default="")
     p.add_argument("--status-override", default="")
@@ -363,7 +371,7 @@ def main(argv=None) -> int:
         argv, passthrough = argv[:cut], argv[cut + 1:]
     args = build_parser().parse_args(argv)
     cfg = cfgmod.load(args.config or None,
-                      {d: getattr(args, d) for d in DIALS}, args.profile)
+                      {d: getattr(args, d) for d in DIALS})
     cfg.config_file = args.config
 
     if args.command == "launch":

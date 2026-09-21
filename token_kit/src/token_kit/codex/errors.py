@@ -24,14 +24,9 @@ WHERE THE NAMES COME FROM (codex-cli 0.153.4, read, not remembered)
     spellings are matched.
 
 THE COOLDOWN MARKER
-    `token_kit.router` is an empty reserved package today -- it has no cooldown
-    verb to call.  So the marker is written directly, and if a `cooldown`
-    callable ever appears on the router it is called as well.  The path is NOT
-    in `agent_trigger_matrix.toml`'s `[codex]` block: that block has
-    `run/binary/refusal_code/agents_dir/dispatch` and no cooldown key.  Adding
-    one is in this lane's out.md under INSTALLER PATCH; until then the path is
-    `<state dir>/codex-cooldown.json`, overridable with
-    TOKEN_KIT_CODEX_COOLDOWN_MARKER.
+    A quota refusal writes `<state dir>/codex-cooldown.json` (overridable with
+    TOKEN_KIT_CODEX_COOLDOWN_MARKER).  The router's ladder reads the same file
+    and skips codex candidates until it expires.
 """
 
 from __future__ import annotations
@@ -97,18 +92,16 @@ def is_quota(error: Any) -> bool:
 def state_root() -> Path:
     """Where job dirs and the cooldown marker live.
 
-    Order: the explicit override, then the profile's evidence dir, then an
-    XDG state dir.  No cluster path is ever written in a module (census rule).
+    Order: the explicit override, then the resolved evidence dir, which is
+    under the XDG state dir.  No machine path is ever written in a module.
     """
     override = os.environ.get("TOKEN_KIT_CODEX_JOB_DIR")
     if override:
         return Path(override)
     try:
-        from token_kit import profiles as profiles_mod
+        from token_kit import config as config_mod
 
-        kit_dir = Path(__file__).resolve().parents[3]
-        prof = profiles_mod.load(kit_dir / "profiles")
-        return prof.evidence_dir / "codex-jobs"
+        return config_mod.resolve().evidence_dir / "codex-jobs"
     except Exception:
         base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
         return Path(base) / "token_kit" / "codex-jobs"

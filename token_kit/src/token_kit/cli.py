@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """token_kit -- put the whole token-spend kit on a machine with one command.
 
-Subcommands: install, uninstall, probe, census, hook.
+Subcommands: install, uninstall, probe, census, config, hook.
 
 Reached through `install.sh`, which is a thin bootstrap: it makes sure `uv` is
 present and then runs this file with a modern Python. Nothing here imports a
@@ -42,20 +42,30 @@ if False:  # for readers and type checkers only
 KIT_DIR = Path(__file__).resolve().parent.parent.parent   # .../token_kit
 CLI_PATH = Path(__file__).resolve()
 
-# The units this installer puts on a machine. reference_bash/ is NOT one of
-# them: those scripts are the behaviour spec the Python ports must match, kept
-# for reading and for the census, never installed.
+#: The routing chart, by preferred name. It is a markdown chart a person edits
+#: by hand; the .toml spelling is accepted while the change lands.
+MATRIX_NAMES = ("agent_trigger_matrix.md",)
+
+
+def matrix_path() -> Path:
+    for name in MATRIX_NAMES:
+        candidate = KIT_DIR / name
+        if candidate.is_file():
+            return candidate
+    return KIT_DIR / MATRIX_NAMES[0]
+
+
+# The units this installer puts on a machine.
 COMPONENTS = [
-    ("profile-env", "machine facts resolved into ~/.config/token_kit/env.sh"),
+    ("config-env", "the resolved machine facts, in ~/.config/token_kit/env.sh"),
     ("settings-keys", "the measured settings.json keys"),
     ("pretooluse-hook", "the PreToolUse hook (call cap + matrix routing)"),
-    ("sessionstart-menu", "the SessionStart row menu, generated from the table"),
+    ("sessionstart-menu", "the SessionStart row menu, generated from the chart"),
     ("respawn-reader", "the PostToolUse(Agent)+Stop lane respawn reader"),
     ("supervisor", "token-kit-supervise, the rollover supervisor"),
     ("codex-bin", "the codex-dispatch / codex-job / codex-run shims"),
-    ("agents", "the compressed personas and the codex wrapper agents"),
-    ("row-agents", "one generated agent file per matrix row candidate"),
-    ("agent-trigger-matrix", "agent_trigger_matrix.toml, the routing table"),
+    ("kind-agents", "one generated agent file per kind and Claude candidate"),
+    ("agent-trigger-matrix", "the routing chart itself"),
 ]
 
 #: Executables linked into ~/.config/token_kit/bin. The name on the left is
@@ -69,11 +79,6 @@ EXECUTABLES = [
     # machine needs no hand-written wrapper in anybody's home directory.
     ("codex-run", "src/token_kit/codex/bin/codex-run"),
 ]
-
-#: Where an adopted (pre-existing, real) agent file is moved to. It is MOVED,
-#: never deleted, and the uninstall puts it back.
-ADOPT_DIR = ".pre_token_kit"
-
 
 # --------------------------------------------------------------------------
 # reporting
@@ -116,6 +121,9 @@ class Layout:
         self.manifest = self.conf_dir / "manifest.tsv"
         self.env_file = self.conf_dir / "env.sh"
         self.hook_shim = self.bin_dir / "token_kit_hook.sh"
+        #: Generated agent files live here, not in the clone: they are produced
+        #: from the chart at install time and belong to this machine.
+        self.gen_agents_dir = self.conf_dir / "agents"
 
 
 def load_settings(path: Path) -> dict:
@@ -137,25 +145,10 @@ def write_settings(path: Path, data: dict) -> None:
 # --------------------------------------------------------------------------
 # symlinking
 # --------------------------------------------------------------------------
-def link(rep: Report, man: Manifest, dest: Path, src: Path, label: str,
-         adopt: bool = False) -> None:
+def link(rep: Report, man: Manifest, dest: Path, src: Path, label: str) -> None:
     if not src.exists():
         rep.fail(f"{label}: source missing: {src}")
         return
-    if adopt and dest.exists() and not dest.is_symlink():
-        # --adopt-personas: the operator's own file is MOVED aside, never
-        # deleted, and the manifest remembers where so uninstall restores it.
-        aside = dest.parent / ADOPT_DIR / dest.name
-        if rep.dry:
-            rep.plan(f"adopt {label}: mv {dest} -> {aside}, then link")
-            return
-        aside.parent.mkdir(parents=True, exist_ok=True)
-        if aside.exists():
-            rep.conflict(f"{label}: {aside} already exists -- {dest} left untouched")
-            return
-        dest.rename(aside)
-        man.add("adopted", str(aside), str(dest))
-        rep.change(f"adopted {label}: your file is at {aside}")
     if dest.is_symlink():
         if Path(os.readlink(dest)) == src:
             rep.ok(label)
@@ -203,18 +196,20 @@ def write_generated(rep: Report, man: Manifest, path: Path, body: str,
 def cmd_install(args) -> int:
     import shutil
 
-    from token_kit import profiles as profiles_mod
+    from token_kit import config as config_mod
     from token_kit.manifest import Manifest
     from token_kit.settings_merge import merge
 
     lay = Layout()
     rep = Report(args.dry_run)
-    prof = profiles_mod.load(KIT_DIR / "profiles", args.profile)
-    detected = "--profile" if args.profile else "autodetected"
+    prof = config_mod.resolve()
 
     print("token_kit installer")
     print(f"  clone       {KIT_DIR}")
-    print(f"  profile     {prof.name} ({detected})  {prof.source}")
+    print(f"  config      {prof.source_file}"
+          f" ({'present' if Path(prof.source_file).is_file() else 'absent -- fine, everything is detected'})")
+    print(f"  state dir   {prof.state_dir}")
+    print(f"  codex home  {'node-local (home is on a network filesystem)' if prof.codex_node_local_home else 'the ordinary ~/.codex (home is local disk)'}")
     print(f"  claude dir  {lay.claude_dir}")
     print(f"  config dir  {lay.conf_dir}")
     print(f"  python      {sys.version.split()[0]}")
@@ -238,7 +233,7 @@ def cmd_install(args) -> int:
     # own launcher resolves, not what happens to be on PATH.
     from token_kit.codex import launcher as codex_launcher
 
-    ccfg = codex_launcher.load_config(KIT_DIR / "profiles", prof.name)
+    ccfg = codex_launcher.load_config()
     codex = codex_launcher.resolve_binary(ccfg)
     named = os.path.expanduser(ccfg.launcher or "codex")
     if ccfg.node_local_home:
@@ -250,8 +245,8 @@ def cmd_install(args) -> int:
     if codex or Path(named).is_file():
         rep.ok(where)
     else:
-        rep.note(f"codex   not found (optional; codex-* agents will not dispatch). "
-                 f"profile launcher = {ccfg.launcher}, node_local_home = "
+        rep.note(f"codex   not found (optional; codex rows will not dispatch). "
+                 f"launcher = {ccfg.launcher}, node_local_home = "
                  f"{str(ccfg.node_local_home).lower()}")
     if rep.failures:
         print("\ninstall: REFUSING -- required dependencies are missing (above)")
@@ -267,7 +262,7 @@ def cmd_install(args) -> int:
 
     # -- dirs + generated files --------------------------------------------
     print("\nconfig")
-    for d in (lay.conf_dir, lay.bin_dir, lay.agents_dir):
+    for d in (lay.conf_dir, lay.bin_dir, lay.agents_dir, lay.gen_agents_dir):
         if d.is_dir():
             continue
         if rep.dry:
@@ -288,33 +283,25 @@ def cmd_install(args) -> int:
         link(rep, man, lay.bin_dir / name, KIT_DIR / rel, name)
     print(f"  {len(EXECUTABLES)} executable(s)")
 
-    # -- agents + matrix ----------------------------------------------------
-    print(f"\nagents -> {lay.agents_dir}")
-    agent_files = sorted((KIT_DIR / "agents").glob("*.md"))
-    if not agent_files:
-        rep.fail(f"no agent files in {KIT_DIR / 'agents'} "
-                 f"-- run `census --import` first")
-    for f in agent_files:
-        link(rep, man, lay.agents_dir / f.name, f, f.name, adopt=args.adopt_personas)
-    print(f"  {len(agent_files)} agent file(s)")
-
-    # One generated agent file per (matrix row, distinct claude candidate).
-    # The row's model, effort and header are frontmatter, so a spawn on one of
-    # these carries the row's economics without the router rewriting anything.
-    print("\ngenerated row agents")
-    gen_dir = KIT_DIR / "agents" / "generated"
-    generated = generate_row_agents(rep, gen_dir)
+    # -- agents + chart -----------------------------------------------------
+    # NOTHING checked in is linked as an agent. Every agent file this installer
+    # puts on the machine is GENERATED from the chart, one per (row, distinct
+    # claude candidate): the row's model, effort and header ride in the
+    # frontmatter, so a spawn on one carries the row's economics with no
+    # rewriting, and a row that goes away takes its file with it.
+    print(f"\ngenerated row agents -> {lay.gen_agents_dir}")
+    generated = generate_kind_agents(rep, lay.gen_agents_dir)
     for f in generated:
         if not rep.dry:
             man.add("file", str(f))
-        link(rep, man, lay.agents_dir / f.name, f, f.name, adopt=args.adopt_personas)
+        link(rep, man, lay.agents_dir / f.name, f, f.name)
     print(f"  {len(generated)} generated agent file(s)")
 
-    print("\nrouting table")
-    link(rep, man, lay.conf_dir / "agent_trigger_matrix.toml",
-         KIT_DIR / "agent_trigger_matrix.toml", "agent_trigger_matrix.toml")
+    print("\nrouting chart")
+    chart = matrix_path()
+    link(rep, man, lay.conf_dir / chart.name, chart, chart.name)
     for problem in validate_matrix():
-        rep.conflict(f"matrix: {problem}")
+        rep.conflict(f"chart: {problem}")
 
     # -- settings -----------------------------------------------------------
     print(f"\nsettings  {lay.settings}")
@@ -406,8 +393,8 @@ def cmd_install(args) -> int:
     return 1
 
 
-def generate_row_agents(rep: Report, gen_dir: Path) -> list[Path]:
-    """Write <kit>/agents/generated/row-*.md from the routing table.
+def generate_kind_agents(rep: Report, gen_dir: Path) -> list[Path]:
+    """Write row-*.md into `gen_dir` from the routing chart.
 
     In a dry run it writes into a throwaway directory instead, so the count is
     real (the generator runs) while the clone is untouched.
@@ -432,7 +419,7 @@ def generate_row_agents(rep: Report, gen_dir: Path) -> list[Path]:
     made = gen_agents.generate(m, gen_dir)
     # A row that has gone away must not leave its agent file behind.
     keep = {p.name for p in made}
-    for stale in gen_dir.glob("row-*.md"):
+    for stale in gen_dir.glob("*.md"):
         if stale.name not in keep:
             stale.unlink()
             rep.change(f"removed stale row agent {stale.name}")
@@ -440,29 +427,26 @@ def generate_row_agents(rep: Report, gen_dir: Path) -> list[Path]:
 
 
 def validate_matrix() -> list[str]:
-    """Every way the installed table is internally wrong, as one line each."""
+    """Every way the installed chart is internally wrong, as one line each."""
     try:
         from token_kit.router import matrix as matrix_mod
-        return matrix_mod.validate(matrix_mod.load(KIT_DIR / "agent_trigger_matrix.toml"))
+        return matrix_mod.validate(matrix_mod.load(matrix_path()))
     except Exception as exc:  # noqa: BLE001
         return [str(exc)]
 
 
 def env_file_body(prof) -> str:
+    """What the shims source. Every value is DETECTED or defaulted; to change
+    one, write ~/.config/token_kit/config.toml and re-run install.sh."""
     lines = [
-        f"# generated by token_kit -- profile {prof.name}. Do not edit by hand;",
-        f"# edit {prof.source.name} in the clone's profiles/ and re-run install.sh.",
+        "# generated by token_kit install -- see env_file_body() in cli.py.",
+        "# Values are detected at install time; override them in",
+        f"# {prof.source_file} and re-run install.sh.",
         f"export TOKEN_KIT_CLONE={KIT_DIR}",
     ]
     for k, v in prof.as_env().items():
         lines.append(f"export {k}={v}")
-    lines += [
-        "# consumed by the kit's own tools:",
-        f"export CAMPAIGN_DIR=${{CAMPAIGN_DIR:-{prof.campaign_dir}}}",
-        f"export LANE_RECYCLER_DATA_ROOT=${{LANE_RECYCLER_DATA_ROOT:-{prof.data_root}}}",
-        f"export LANE_RECYCLER_MATRIX=${{LANE_RECYCLER_MATRIX:-{KIT_DIR / 'agent_trigger_matrix.toml'}}}",
-        f"export CODEX_LAUNCHER=${{CODEX_LAUNCHER:-{prof.codex_launcher}}}",
-    ]
+    lines.append(f"export TK_MATRIX=${{TK_MATRIX:-{matrix_path()}}}")
     return "\n".join(lines) + "\n"
 
 
@@ -546,26 +530,6 @@ def cmd_uninstall(args) -> int:
                 p.unlink()
                 rep.change(f"removed {p}")
 
-    # An adopted file goes back exactly where it was, before anything else
-    # could claim the name. The symlink above is already gone by now.
-    for row in man.of_kind("adopted"):
-        aside, dest = Path(row[1]), Path(row[2])
-        if not aside.is_file():
-            rep.conflict(f"{aside} is gone -- cannot restore {dest}")
-            continue
-        if dest.exists():
-            rep.conflict(f"{dest} exists again -- your file stays at {aside}")
-            continue
-        if rep.dry:
-            rep.plan(f"restore {aside} -> {dest}")
-        else:
-            aside.rename(dest)
-            rep.change(f"restored your own {dest.name}")
-            try:
-                aside.parent.rmdir()
-            except OSError:
-                pass
-
     if lay.settings.is_file():
         current = load_settings(lay.settings)
         new = current
@@ -604,6 +568,30 @@ def cmd_uninstall(args) -> int:
 # --------------------------------------------------------------------------
 def cmd_probe(args) -> int:
     return probe(Layout(), live=args.live)
+
+
+def live_canary() -> tuple[str, str]:
+    """ONE real model call: is a planted instruction file actually in context?
+
+    This is the only thing in the kit that spends money, so it is opt-in
+    (`--live`) and it runs exactly one probe on the cheapest tier.
+    """
+    import tempfile
+
+    from token_kit import canary
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        line = canary.emit("probe")
+        token = line.split("token=")[1].split()[0]
+        (root / "CLAUDE.md").write_text(
+            "Scratch instruction file for a one-shot context probe.\n" + line + "\n")
+        manifest = root / "slots.tsv"
+        manifest.write_text(f"probe\ttoken\t{root / 'CLAUDE.md'}\t{token}\t\n")
+        rows, broken = canary.probe(manifest, str(root), model="haiku",
+                                    evidence=root / "evidence")
+    row = rows[0]
+    return row.status, f"{row.status}  {row.detail}  (broken={broken or 'no'})"
 
 
 def probe(lay: Layout, live: bool = False) -> int:
@@ -667,49 +655,39 @@ def probe(lay: Layout, live: bool = False) -> int:
 
     check(lay.env_file.is_file(), f"env.sh present ({lay.env_file})")
 
-    agents = [p for p in lay.agents_dir.glob("*.md")
-              if p.is_symlink() and str(KIT_DIR) in os.readlink(p)]
-    check(bool(agents), f"{len(agents)} kit agent file(s) resolvable in {lay.agents_dir}")
+    # EVERY agent file we install is generated into lay.gen_agents_dir; nothing
+    # checked in is linked. The generator names its own files, so the test is
+    # WHERE a link points, never what it is called.
+    agents = [p for p in lay.agents_dir.glob("*.md") if p.is_symlink()
+              and Path(os.readlink(p)).parent == lay.gen_agents_dir]
+    check(bool(agents), f"{len(agents)} generated row agent(s) linked in {lay.agents_dir}")
     unresolved = [p.name for p in agents if not p.resolve().is_file()]
-    check(not unresolved, f"every kit agent link resolves ({unresolved or 'all good'})")
+    check(not unresolved, f"every generated agent link resolves ({unresolved or 'all good'})")
     no_name = [p.name for p in agents
                if not any(l.startswith("name:") for l in p.read_text().splitlines()[:8])]
-    check(not no_name, f"every kit agent carries a name: field ({no_name or 'all good'})")
+    check(not no_name, f"every generated agent carries a name: field ({no_name or 'all good'})")
+    adopted = [p.name for p in lay.agents_dir.glob("*.md")
+               if p.is_symlink() and str(KIT_DIR) in os.readlink(p)]
+    check(not adopted,
+          f"no checked-in agent file is linked ({adopted or 'none, as intended'})")
 
-    matrix = lay.conf_dir / "agent_trigger_matrix.toml"
-    if not matrix.exists():
-        matrix = KIT_DIR / "agent_trigger_matrix.toml"
-    try:
-        import tomllib
-        with matrix.open("rb") as fh:
-            table = tomllib.load(fh)
-        rows = table.get("row", [])
-        check(bool(rows), f"matrix parses as TOML: {len(rows)} [[row]] block(s)")
-        unnamed = [i for i, r in enumerate(rows) if not (r.get("id") or r.get("name"))]
-        check(not unnamed, f"every row carries an id/name ({unnamed or 'all good'})")
-    except Exception as exc:  # noqa: BLE001 -- any parse failure is a probe failure
-        check(False, f"matrix does not parse: {matrix}: {exc}")
-
+    chart = lay.conf_dir / matrix_path().name
+    check(chart.is_file(), f"routing chart linked: {chart}")
     problems = validate_matrix()
-    check(not problems, f"matrix validates ({problems[:3] or 'no problems'})")
-
-    gen = [p for p in lay.agents_dir.glob("row-*.md") if p.is_symlink()]
-    check(bool(gen), f"{len(gen)} generated row agent(s) linked in {lay.agents_dir}")
+    check(not problems, f"chart validates ({problems[:3] or 'no problems'})")
 
     violations = census_modules()
     check(not violations,
-          f"installed modules carry no live cluster path/user/host "
+          f"installed modules carry no machine fact and no project word "
           f"({len(violations)} violation(s))")
 
     if live:
-        canary = KIT_DIR / "reference_bash" / "instruction_canary" / "canary"
-        if canary.is_file():
-            proc = subprocess.run(["bash", str(canary), "selftest"], capture_output=True)
-            for line in proc.stdout.decode().splitlines()[-3:]:
-                print(f"        {line}")
-            check(proc.returncode == 0, "live canary ran")
-        else:
-            check(False, "canary not present")
+        status, detail = live_canary()
+        for line in detail.splitlines():
+            print(f"        {line}")
+        check(status == "LOADED",
+              f"live canary: an instruction file planted in a scratch directory "
+              f"came back {status}")
 
     print(f"  probe: {npass} pass, {nfail} fail")
     return 0 if nfail == 0 else 1
@@ -724,42 +702,82 @@ CENSUS_PATTERNS_FILE = Path(__file__).resolve().parent / "census_patterns.toml"
 
 
 def census_patterns() -> list[tuple[str, str]]:
+    """The rows of the data file, plus one built here.
+
+    The name of whoever is running is a machine fact like any other, but it
+    differs per machine, so it is read from the environment rather than written
+    into the detector. A name too short to be distinctive is skipped: it would
+    match ordinary words and make the census cry wolf.
+    """
     import tomllib
     with CENSUS_PATTERNS_FILE.open("rb") as fh:
         table = tomllib.load(fh)
-    return [(str(p["kind"]), str(p["pattern"])) for p in table.get("pattern", [])]
+    rows = [(str(p["kind"]), str(p["pattern"])) for p in table.get("pattern", [])]
+    import getpass
+    import re as _re
+    try:
+        user = getpass.getuser()
+    except Exception:  # noqa: BLE001 -- no passwd entry is not a census failure
+        user = ""
+    if len(user) >= 4 and user.isalnum():
+        rows.append(("username", _re.escape(user)))
+    return rows
 
-# Anything that looks like an auth file never enters the repo. This is a
-# refusal, not a warning.
+
+#: Anything that looks like an auth file never enters the repo.
 SECRET_NAMES = ("auth.json", "credentials", ".env", "id_rsa", ".netrc")
 SECRET_SUFFIXES = (".pem", ".key")
 
-# Not secrets, but PERSONAL: files that describe one operator's own machine and
-# have no business in a public repo. They are skipped at import, not censused.
-PERSONAL_GLOBS = ("manifest.*.tsv",)
-
-# The six tools whose behaviour the Python ports must match. agent_memory is
-# deliberately absent: it was stopped incomplete and its guard never ran.
-REFERENCE_TOOLS = ["token_supervisor", "lane_recycler", "codex_native",
-                   "codex_surface", "instruction_canary", "matrix_final"]
-AGENT_SOURCES = ["matrix_final/agents", "codex_native/agents"]
+#: Directories the kit-wide word scan does not own. The router's chart, its
+#: cases and its agent files are another lane's to keep clean.
+CENSUS_SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "agents"}
+CENSUS_SKIP_RELATIVE = ("tests/router", "src/token_kit/router")
+CENSUS_SKIP_SUFFIXES = (".pyc", ".png", ".jpg", ".gz", ".zip")
 
 
 def module_files() -> list[Path]:
     """Everything that is INSTALLED and therefore runs on someone's machine.
 
-    The frozen bash spec under reference_bash/ is not here: it is read, never
-    run, and its rows are the portability worklist. These files are the live
-    path, and their target is ZERO -- a cluster path, a username or a hostname
-    in one of them is a defect, because it belongs in a profile TOML that
-    `token_kit.profiles` reads.
+    Their target is ZERO: a machine path, a user name, a host name or a project
+    word in one of them is a defect, because a machine fact is DETECTED at run
+    time and a project name has no business in a kit that runs from anywhere.
     """
     out = [p for p in sorted((KIT_DIR / "src" / "token_kit").rglob("*.py"))
            if "__pycache__" not in p.parts]
     for sub in ("respawn", "supervisor", "codex"):
         out += sorted((KIT_DIR / "src" / "token_kit" / sub / "bin").glob("*"))
     out.append(KIT_DIR / "install.sh")
-    return [p for p in out if p.is_file() and p != CENSUS_PATTERNS_FILE]
+    return [p for p in out if p.is_file() and p != CENSUS_PATTERNS_FILE
+            and not _skipped(p)]
+
+
+def _skipped(path: Path) -> bool:
+    """Is this file another lane's to keep clean? The router's package, chart,
+    cases and agent files are guarded by the lane that owns them."""
+    try:
+        rel = str(path.relative_to(KIT_DIR))
+    except ValueError:
+        return False
+    return any(rel.startswith(skip) for skip in CENSUS_SKIP_RELATIVE)
+
+
+def kit_files() -> list[Path]:
+    """Every file in the kit the word scan owns: all of it but the router's
+    chart, cases and agent files, and but the detector itself."""
+    out = []
+    chart_names = set(MATRIX_NAMES)
+    for path in sorted(KIT_DIR.rglob("*")):
+        if not path.is_file() or path == CENSUS_PATTERNS_FILE:
+            continue
+        rel = path.relative_to(KIT_DIR)
+        if set(rel.parts) & CENSUS_SKIP_DIRS or path.suffix in CENSUS_SKIP_SUFFIXES:
+            continue
+        if _skipped(path):
+            continue
+        if str(rel) in chart_names:
+            continue
+        out.append(path)
+    return out
 
 
 def scan(files, patterns) -> list[tuple[str, str, int, str]]:
@@ -788,98 +806,41 @@ def census_modules() -> list[tuple[str, str, int, str]]:
     return scan(module_files(), census_patterns())
 
 
+def census_project_words() -> list[tuple[str, str, int, str]]:
+    """A project name anywhere in the kit. Also zero: the kit runs from
+    anywhere, so it may not name the place it grew up in."""
+    words = [(k, p) for k, p in census_patterns() if k == "project_word"]
+    return scan(kit_files(), words)
+
+
 def cmd_census(args) -> int:
-    import shutil
-
-    from token_kit import profiles as profiles_mod
-
-    ref_dir = KIT_DIR / "reference_bash"
-    if args.do_import:
-        # No literal path here: where the frozen bash spec is copied FROM is a
-        # profile key (`[paths] reference_source`), like every other machine
-        # fact in this kit.
-        source = args.source or str(
-            profiles_mod.load(KIT_DIR / "profiles", args.profile).reference_source)
-        src = Path(os.path.expanduser(source))
-        if not (src / "tools").is_dir():
-            print(f"census: no {src}/tools", file=sys.stderr)
-            return 1
-        ref_dir.mkdir(parents=True, exist_ok=True)
-        n = 0
-        for tool in REFERENCE_TOOLS:
-            s = src / "tools" / tool
-            if not s.is_dir():
-                print(f"  MISSING tools/{tool} (skipped)")
-                continue
-            d = ref_dir / tool
-            if d.exists():
-                shutil.rmtree(d)
-            shutil.copytree(s, d, ignore=shutil.ignore_patterns(*PERSONAL_GLOBS))
-            n += 1
-        matrix = src / "agent_trigger_matrix.toml"
-        if matrix.is_file():
-            shutil.copy2(matrix, KIT_DIR / "agent_trigger_matrix.toml")
-            n += 1
-        # agent prompt files are CONTENT, not bash: they are installed, so they
-        # live outside reference_bash/.
-        agents_dir = KIT_DIR / "agents"
-        agents_dir.mkdir(exist_ok=True)
-        nag = 0
-        for rel in AGENT_SOURCES:
-            for f in sorted((src / "tools" / rel).glob("*.md")):
-                shutil.copy2(f, agents_dir / f.name)
-                nag += 1
-        print(f"census: imported {n} component(s) into {ref_dir}, {nag} agent file(s)")
-
-        refused = 0
-        for p in ref_dir.rglob("*"):
-            if p.is_file() and (p.name in SECRET_NAMES or p.suffix in SECRET_SUFFIXES):
-                print(f"census: REFUSED secret-shaped file: {p}")
-                p.unlink()
-                refused += 1
-        print(f"census: secret-shaped files refused: {refused}")
-        if refused:
-            return 1
-
-    patterns = census_patterns()
-    # The agent prompt files under reference_bash/*/agents are the same bytes
-    # as the installed ones in agents/; censusing both would double every row.
-    targets = sorted(p for p in ref_dir.rglob("*")
-                     if p.is_file() and p.parent.name != "agents")
-    matrix = KIT_DIR / "agent_trigger_matrix.toml"
-    if matrix.is_file():
-        targets.append(matrix)
-    targets += sorted((KIT_DIR / "agents").glob("*.md"))
-
-    rows = scan(targets, patterns)
-
-    # THE NUMBER THAT MUST BE ZERO: the same patterns over the modules that
-    # actually get installed and run. reference_bash rows above are a
-    # worklist; these are a defect.
     violations = census_modules()
-    print(f"census: live-path violations in installed modules = {len(violations)}"
+    print(f"census: machine facts in installed modules = {len(violations)}"
           f"  (target 0)")
     for kind, rel, lineno, text in violations:
-        print(f"  VIOLATION {kind:<12} {rel}:{lineno}  {text[:100]}")
+        print(f"  VIOLATION {kind:<14} {rel}:{lineno}  {text[:100]}")
 
-    out = KIT_DIR / "HARDCODED.tsv"
-    with out.open("w") as fh:
-        fh.write("kind\tfile\tline_no\tline_text\n")
-        for r in rows:
-            fh.write("\t".join(str(x) for x in r) + "\n")
+    words = census_project_words()
+    print(f"census: project words anywhere in the kit = {len(words)}  (target 0)")
+    for kind, rel, lineno, text in words:
+        print(f"  PROJECT   {kind:<14} {rel}:{lineno}  {text[:100]}")
 
-    by_kind, by_file = {}, {}
-    for kind, rel, _, _ in rows:
-        by_kind[kind] = by_kind.get(kind, 0) + 1
-        by_file[rel] = by_file.get(rel, 0) + 1
-    print(f"census: {len(rows)} row(s) -> {out}")
-    print("\ncounts by kind:")
-    for k, c in sorted(by_kind.items(), key=lambda kv: -kv[1]):
-        print(f"  {k:<12} {c:5d}")
-    print("\nfiles with the most rows:")
-    for k, c in sorted(by_file.items(), key=lambda kv: -kv[1])[:12]:
-        print(f"  {k:<50} {c:5d}")
-    return 1 if violations else 0
+    secrets = [p for p in kit_files()
+               if p.name in SECRET_NAMES or p.suffix in SECRET_SUFFIXES]
+    print(f"census: secret-shaped files = {len(secrets)}  (target 0)")
+    for p in secrets:
+        print(f"  SECRET    {p.relative_to(KIT_DIR)}")
+
+    print(f"census: scanned {len(module_files())} installed module(s), "
+          f"{len(kit_files())} file(s) for project words")
+    return 1 if (violations or words or secrets) else 0
+
+
+def cmd_config(args) -> int:
+    """Print what this machine resolved, and where each value came from."""
+    from token_kit import config as config_mod
+    print(config_mod.describe())
+    return 0
 
 
 # --------------------------------------------------------------------------
@@ -913,30 +874,22 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("install", help="install the kit on this machine")
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--profile", default=None)
     p.add_argument("--live", action="store_true", help="probe with the live canary (costs cents)")
-    p.add_argument("--adopt-personas", action="store_true",
-                   help="move a pre-existing real agent file aside into "
-                        f"~/.claude/agents/{ADOPT_DIR}/ and link the kit's one "
-                        "(nothing is ever deleted; uninstall puts it back)")
     p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("uninstall", help="remove exactly what install added")
     p.add_argument("--dry-run", action="store_true")
-    p.add_argument("--profile", default=None)
     p.set_defaults(fn=cmd_uninstall)
 
     p = sub.add_parser("probe", help="check that the install took")
     p.add_argument("--live", action="store_true")
     p.set_defaults(fn=cmd_probe)
 
-    p = sub.add_parser("census", help="the sanitisation / portability worklist")
-    p.add_argument("--import", dest="do_import", action="store_true",
-                   help="re-copy the reference bash tools first")
-    p.add_argument("--source", default=None,
-                   help="where to import from (default: the profile's reference_source)")
-    p.add_argument("--profile", default=None)
+    p = sub.add_parser("census", help="machine facts and project words: both must be zero")
     p.set_defaults(fn=cmd_census)
+
+    p = sub.add_parser("config", help="print the resolved machine facts and their origin")
+    p.set_defaults(fn=cmd_config)
 
     p = sub.add_parser("hook", help="PreToolUse hook entry point (reads stdin)")
     p.set_defaults(fn=cmd_hook)

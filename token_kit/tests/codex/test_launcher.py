@@ -76,10 +76,10 @@ class LauncherCase(unittest.TestCase):
         self.binary.chmod(0o755)
         self.write_profile()
         self._saved_env = {k: os.environ.get(k) for k in
-                           (L.SHARED_HOME_ENV, L.PROFILES_DIR_ENV, L.PROFILE_NAME_ENV)}
+                           (L.SHARED_HOME_ENV, L.CONFIG_DIR_ENV, L.CONFIG_NAME_ENV)}
         os.environ[L.SHARED_HOME_ENV] = str(self.shared)
-        os.environ[L.PROFILES_DIR_ENV] = str(self.profiles)
-        os.environ[L.PROFILE_NAME_ENV] = "scratch"
+        os.environ[L.CONFIG_DIR_ENV] = str(self.profiles)
+        os.environ[L.CONFIG_NAME_ENV] = "scratch"
 
     def tearDown(self) -> None:
         for key, value in self._saved_env.items():
@@ -321,7 +321,8 @@ class LauncherCase(unittest.TestCase):
             env=env, capture_output=True, text=True, timeout=120)
         self.assertEqual(proc.returncode, D.EXIT_BUSY_OR_ABSENT, proc.stderr)
         self.assertIn("reason=absent", proc.stderr)
-        self.assertIn("scratch", proc.stderr, "the refusal must name the profile that required it")
+        self.assertIn("/nonexistent/codex", proc.stderr,
+                      "the refusal must name the binary it could not find")
         self.assertFalse(record.exists(), "a codex child was spawned anyway")
 
     def test_an_inherited_shared_CODEX_HOME_is_refused_under_a_node_local_profile(self):

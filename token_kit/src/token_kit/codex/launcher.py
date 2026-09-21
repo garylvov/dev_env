@@ -93,10 +93,10 @@ BYPASS_SYNONYMS = (BYPASS_FLAG, "--yolo")
 
 #: Where the shared (usually NFS) codex home is.  Overridable for tests.
 SHARED_HOME_ENV = "TOKEN_KIT_CODEX_SHARED_HOME"
-#: Point the config loader at a scratch profiles directory (tests).
-PROFILES_DIR_ENV = "TOKEN_KIT_PROFILES_DIR"
-#: Which profile to read; `env.sh` already exports this one.
-PROFILE_NAME_ENV = "TOKEN_KIT_PROFILE"
+#: Point the config loader at a scratch directory of config files (tests).
+CONFIG_DIR_ENV = "TOKEN_KIT_CONFIG_DIR"
+#: Which file in it to read, without the .toml (tests).
+CONFIG_NAME_ENV = "TOKEN_KIT_CONFIG_NAME"
 #: Copy memories/goals back to the shared home at exit.
 SYNC_BACK_ENVS = ("TOKEN_KIT_CODEX_SYNC", "RUN_CODEX_SYNC")
 
@@ -111,7 +111,7 @@ STARTUP_WAIT_S = 120.0
 
 @dataclass(frozen=True)
 class CodexConfig:
-    """The `[codex]` table of the active profile, with its defaults filled in.
+    """How codex is reached on this machine, with its defaults filled in.
 
     `node_local_home` is the key that matters: "this machine's codex home must
     be on node-local disk".  True on a cluster whose home is NFS; false on a
@@ -119,7 +119,6 @@ class CodexConfig:
     bare `codex` against the shared home is refused rather than run.
     """
 
-    profile: str = "workstation"
     launcher: str = "codex"
     node_local_home: bool = False
     tmp_root: Path = field(default_factory=lambda: Path("/tmp"))
@@ -128,44 +127,33 @@ class CodexConfig:
     bypass_approvals: bool = True
 
 
-def profiles_dir() -> Path:
-    override = os.environ.get(PROFILES_DIR_ENV)
-    if override:
-        return Path(override)
-    return Path(__file__).resolve().parents[3] / "profiles"
+def config_dir() -> Path | None:
+    """An explicit directory of config files, or None (the normal case)."""
+    override = os.environ.get(CONFIG_DIR_ENV)
+    return Path(override) if override else None
 
 
 def load_config(directory: Path | None = None, name: str | None = None) -> CodexConfig:
-    """Read `[codex]` out of the active profile.  Never raises."""
-    import tomllib
+    """The `[codex]` answer for this machine.  Never raises on absence.
 
-    from token_kit import profiles as profiles_mod
+    Everything is detected or defaulted (`token_kit.config`); a `[codex]` table
+    in the one optional override file wins over both.  `directory`/`name` name
+    an explicit config FILE instead -- the seam a guard uses to hand this
+    function a scratch `[codex]` table without touching the real machine.
+    """
+    from token_kit import config as config_mod
 
-    directory = Path(directory) if directory else profiles_dir()
-    chosen = name or os.environ.get(PROFILE_NAME_ENV) or ""
-    if not chosen:
-        try:
-            chosen = profiles_mod.detect(directory)
-        except OSError:
-            chosen = ""
-    src = directory / f"{chosen}.toml" if chosen else None
-    if src is None or not src.is_file():
-        # NO profile at all: the documented defaults. A profile that EXISTS and
-        # does not parse is never coerced into them -- tomllib raises here, and
-        # a machine whose profile is broken finds out at once instead of
-        # silently becoming "no node-local home needed".
-        return CodexConfig()
-    with src.open("rb") as handle:
-        raw = tomllib.load(handle)
-    table = raw.get("codex", {}) or {}
+    directory = Path(directory) if directory else config_dir()
+    chosen = name or os.environ.get(CONFIG_NAME_ENV) or ""
+    src = directory / f"{chosen or 'config'}.toml" if directory else None
+    resolved = config_mod.resolve(src if src and src.is_file() else None)
     return CodexConfig(
-        profile=str(raw.get("name", chosen)),
-        launcher=str(table.get("launcher", "codex")),
-        node_local_home=bool(table.get("node_local_home", False)),
-        tmp_root=Path(os.path.expanduser(str(table.get("node_local_tmp_root", "/tmp")))),
-        home_prefix=str(table.get("node_local_home_prefix", "codex-home")),
-        binary=str(table.get("binary", "")),
-        bypass_approvals=bool(table.get("bypass_approvals", True)),
+        launcher=str(resolved.codex_launcher),
+        node_local_home=bool(resolved.codex_node_local_home),
+        tmp_root=Path(resolved.codex_tmp_root),
+        home_prefix=str(resolved.codex_home_prefix),
+        binary=str(resolved.codex_binary),
+        bypass_approvals=bool(resolved.codex_bypass_approvals),
     )
 
 
@@ -182,7 +170,7 @@ def node_local_home(config: CodexConfig) -> Path:
 
 
 def resolve_binary(config: CodexConfig) -> str:
-    """profile key, else the standalone install, else PATH.  "" when absent."""
+    """configured binary, else the standalone install, else PATH.  "" if absent."""
     if config.binary:
         candidate = os.path.expanduser(config.binary)
         return candidate if os.access(candidate, os.X_OK) else ""
@@ -481,7 +469,7 @@ def prepare(
         node-local home is prepared here and the binary is spawned directly,
         no shell in the path.  A home that cannot be prepared, or a binary that
         is not there, is rc 42 `absent`.
-      * otherwise -- the profile's `launcher` key as given (a plain `codex` on
+      * otherwise -- the resolved `launcher` value as given (a plain `codex` on
         a workstation), with no home preparation at all.
     """
     cfg = config or load_config()
@@ -500,7 +488,7 @@ def prepare(
         if cfg.node_local_home and inherited and not _under(inherited, cfg.tmp_root):
             raise LauncherUnavailable(
                 "absent",
-                f"profile {cfg.profile} requires a node-local codex home and "
+                f"this machine requires a node-local codex home and "
                 f"CODEX_HOME={inherited} is not under {cfg.tmp_root}")
         return PreparedLaunch(argv=_launcher_argv(override, subcommand), env=env, config=cfg)
 
@@ -509,8 +497,8 @@ def prepare(
         if not binary:
             raise LauncherUnavailable(
                 "absent",
-                f"profile {cfg.profile} requires the kit launcher and no codex "
-                f"binary was found (profile binary={cfg.binary or 'unset'})")
+                f"this machine requires the kit launcher and no codex binary "
+                f"was found (configured binary={cfg.binary or 'unset'})")
         lock: NodeLock | None = None
         if serialise_startup:
             lock = NodeLock(cfg.tmp_root
@@ -552,11 +540,11 @@ def prepare(
     if os.path.sep in path:
         if not os.path.exists(path):
             raise LauncherUnavailable(
-                "absent", f"profile {cfg.profile} names launcher {named} and it is not there")
+                "absent", f"the configured launcher {named} is not there")
         return PreparedLaunch(argv=_launcher_argv(path, subcommand), env=env, config=cfg)
     found = shutil.which(path)
     if not found:
-        raise LauncherUnavailable("absent", f"no {named} on PATH (profile {cfg.profile})")
+        raise LauncherUnavailable("absent", f"no {named} on PATH")
     return PreparedLaunch(argv=[found, *subcommand], env=env, config=cfg)
 
 

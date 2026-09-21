@@ -1,20 +1,25 @@
-"""Sealed dials for the rollover supervisor: a TOML file plus CLI arguments.
+"""Sealed dials for the rollover supervisor: CLI arguments plus optional TOML.
 
-No env-var dials. Everything the supervisor uses is a key here, a key in the
-TOML file named by `--config`, or a CLI argument. Machine paths come from
-`token_kit.profiles`, never from a literal in this file.
+No env-var dials. Everything the supervisor uses is a default here, a key in
+the `[supervisor]` table of the kit's optional override file (or of a file
+named by `--config`), or a CLI argument.
+
+RUNS FROM ANYWHERE. The supervisor is told which handoff file to watch:
+`--state-file <path>`, defaulting to `./STATE.md` in the current directory.
+Nothing here names a directory of work. The registry, the log and the markers
+go under the XDG state dir, keyed by a hash of the state file's ABSOLUTE path,
+so two supervised sessions in two different directories never share a lock, a
+log or a rollover marker.
 
 THE CEILING IS A COST DECISION, NOT A WINDOW DECISION.
 Every call re-pays the whole standing context (cache_read is ~95% of spend), so
 a session living at 900k pays roughly four times per call what one living at
 235k pays. Rolling over EARLY is the saving; the usable window is irrelevant to
-it. A lane raised these to 900000/950000 on 2026-09-20 reasoning "235k is 23%
-of the window -- waste"; that inverts the campaign's purpose and the main thread
-reverted it the same night. Do not raise them to "use the window"; raise them
-only on a measured cost argument.
+it. Raising these to "use the window" inverts the purpose; raise them only on a
+measured cost argument.
 
-What that lane's measurement DOES establish, kept because it makes this
-supervisor matter more: native auto-compaction is NOT a fallback at 250k. 28
+What one such measurement DOES establish, kept because it makes this supervisor
+matter more: native auto-compaction is not a fallback at 250k. 28
 `compactMetadata` records over the five largest transcripts of a 1M-window model
 show `trigger="auto"` firing at preTokens 967042 .. 1006280, median ~999800 --
 i.e. at ~1,000,000, not at the `autoCompactWindow: 250000` that settings.json
@@ -24,25 +29,36 @@ For a 200k-window model the same method gives 150000 / 180000.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-KIT_DIR = Path(__file__).resolve().parents[3]
-PROFILES_DIR = KIT_DIR / "profiles"
 BIN = Path(__file__).resolve().parent / "bin" / "token-kit-supervise"
+
+#: The default handoff file, relative to wherever the operator is standing.
+DEFAULT_STATE_FILE = "STATE.md"
 
 
 @dataclass
 class Config:
     # --- thresholds (context tokens of the last main-thread request) ---------
-    soft_tokens: int = 180000        # ask the session to bring STATE.md current
+    soft_tokens: int = 180000        # ask the session to bring the state file current
     hard_tokens: int = 235000        # roll over regardless
     drain_wait_secs: int = 600       # how long in-flight work may drain
     poll_secs: int = 60              # transcript poll period
 
-    # --- where state lives ---------------------------------------------------
-    campaign_dir: str = ""           # filled from the profile when empty
+    # --- what is watched, and where its bookkeeping lives --------------------
+    # The handoff file. `--state-file`; default ./STATE.md. Its absolute path
+    # is the identity of this supervised session.
+    state_file: str = DEFAULT_STATE_FILE
+    # The directory a relaunched session starts in. Empty = the state file's
+    # own directory.
+    cwd: str = ""
+    # Where the registry, log, markers and seeds go. Empty = the XDG state dir
+    # keyed by a hash of the state file's absolute path.
+    run_root: str = ""
     claude_home: str = ""            # filled from ~/.claude when empty
 
     # --- relaunch identity ---------------------------------------------------
@@ -76,9 +92,30 @@ class Config:
     rollover_cmd: str = ""
     kill_cmd: str = ""
 
+    # ---------------------------------------------------------------- derived
+    @property
+    def state_path(self) -> Path:
+        return Path(os.path.expanduser(self.state_file)).absolute()
+
+    @property
+    def work_dir(self) -> Path:
+        """Where a relaunched session starts: `--cwd`, else beside the state file."""
+        return Path(os.path.expanduser(self.cwd)).absolute() if self.cwd \
+            else self.state_path.parent
+
+    @property
+    def session_key(self) -> str:
+        """The identity of this supervised session: a hash of the ABSOLUTE
+        state-file path. Two projects, two keys, no collision -- and no part of
+        anyone's directory names ends up in a shared state directory."""
+        return hashlib.sha256(str(self.state_path).encode()).hexdigest()[:16]
+
     @property
     def run_dir(self) -> Path:
-        return Path(self.campaign_dir) / ".ccsup"
+        if self.run_root:
+            return Path(os.path.expanduser(self.run_root)) / self.session_key
+        from token_kit import config as config_mod
+        return config_mod.state_home() / "supervise" / self.session_key
 
     @property
     def log(self) -> Path:
@@ -94,7 +131,9 @@ class Config:
 
     @property
     def request(self) -> Path:
-        return Path(self.campaign_dir) / "ROLLOVER_REQUEST.md"
+        """The SOFT channel: an appended request beside the state file, where
+        the session it is addressed to is already looking."""
+        return self.state_path.parent / "ROLLOVER_REQUEST.md"
 
     @property
     def flags_file(self) -> Path:
@@ -119,15 +158,22 @@ def _coerce(name: str, value):
     return str(value)
 
 
-def load(config_file: str | Path | None = None, overrides: dict | None = None,
-         profile: str | None = None) -> Config:
-    """Defaults <- profile <- TOML file <- CLI overrides. Unknown keys refuse."""
-    cfg = Config()
+def _apply(cfg: Config, table: dict, where: str) -> None:
+    for key, value in table.items():
+        if key not in _NAMES:
+            raise SystemExit(f"supervise: unknown config key in {where}: {key}")
+        setattr(cfg, key, _coerce(key, value))
 
-    from token_kit import profiles
-    prof = profiles.load(PROFILES_DIR, profile)
-    cfg.campaign_dir = str(prof.campaign_dir)
+
+def load(config_file: str | Path | None = None, overrides: dict | None = None) -> Config:
+    """Defaults <- the kit's override file <- --config file <- CLI. Unknown keys refuse."""
+    cfg = Config()
     cfg.claude_home = str(Path.home() / ".claude")
+
+    from token_kit import config as config_mod
+    kit = config_mod.read_override()
+    if isinstance(kit.get("supervisor"), dict):
+        _apply(cfg, kit["supervisor"], str(config_mod.override_path()))
 
     if config_file:
         src = Path(config_file)
@@ -135,11 +181,7 @@ def load(config_file: str | Path | None = None, overrides: dict | None = None,
             raise SystemExit(f"supervise: no such config file: {src}")
         with src.open("rb") as fh:
             raw = tomllib.load(fh)
-        table = raw.get("supervisor", raw)
-        for key, value in table.items():
-            if key not in _NAMES:
-                raise SystemExit(f"supervise: unknown config key in {src}: {key}")
-            setattr(cfg, key, _coerce(key, value))
+        _apply(cfg, raw.get("supervisor", raw), str(src))
 
     for key, value in (overrides or {}).items():
         if value is None:
