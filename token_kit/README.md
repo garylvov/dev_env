@@ -4,6 +4,13 @@ Cuts Claude Code spend. The cost of a session is calls × the context each call 
 kit does three things: sends each subagent to the cheapest model that can do the job, caps how
 long any one agent runs, and restarts a session before its context gets expensive.
 
+**It avoids compaction.** Built-in auto-compact fires only when the window is nearly full — by then
+every call has been re-reading a huge context for hours — and it replaces the conversation with a
+lossy summary. Start your session with `token-kit-supervise launch` instead: it restarts the
+session early (235k tokens by default) from a `STATE.md` you keep current, plus `PROMPTS.md`, your
+exact words. Nothing is summarised, so nothing drifts, and the session never gets big enough to
+compact. A session started any other way is not watched and will still compact.
+
 Standard-library Python (run through `uv`, needs ≥3.11). Bash only as thin shims.
 
 ## Install
