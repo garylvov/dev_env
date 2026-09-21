@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# codex-dispatch -- one codex turn, on demand.  See token_kit/codex/dispatch.py.
+set -euo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # .../token_kit/src
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python 3.11 --no-project python -m token_kit.codex.dispatch "$@"
