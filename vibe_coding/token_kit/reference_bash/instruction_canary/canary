@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# canary -- prove MECHANICALLY that an instruction file is in the model's context.
+#
+# THREE OUTCOMES, NEVER COLLAPSED:
+#   LOADED        the slot's expected witness came back from a clean probe
+#   NOT_LOADED    the probe was PROVEN clean (liveness nonce echoed, JSON ok,
+#                 the slot's answer line present) and the witness was absent
+#   PROBE_BROKEN  anything that means we do not know: non-zero exit, non-JSON,
+#                 is_error, subtype!=success, empty result, missing/wrong
+#                 liveness nonce, or a missing answer line for that slot.
+# A PROBE_BROKEN reported as NOT_LOADED is the defect that makes this worthless,
+# so every unknown is forced to PROBE_BROKEN by construction: LOADED and
+# NOT_LOADED are only reachable after the liveness nonce matched.
+#
+# TOKEN CONVENTION (mode=token)
+#   One self-contained PLAIN line, the LAST line of the instruction file:
+#     INSTRUCTION-CANARY slot=<slot-id> token=<16 hex, upper> gen=<date>
+#   MEASURED 2026-09-20: an HTML-comment form (<!-- ... -->) is STRIPPED
+#   before the file reaches the model -- same file, same probe, the plain
+#   line came back and the commented one did not. So the marker must NOT
+#   be hidden in a comment. The plain line is still inert: it has no verb
+#   and no imperative, so it cannot be read as an instruction; it is
+#   greppable, carries its own file identity in slot=, and survives a
+#   human editing the text around it because it depends on nothing else.
+#   Generate with:  canary emit <slot-id>
+#
+# WITNESS MODE (mode=witness)
+#   For files we are FORBIDDEN to edit (real CLAUDE.md / AGENTS.md): ask a
+#   question only that file's text can answer and match the answer. No edit.
+#
+# NO Python. bash + jq. Rows are appended with `cat >>`, one writer per rows file.
+set -u
+set -o pipefail
+
+PROG=${0##*/}
+# Marker prefix assembled from parts so that any scan below CANNOT match this
+# script's own source or its own argv (law: a scan that matches itself).
+MARK_A='INSTRUCTION'; MARK_B='CANARY'; MARK="${MARK_A}-${MARK_B}"
+
+die() { echo "$PROG: $*" >&2; exit 2; }
+
+usage() {
+  cat <<EOF
+usage:
+  $PROG emit <slot-id>                       print a canary marker line
+  $PROG verify <slot-id> <file>              is the marker still the last line?
+  $PROG probe --manifest F --dir D [opts]    run ONE probe, classify every slot
+  $PROG selftest --scratch DIR               fixture-driven guard test
+
+probe opts: --model M (default sonnet) --settings F --rows F --evidence DIR
+manifest (TSV, # comments, columns):
+  slot <TAB> mode(token|witness) <TAB> path <TAB> expect-regex <TAB> question
+  mode=token: expect-regex is the token; question is generated.
+EOF
+}
+
+emit() {
+  local slot=${1:-} tok
+  [ -n "$slot" ] || die "emit needs a slot id"
+  tok=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n' | tr 'a-f' 'A-F')
+  printf '%s slot=%s token=%s gen=%s\n' "$MARK" "$slot" "$tok" "$(date +%F)"
+}
+
+verify() {
+  local slot=${1:-} f=${2:-}
+  [ -f "$f" ] || { echo "MISSING_FILE $f"; return 1; }
+  # pattern rebuilt from parts: cannot match this command's own argv
+  local last; last=$(tail -n 1 "$f")
+  case "$last" in
+    *"${MARK_A}-${MARK_B}"*"slot=$slot"*) echo "OK $f $last"; return 0;;
+    *) echo "NO_MARKER_AT_EOF $f"; return 1;;
+  esac
+}
+
+# ---------------------------------------------------------------- probe -----
+probe() {
+  local manifest="" dir="" model="sonnet" settings="" rows="" evid=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --manifest) manifest=$2; shift 2;;
+      --dir)      dir=$2; shift 2;;
+      --model)    model=$2; shift 2;;
+      --settings) settings=$2; shift 2;;
+      --rows)     rows=$2; shift 2;;
+      --evidence) evid=$2; shift 2;;
+      *) die "unknown probe opt $1";;
+    esac
+  done
+  [ -n "$manifest" ] && [ -f "$manifest" ] || die "--manifest missing or unreadable"
+  [ -n "$dir" ] || die "--dir required"
+  local run_id ts
+  run_id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  ts=$(date -u +%FT%TZ)
+  [ -n "$evid" ] || evid=$(mktemp -d)
+  mkdir -p "$evid"
+
+  # --- read manifest -------------------------------------------------------
+  local slots=() modes=() paths=() expects=() qs=()
+  while IFS=$'\t' read -r s m p e q; do
+    case "$s" in ''|'#'*) continue;; esac
+    slots+=("$s"); modes+=("$m"); paths+=("$p"); expects+=("$e"); qs+=("$q")
+  done < "$manifest"
+  local n=${#slots[@]}
+  [ "$n" -gt 0 ] || die "manifest has no slots"
+
+  # --- build the prompt ----------------------------------------------------
+  local nonce; nonce=$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n' | tr 'a-f' 'A-F')
+  local q i body=""
+  for ((i=0;i<n;i++)); do
+    if [ "${modes[$i]}" = token ]; then
+      q="the token= value of the ${MARK} marker line whose slot= is ${slots[$i]}, exactly as written, or NONE if no such marker line is in your instructions"
+    else
+      q="${qs[$i]}"
+    fi
+    body+="${slots[$i]}: ${q}"$'\n'
+  done
+  local prompt
+  prompt="Answer only from the instructions already given to you. Use no tools. Do not search. Do not explain.
+Print exactly $((n+1)) lines and nothing else.
+Line 1 must be: ALIVE ${nonce}
+Then one line per key below, in this exact form: <key>=<answer>
+If your instructions do not contain the answer, write NONE as the answer, but still print the line.
+
+${body}"
+
+  # --- run -----------------------------------------------------------------
+  local out="$evid/$run_id.json" err="$evid/$run_id.err" rc
+  printf '%s\n' "$prompt" > "$evid/$run_id.prompt"
+  local -a cmd=(claude --model "$model" --output-format json -p "$prompt")
+  [ -n "$settings" ] && cmd=(claude --settings "$settings" --model "$model" --output-format json -p "$prompt")
+  ( cd "$dir" 2>/dev/null && "${cmd[@]}" ) > "$out" 2> "$err" < /dev/null
+  rc=$?
+
+  # --- run-level health ----------------------------------------------------
+  # GOTCHA: `claude -p` may print a stdin warning ABOVE the JSON; `< /dev/null`
+  # prevents it, and we additionally slice from the first '{' so a stray banner
+  # can never be mistaken for broken JSON -- and vice versa.
+  local broken="" json result="" alive=""
+  json=$(sed -n '/^{/,$p' "$out")
+  if [ $rc -ne 0 ]; then broken="exit_rc=$rc"
+  elif [ -z "$json" ]; then broken="no_json_on_stdout"
+  elif ! printf '%s' "$json" | jq -e . >/dev/null 2>&1; then broken="bad_json"
+  fi
+  local in_tok=0 out_tok=0 cr_tok=0 rd_tok=0 cost=0 nturns=0
+  if [ -z "$broken" ]; then
+    local iserr subtype
+    iserr=$(printf '%s' "$json" | jq -r '.is_error // false')
+    subtype=$(printf '%s' "$json" | jq -r '.subtype // "?"')
+    result=$(printf '%s' "$json" | jq -r '.result // ""')
+    nturns=$(printf '%s' "$json" | jq -r '.num_turns // 0')
+    in_tok=$(printf '%s' "$json" | jq -r '.usage.input_tokens // 0')
+    out_tok=$(printf '%s' "$json" | jq -r '.usage.output_tokens // 0')
+    cr_tok=$(printf '%s' "$json" | jq -r '.usage.cache_creation_input_tokens // 0')
+    rd_tok=$(printf '%s' "$json" | jq -r '.usage.cache_read_input_tokens // 0')
+    cost=$(printf '%s' "$json" | jq -r '.total_cost_usd // 0')
+    if   [ "$iserr" = true ];        then broken="is_error"
+    elif [ "$subtype" != success ];  then broken="subtype=$subtype"
+    elif [ -z "$result" ];           then broken="empty_result"
+    else
+      alive=$(printf '%s\n' "$result" | grep -m1 -E "^ALIVE ${nonce}$" || true)
+      [ -n "$alive" ] || broken="liveness_nonce_absent"
+    fi
+  fi
+
+  # --- classify per slot ---------------------------------------------------
+  local status detail line ans nslot=0
+  for ((i=0;i<n;i++)); do
+    local sl=${slots[$i]} ex=${expects[$i]} pth=${paths[$i]}
+    local present=ABSENT; [ -e "$pth" ] && present=PRESENT
+    if [ -n "$broken" ]; then
+      status=PROBE_BROKEN; detail="$broken"
+    else
+      line=$(printf '%s\n' "$result" | grep -m1 -E "^[[:space:]]*${sl}[[:space:]]*=" || true)
+      if [ -z "$line" ]; then
+        status=PROBE_BROKEN; detail="no_answer_line_for_slot"
+      else
+        ans=${line#*=}; ans=$(printf '%s' "$ans" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if printf '%s' "$ans" | grep -qE "$ex"; then
+          status=LOADED; detail="witness=$ans"
+        else
+          status=NOT_LOADED; detail="answered=${ans:-<empty>}"
+        fi
+      fi
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$ts" "$run_id" "$dir" "$sl" "$status" "file_$present; $detail" "$model" "$evid/$run_id.json"
+    nslot=$((nslot+1))
+  done > "$evid/$run_id.rows"
+  cat "$evid/$run_id.rows"
+  [ -n "$rows" ] && cat "$evid/$run_id.rows" >> "$rows"
+  printf '# COST run=%s model=%s turns=%s in=%s out=%s cache_create=%s cache_read=%s usd=%s slots=%s\n' \
+    "$run_id" "$model" "$nturns" "$in_tok" "$out_tok" "$cr_tok" "$rd_tok" "$cost" "$nslot"
+  [ -n "$rows" ] && printf '# COST run=%s model=%s turns=%s in=%s out=%s cache_create=%s cache_read=%s usd=%s slots=%s\n' \
+      "$run_id" "$model" "$nturns" "$in_tok" "$out_tok" "$cr_tok" "$rd_tok" "$cost" "$nslot" >> "$rows"
+  [ -z "$broken" ]
+}
+
+case "${1:-}" in
+  emit)    shift; emit "$@";;
+  verify)  shift; verify "$@";;
+  probe)   shift; probe "$@";;
+  ""|-h|--help|help) usage;;
+  *) usage; exit 2;;
+esac

@@ -1,0 +1,28 @@
+# oscar.toml -- the Brown CCV "oscar" cluster. This machine is the ODD one:
+# Slurm everywhere, no Python allowed on the login node for pipeline work, and
+# codex needs CODEX_HOME on node-local disk because its SQLite store does not
+# survive NFS locking.
+
+name = "oscar"
+
+[paths]
+data_root = "/oscar/data/stellex/glvov"
+campaign_dir = "/oscar/data/stellex/glvov/agrescap/tasks/token_spend_20260918/campaign"
+evidence_dir = "/oscar/data/stellex/glvov/agrescap/evidence"
+
+[codex]
+# On demand, on the session's own host -- no serving job, no endpoint. The
+# launcher is the operator's wrapper, which puts CODEX_HOME on node-local tmp.
+launcher = "~/run_codex.bash"
+
+[host]
+# Site rule: no Python for pipeline work on the login node. The installer's own
+# Python (via uv) is light operator-sanctioned tooling, not pipeline work.
+python_hooks = false
+slurm = true
+
+[hook]
+matcher = "*"
+
+[settings]
+subagentPromptCacheTtl = "1h"

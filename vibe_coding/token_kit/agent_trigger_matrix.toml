@@ -1,0 +1,593 @@
+# ===========================================================================
+# OPERATOR RULINGS THIS FILE CARRIES — do not "correct" them back (2026-09-20)
+#
+# R1. NO HAIKU. "Haiku is, imo, largely a useless model." Every row that used
+#     to say model = "haiku" now says model = "sonnet"; the provenance comment
+#     is left on each one. Do not reintroduce haiku as a cheap tier.
+# R2. MECHANISTIC WORK GOES TO CODEX, gpt-5.6-luna AT HIGH EFFORT. Rows that
+#     are lookups, log reads, status read-backs and deterministic transforms
+#     carry engine = "codex" + codex_model + codex_effort. Judgement rows
+#     (design, stuck, harness-broker, launcher-edit, training-code-change,
+#     eval-film-judge, retread-store, batch-sweep) stay on their Claude tier.
+#     Every codex row names BOTH model and effort: the config default is never
+#     trusted. Codex runs on a COMPUTE node only — a codex row selected from a
+#     login session must fall back to the row's Claude `model`, and that
+#     fallback is UNTESTED (it could not be tested from login009).
+# R3. ONE BUDGET, ALL KINDS: see [budget] below. The per-row max_calls numbers
+#     are gone. Only max_report stays per row.
+# R4. cache_ttl is INERT until settings.json `subagentPromptCacheTtl` is UNSET.
+#     That key currently reads "1h" and overrides per-agent frontmatter, so
+#     nothing in this column takes effect until it is removed.
+# ===========================================================================
+
+# ===========================================================================
+# TOKENNOMICS — the economics a reader must see before any row.
+# Re-measured 2026-09-20 over every subagent transcript under
+# ~/.claude/projects/*/*/subagents/ (3,562 agents, 347,571 calls,
+# 51.34 BILLION billable context tokens = input + cache_read + cache_create).
+# The command is in tools/matrix_final/measure_spend.sh; re-run it, do not
+# quote these.
+#
+# T1. THE COST IS CALLS x STANDING CONTEXT, and cache_read is 95% of it.
+#     Every call re-pays the whole accumulated context. A 97-call agent
+#     measured 8.35M cache_read tokens against 194 true input tokens.
+#     Therefore: the only large lever is ending agents earlier, which is
+#     what [budget] below does. Nothing else in this file comes close.
+#
+# T2. LONG AGENTS ARE THE SPEND — corrected 2026-09-20 (second correction).
+#     Counted DIRECTLY over 3,510 subagent transcripts, counting `tool_use`
+#     BLOCKS (not records): 202,856 calls, median 37, mean 57.8, p25 17,
+#     p75 72, p90 119, p99 266, max 5,706. **88 agents (2.5%) exceed 200
+#     calls.**
+#     *** RETRACTED: until 2026-09-20 this header claimed roughly four times
+#     as many over-200-call agents, out of a slightly larger corpus, with a
+#     median in the sixties, and put a majority share of all spend above the
+#     200-call line. That count was of RECORDS, not tool_use blocks, and is
+#     WRONG — the correct count is the 88 and the median 37 above. The SPEND
+#     SHARE was never verified by anyone, in either direction, so no share
+#     figure appears in this file at all. The retracted figures are written
+#     out once, in campaigns/token_spend/STATE.md, section MEASURED, and
+#     nowhere else; the guard fails if they come back here.
+#     The authority is campaigns/token_spend/STATE.md, section
+#     MEASURED. The budget is justified by the shape (a long tail at ~2.5%
+#     of agents that the 150/230/250 band touches while leaving the median
+#     of 37 alone), not by the share. ***
+#
+# T3. A PERSONA BODY IS NOT THE LEVER — measure before you cut.
+#     Measured spend of the four persona agents, all spawns, all time:
+#       grizzly-veteran   23 spawns   4,556 calls    959.1M tokens
+#       job-runner        34 spawns   4,018 calls    558.9M tokens
+#       architect          9 spawns     691 calls     50.9M tokens
+#       bloat-killer       1 spawn       31 calls      1.7M tokens
+#     = 1.57B of 51.33B, i.e. 3.1% of all subagent spend.
+#     Their prose bodies were 33,815 B ~= 8.5k tokens; charged on every one
+#     of those 9,296 calls that is ~20.8M tokens = 0.04% of all spend.
+#     Deleting all four personas would have saved four hundredths of one
+#     percent. They are compressed, not deleted, in tools/matrix_final/agents/
+#     (33,815 B -> 9,708 B, -71.3%), because the cheap thing to cut was the
+#     `description:` auto-selection examples (7,923 B, 23% of the zoo), which
+#     a hook-routed spawn does not need at all, plus generic model knowledge.
+#
+# T4. A `load` POINTER IS NOT FREE, AND HERE IT COSTS MORE THAN A PERSONA.
+#     Measured load targets: 07_debt_id_allocations.md 669,672 B;
+#     01_rulings.md 289,671 B; 02_design_s3.md 85,193 B; KEYWORDS.md 38,169 B;
+#     08_retread...md 23,587 B. A whole-file load of 07 is ~167k tokens —
+#     69x the largest compressed persona body. RULE: a `load` names a SECTION
+#     ANCHOR, never a whole file above ~40 KB; above that, point at
+#     KEYWORDS.md and make the row's `stop` require the grep.
+#
+# T6. JUDGEMENT ROWS ARE MOSTLY MECHANISM — that is what `shape` exists for.
+#     Replayed the router over 510 historical spawns (every 7th subagent
+#     transcript; tools/lane_recycler/lane_recycler.sh is the router that ran,
+#     and the TSV is in lanes/matrix_live/v0/replay.tsv). Of the 6,469 tool
+#     calls inside the spawns that routed to a row, 89-95% per row are Bash or
+#     Read, and of the Bash calls 59-90% are read-ish verbs (grep, ls, cat,
+#     head, jq, squeue, stat, ...). Mechanistic share of ALL calls, per row:
+#       stuck 90%  retread-store 82%  training-code-change 74%
+#       doctrine-lookup 74%  eval-film-judge 73%  launcher-edit 69%
+#       design 65%  harness-broker 59%  batch-sweep 37%
+#     An opus agent re-pays its whole standing context on every one of those
+#     (T1). So a judgement row is `claude-plans-codex-executes`: Claude keeps
+#     the judgement, codex luna high does the reads. batch-sweep is the one
+#     judgement row that stays `claude-direct` — its Bash is dispatch, not
+#     reading.
+#     The same replay settles the topics ruling: matching topics against the
+#     PROMPT BODY sends 426 of 510 spawns (83.5%) to watch-poll-wait, which
+#     REFUSES, because every brief we write contains "no background waits" and
+#     "do not poll". Matching against `description` only refuses 3 of 510
+#     (0.6%). Routing is on the description. Do not soften this.
+#
+# T5. A ROW NAMES THE CHEAPEST ENGINE AND TIER THAT IS SAFE, and must be able
+#     to say why the next tier down is unsafe. Opus is for judgement rows
+#     only; 166 opus agents did 20 calls or fewer — those were lookups.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# The single call budget. One pair of numbers for every kind of agent, because
+# of T1 and T2 above: a 150-call agent costs about the same as two 80-call
+# segments, so ANY rework above ~20% loses and a cap of 80 loses outright;
+# segmenting only pays above ~200 calls, which is exactly where the 88 agents
+# of the measured tail live (2.5% of 3,510; the median agent is 37 calls and
+# is never touched by this band).
+# Enforced by tools/lane_recycler/lane_recycler.sh.
+# ---------------------------------------------------------------------------
+[budget]
+warn = 150    # ONE denied call, whose reason tells the agent its count
+floor = 230   # past here only a Write to the lane's own out.md + SubagentHandback
+hard = 250    # the reason escalates; the out.md write is STILL never denied
+# max_calls per row is deliberately absent. If a row needs a different number,
+# that is a claim about the cost model and belongs in the ledger, not here.
+
+# agent_trigger_matrix.toml — draft, 2026-09-18
+#
+# What this file is: one routing table. A hook is MEANT to read it before every
+# Agent spawn, pick the first row whose path globs or topic words match, and
+# rewrite the spawn to that row's model, budget and report cap.
+#
+# *** WHO READS THIS FILE, AND HOW TO VERIFY IT. Written 2026-09-20, after
+#     the reader landed. The block that stood here declared this file to have
+#     no reader at all; that is now false and it has been removed. Do not
+#     reinstate a no-reader claim without first running the three checks
+#     below and showing them fail. The guard refuses the old wording. ***
+#
+#   THE READER is tools/lane_recycler/lane_recycler.sh, a PreToolUse hook.
+#   On a spawn (tool_name == "Agent", no agent_id) it compiles this file to
+#   JSON with awk (cached on this file's mtime), picks a row, and REWRITES
+#   the spawn through hookSpecificOutput.updatedInput: `model`,
+#   `subagent_type`, and a header prepended to `prompt`. That rewrite is
+#   PROVEN in CLI 2.1.278, not assumed — see the probe in
+#   agrescap/tasks/token_spend_20260918/lanes/matrix_live/v0/out.md.
+#   The same script also serves the row MENU (`lane_recycler.sh --menu`) that
+#   a SessionStart hook injects as additionalContext, so the spawning thread
+#   can name its row.
+#
+#   VERIFY IT, three commands, none of which needs a live agent:
+#     1. the reader exists and names this file:
+#        grep -c agent_trigger_matrix tools/lane_recycler/lane_recycler.sh   # > 0
+#     2. the table actually routes, end to end:
+#        printf '%s' '{"tool_name":"Agent","session_id":"v","cwd":"/tmp",
+#          "tool_input":{"description":"squeue check","prompt":"x"}}' \
+#          | tools/lane_recycler/lane_recycler.sh
+#        # prints updatedInput naming row cluster-state
+#     3. changing a number HERE changes the hook's behaviour:
+#        tools/lane_recycler/tests/guard_test.sh   # case "budget is a READ"
+#   If 1-3 pass, this block is true. If any fails, the reader/writer-law
+#   defect is back and belongs in the debt authority.
+#
+# [budget] below is now a READ, not a copy: lane_recycler.conf no longer
+# defines WARN/FLOOR/HARD at all — it carries only an optional explicit
+# override. Change a number here and the hook changes.
+# tools/matrix_final/guard_matrix.sh still checks that the rows are
+# INTERNALLY sound; the recycler guard checks that they are LIVE.
+#
+# Where it should live when it stops being a draft:
+#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
+# (canonical is a git checkout, so the file is versioned; agrescap/tasks is not.)
+#
+# Every path below was confirmed to exist on disk on 2026-09-18 with ls/find.
+# The claim that used to stand here — "every column is enforced by a mechanism
+# named in enforcement.md" — was removed on 2026-09-20: NO column is enforced
+# (see above), and there is no enforcement.md in this directory.
+#
+# Column meanings:
+#   globs        path patterns, relative to /oscar/data/stellex/glvov
+#   topics       words/phrases matched, as whole words, against the spawn's
+#                `description` field ONLY — never the prompt body. RULING
+#                2026-09-20: every brief we write contains "no background
+#                waits" and "do not poll", so matching topics against the
+#                body sends nearly every spawn to watch-poll-wait, which
+#                REFUSES. The replay measured this. Do not soften it.
+#   use_when     one line, written for the SPAWNING thread: when to put
+#                `ROW: <name>` in the spawn prompt. This is what the menu
+#                shows; the menu is generated from this file, so it cannot
+#                drift.
+#   shape        HOW the work is split, a closed set. The operator never
+#                states the strategy; the table does.
+#                  codex-direct              luna high does the whole row
+#                  claude-direct             the row's Claude model does it
+#                  claude-plans-codex-executes
+#                                            a Claude agent owns the
+#                                            judgement and hands EVERY
+#                                            mechanistic sub-step (lookups,
+#                                            log reads, greps, deterministic
+#                                            transforms) to codex luna high
+#                                            through the dispatcher, by Bash
+#                                            — subagents cannot spawn agents,
+#                                            so the dispatcher script IS the
+#                                            delegation path, not the Agent
+#                                            tool
+#                  refuse                    the spawn is denied with a
+#                                            substitute
+#   load         the smallest guidance to put in front of the agent — one file,
+#                or one section of one file. Not a directory.
+#   agent        subagent_type to force
+#   model        sonnet | opus | fable — cheapest that is safe (NO haiku, R1)
+#   engine       claude (default) | codex — which CLI runs the row
+#   codex_model  gpt-5.6-luna for mechanistic rows (R2); named explicitly
+#   codex_effort low | medium | high; named explicitly, never defaulted
+#   cache_ttl    5m | 1h per row; INERT until subagentPromptCacheTtl is unset
+#   effort       low | medium | high
+#   (max_calls is gone: one [budget] for every row, at the top of this file)
+#   max_report   bytes the final report may be; longer is truncated with a pointer
+#   reviewer     agent that must run on the result before it can be called done
+#   stop         the condition that ends the agent, in the agent's own words
+#   repo_home    which of the three homes this work may write in (law 7)
+
+# ---------------------------------------------------------------------------
+# Codex dispatch. Read by the hook for every row whose engine is "codex" and
+# for every `claude-plans-codex-executes` row.
+# OPERATOR RULING 2026-09-20: codex is run ON DEMAND on the session's own
+# host. There is NO serving job and NO endpoint file — the endpoint_file /
+# max_age_s design that stood here is withdrawn, do not reinstate it. A codex
+# row falls back to the row's Claude `model`, and logs a `codex_fallback`
+# event row, in exactly two cases: the `codex` binary is absent from the host,
+# or the dispatcher returns its refusal code. That is also R2's login-node
+# fallback, which stops being untestable now that availability is a binary
+# check rather than a live service.
+# ---------------------------------------------------------------------------
+[codex]
+run = "on-demand"
+binary = "codex"
+refusal_code = 2
+agents_dir = "/users/glvov/.claude/agents"
+dispatch = "bash /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh turn --model gpt-5.6-luna --effort high --message '<one mechanistic sub-step>'"
+
+[defaults]
+model = "sonnet"
+engine = "claude"
+effort = "medium"
+max_report = 2000
+cache_ttl = "1h"
+reviewer = ""
+# A spawn that matches no row gets these, plus a note in the brief saying it was
+# unrouted. Unrouted spawns are the signal that the table needs a new row.
+
+# ---------------------------------------------------------------------------
+# Persona bodies. Four rows still name a persona rather than general-purpose,
+# because for those rows the persona IS the load: the judgement it carries is
+# smaller than any file that could carry it (T4). They are COMPRESSED bodies,
+# not the installed ones.
+#   source_dir  the compressed bodies this matrix means when it says the name
+#   installed   where the harness actually reads personas from today
+# The compressed bodies are NOT installed. Until the operator runs the
+# deprecation recipe in tools/matrix_final/DEPRECATION.md, a spawn of
+# `architect` gets the 6,802 B original, not the 1,750 B rewrite. That gap is
+# open and is named in the guard's output.
+# ---------------------------------------------------------------------------
+[personas]
+source_dir = "agrescap/canonical/tools/matrix_final/agents"
+installed  = "/users/glvov/.claude/agents"
+bodies = ["architect", "grizzly-veteran", "job-runner", "bloat-killer"]
+# measured, 2026-09-20:  architect 6802->1750  grizzly-veteran 6706->1888
+#                        job-runner 11817->3861  bloat-killer 8490->2209
+#                        total 33,815 -> 9,708 B (-71.3%)
+
+# ---------------------------------------------------------------------------
+# 1. Watching, polling, waiting. This row exists to route work AWAY from a model.
+#    Measured reason: four long-lived watcher agents cost 5.4 billion tokens;
+#    one of them ran 5,706 calls and grew its context to about 1M.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "watch-poll-wait"
+use_when = "the ask is to watch, poll, wait for, tail, or babysit something that is still running"
+shape = "refuse"
+topics = ["watch", "poll", "wait", "monitor", "babysit", "keep checking",
+          "until it finishes", "every N minutes", "tail the log", "when it lands"]
+globs = []
+load = ""
+agent = "NONE"
+model = "NONE"
+action = "refuse-and-substitute"
+# The hook denies the spawn and answers with the substitute: write a shell loop
+# that appends one line per sample to a status file under
+# agrescap/evidence/watch/<name>.tsv, run it with nohup, and read the file once
+# when you next need it. A model may read the status file; a model may not be
+# the loop.
+max_report = 0
+stop = "the shell loop is running and its status file exists"
+repo_home = "agrescap"
+
+[[row]]
+name = "watch-readback"
+use_when = "read back what a watcher's status file already recorded"
+shape = "codex-direct"
+topics = ["read the status file", "what did the watcher see", "status file"]
+globs = ["agrescap/evidence/watch/**"]
+load = "agrescap/evidence/watch/README"
+agent = "general-purpose"
+model = "sonnet"   # was haiku; operator 2026-09-20: haiku is not used here
+effort = "low"
+max_report = 600
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+stop = "the last five rows of the named status file are quoted"
+repo_home = "agrescap"
+
+# ---------------------------------------------------------------------------
+# 2. Cluster state. Queue, VRAM, disk. Never opus: it is one command and a read.
+#    Measured reason: 166 opus agents did 20 calls or fewer — these are lookups.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "cluster-state"
+use_when = "answer a queue, VRAM, disk, quota or node question with one command and its output"
+shape = "codex-direct"
+topics = ["squeue", "sacct", "nvidia-smi", "VRAM", "df", "quota", "which node",
+          "is the job running", "allocation", "sinfo"]
+globs = []
+load = "mega/05_runbook.md#r2-the-channel-law-srun-one-shots-vs-ssh-daemons"
+agent = "general-purpose"
+model = "sonnet"   # was haiku; operator 2026-09-20: haiku is not used here
+effort = "low"
+max_report = 800
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+stop = "the command output is quoted with the command that produced it"
+repo_home = "none"
+note = "WAS agent = gpu-probe. Re-pointed 2026-09-20. gpu-probe.md (2,147 B) exists ONLY as a PROJECT agent in canonical/.claude/agents and wbc-latest/.claude/agents, so it is not selectable from the work home /oscar/data/stellex/glvov — verified by the selectable-agent list of a live session rooted there, which does not contain it. Measured spawns of gpu-probe across every transcript: ZERO. Its frontmatter also says model: haiku, so it cannot be installed as-is without breaking R1. This row still replaces ad-hoc opus spawns for the same question."
+
+[[row]]
+name = "log-read"
+use_when = "read a log, stdout or steps.jsonl and say what it shows"
+shape = "codex-direct"
+topics = ["what does the log say", "stdout", "steps.jsonl", "did it crash",
+          "last lines", "error in the log"]
+globs = ["agrescap/logs/**", "**/runs/**/*.log", "**/*.out", "**/*.err"]
+load = "mega/05_runbook.md#r3-driving-a-live-session-fifo-verbs-logs-gui"
+agent = "general-purpose"
+model = "sonnet"   # was haiku; operator 2026-09-20: haiku is not used here
+effort = "low"
+max_report = 1200
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+stop = "two samples separated in time are quoted, or the file is named and shown absent"
+repo_home = "none"
+note = "Two samples, because the doctrine says a wedge is no output growth, never low utilization."
+
+# ---------------------------------------------------------------------------
+# 3. Doctrine and registers. Reading is cheap; writing a register row is not.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "doctrine-lookup"
+use_when = "find a ruling, debt id, law or doctrine section — or show it is absent"
+shape = "codex-direct"
+topics = ["ruling", "which ruling", "doctrine", "law", "INDEX", "KEYWORDS",
+          "where did section", "is this already boarded"]
+globs = ["agrescap/canonical/docs/curric-dawn/mega/**"]
+load = "mega/KEYWORDS.md"
+agent = "general-purpose"
+model = "sonnet"
+effort = "low"
+max_report = 1500
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+stop = "the ruling id or debt id is quoted with the file that holds it, or absence is shown by a grep that returned nothing"
+repo_home = "agrescap"
+note = "KEYWORDS.md is the grep index and is the cheapest entry point. Never load the whole mega directory."
+
+[[row]]
+name = "register-write"
+use_when = "claim a debt id and write its ledger or failure-register row"
+shape = "codex-direct"
+topics = ["board a debt", "debt row", "failure register", "claim an id",
+          "N27-", "N19-GROVE4-"]
+globs = ["agrescap/canonical/docs/curric-dawn/mega/04_debt_ledger.md",
+         "agrescap/canonical/docs/curric-dawn/mega/07_debt_id_allocations.md",
+         "agrescap/canonical/docs/curric-dawn/mega/03_failure_register.md"]
+load = "mega/07_debt_id_allocations.md#how-to-claim-an-id"   # T4: whole file is 669,672 B (~167k tokens); the CLAIMS log is to be grepped, never loaded
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 800
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+reviewer = "general-purpose"   # was terse-auditor: project-scoped only, unreachable from the work home, 0 spawns ever, frontmatter model: haiku (R1)
+stop = "the id is claimed in 07 and the row is written in 04, in that order, in one commit"
+repo_home = "agrescap"
+
+# ---------------------------------------------------------------------------
+# 4. Launchers and batch scripts. High blast radius, cheap to read.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "launcher-edit"
+use_when = "edit or debug a launcher, sbatch or srun script"
+shape = "claude-plans-codex-executes"
+globs = ["wbc/wbc-latest/launch/**", "wbc/wbc-latest/launch_*.sh",
+         "agrescap/canonical/launch_*.sh", "**/*.sbatch",
+         "wbc/wbc-canon/imprint/launch/**"]
+topics = ["launcher", "sbatch", "srun", "launch script", "job script"]
+load = "mega/05_runbook.md#r1-boot-runbook"
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 1500
+cache_ttl = "5m"
+reviewer = "grizzly-veteran"
+stop = "the edited script is shown, and the gate line it must print in stdout is named"
+repo_home = "wbc-latest"
+note = "sbatch copies the script at submit time, so editing a pending job's script does nothing. The reviewer's one job is to catch that."
+
+# ---------------------------------------------------------------------------
+# 5. Training code. This is what live ranks import, so the row is deliberately
+#    narrow about where a write may land.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "training-code-read"
+use_when = "establish which copy of training code a live process actually imports"
+shape = "codex-direct"
+globs = ["wbc/wbc-canon/protomotions/**", "wbc/wbc-canon/imprint/src/imprint/**"]
+topics = ["what does production import", "which copy runs", "train_agent",
+          "protomotions", "PYTHONPATH"]
+load = "CLAUDE.md#law-7"
+agent = "Explore"
+model = "sonnet"
+effort = "low"
+max_report = 1500
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+cache_ttl = "5m"
+stop = "the importing copy is established from a live process environment, not from a path guess"
+repo_home = "read-only"
+note = "wbc-canon is read-only by default. Two copies of a module diverging is normal here; the row forces the question of which one a running process imports."
+
+[[row]]
+name = "training-code-change"
+use_when = "change a reward, observation, actor/critic, sampler or curriculum in wbc-latest"
+shape = "claude-plans-codex-executes"
+globs = ["wbc/wbc-latest/src/imprint/**", "wbc/wbc-latest/imprint_isaaclab_ext/**"]
+topics = ["reward term", "observation", "actor", "critic", "policy", "curriculum",
+          "sampler", "heldout", "motion clip"]
+load = "mega/KEYWORDS.md"   # T4: was mega/01_rulings.md, 289,671 B whole-file. KEYWORDS.md is the grep index; the stop below already forces the guard test. JUDGEMENT CALL - operator may prefer a named 01_rulings section anchor instead.
+agent = "general-purpose"
+model = "sonnet"
+effort = "high"
+max_report = 2500
+cache_ttl = "1h"
+reviewer = "bloat-killer"
+note = "KEPT as reviewer, with a warning: bloat-killer has been spawned ONCE, ever (31 calls, 1.7M tokens). A reviewer criterion that has fired once is barely a live consumer; if this row runs and the reviewer still does not, the reviewer column is the next reader/writer-law defect to board. Compressed 8,490 -> 2,209 B; kept the whole Calibration section (not all duplication is evil; some coupling is natural; respect the project's stage) because that is the half that stops it from mangling working code; cut the seven-category hunting-grounds taxonomy, which is generic model knowledge."
+stop = "the change and its guard test are both written, and the guard has been shown to fail without the change"
+repo_home = "wbc-latest"
+
+# ---------------------------------------------------------------------------
+# 6. Eval, film, judge.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "eval-film-judge"
+use_when = "change or run eval, film, render or the visual judge"
+shape = "claude-plans-codex-executes"
+globs = ["**/sim2sim/cross_eval.py", "**/sim2sim/mujoco_eval.py",
+         "**/vqa_workflow/**", "**/robojudo/**",
+         "wbc/wbc-latest/eval_loop.sh", "wbc/wbc-latest/mm_eval_loop.sh"]
+topics = ["eval", "judge", "film", "visual judge", "render", "camera", "VQA",
+          "rollout video"]
+load = "mega/05_runbook.md#r5-film-recipe-gotchas"
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 2000
+cache_ttl = "5m"
+stop = "a film path or a judge verdict file is named and its bytes are shown to exist"
+repo_home = "wbc-latest"
+note = "In-training eval has rewritten the motion sampler before. Any change here is treated as a change to training, not to reporting."
+
+# ---------------------------------------------------------------------------
+# 7. Harness, roles, broker. The part most likely to need real debugging.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "harness-broker"
+use_when = "debug the grove4 harness, a broker, a role prompt, the directive ledger or a stage gate"
+shape = "claude-plans-codex-executes"
+globs = ["**/src/imprint/grove4/**", "agrescap/research/agor-work/**",
+         "**/grove4/roles/**"]
+topics = ["broker", "runner.py", "role prompt", "directive ledger", "tick",
+          "agor", "meta_broker", "sub-broker", "stage gate"]
+load = "mega/02_design_s3.md#part-1--31-the-current-s3-design-verbatim-primary-authority-in-this-file"   # T4: whole file is 85,193 B; PART 1 is the primary authority
+agent = "grizzly-veteran"
+model = "opus"
+effort = "high"
+max_report = 3000
+cache_ttl = "1h"
+reviewer = "general-purpose"   # was terse-auditor: project-scoped only, unreachable from the work home, 0 spawns ever, frontmatter model: haiku (R1)
+stop = "the defect is named with the symbol that holds it, or the brief is handed back with what was ruled out"
+repo_home = "agrescap"
+
+# ---------------------------------------------------------------------------
+# 8. Retread and the cold-solve stores.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "retread-store"
+use_when = "work on retread, the cold-solve stores, wheels, lockfiles or determinism"
+shape = "claude-plans-codex-executes"
+globs = ["wbc/wbc-canon/imprint/.retread/**", "wbc/wbc-canon/imprint/tools/**",
+         "wbc/wbc-canon/imprint/pypi-packs/**"]
+topics = ["retread", "cold solve", "store", "wheel", "resolve_conda",
+          "resolve_pypi", "lockfile", "determinism", "build string"]
+load = "mega/08_retread_cold_solve_architecture.md"
+agent = "general-purpose"
+model = "sonnet"
+effort = "high"
+max_report = 2500
+cache_ttl = "1h"
+reviewer = "general-purpose"   # was terse-auditor: project-scoped only, unreachable from the work home, 0 spawns ever, frontmatter model: haiku (R1)
+stop = "a sorted diff plus a moved list plus a build-string table is produced, or the run is shown not to have completed"
+repo_home = "wbc-canon"   # the stores live under wbc/wbc-canon/imprint/; law 7 says that tree is read-only by default, so a write here needs the operator
+
+# ---------------------------------------------------------------------------
+# 9. Architecture and hard debugging. The only rows that are opus by default.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "design"
+use_when = "compare two or three approaches and recommend one before any code is written"
+shape = "claude-direct"
+topics = ["design", "architecture", "how should we structure", "plan the",
+          "which approach", "trade-off"]
+globs = []
+load = ""
+agent = "architect"
+model = "opus"
+effort = "high"
+max_report = 4000
+cache_ttl = "1h"
+stop = "two or three approaches are compared and one is recommended with its cost"
+repo_home = "none"
+note = "KEPT as a persona, not re-pointed. Measured: 9 spawns, 691 calls, 50.9M tokens all time — 77 calls/spawn, the cheapest persona per spawn. Its load is empty, so there is no file to replace it with; the compressed 1,750 B body IS the load. Cut: the four auto-selection <example> blocks (1,874 B, 28% of the file) and the design-pattern catalogue, which opus already knows."
+
+[[row]]
+name = "stuck"
+use_when = "previous attempts failed and a root cause has to be named"
+shape = "claude-plans-codex-executes"
+topics = ["already tried", "still failing", "root cause", "nothing worked",
+          "third attempt"]
+globs = []
+load = ""
+agent = "grizzly-veteran"
+model = "opus"
+effort = "high"
+max_report = 4000
+cache_ttl = "1h"
+stop = "a root cause is named and shown, or the ruled-out list is handed back"
+repo_home = "none"
+note = "This row is the only place a call budget above 90 is allowed. It must be selected by the words above, not chosen by default. KEPT as a persona: grizzly-veteran is the most expensive agent measured (23 spawns, 4,556 calls, 959.1M tokens — 198 calls/spawn, sitting exactly on the 200-call line that only 88 of 3,510 agents cross; the share of spend above that line is UNVERIFIED and is not cited here), but the body is 0.8% of that. The lever on this row is [budget], not the prose. Compressed 6,706 -> 1,888 B; kept the reconnaissance-first order, the ranked-hypotheses step, 'verification is mandatory' and the hand-back-with-ruled-out clause; cut the war-story identity and the generic expertise list."
+
+# ---------------------------------------------------------------------------
+# 10. Batch execution. Already has an agent; this row just binds its budget.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "batch-sweep"
+use_when = "run a queue of jobs, a sweep, or eval over many checkpoints"
+shape = "claude-direct"   # MEASURED 2026-09-20 over the 510-spawn replay: only 37.4% of this row's Bash calls are read-ish (grep/ls/cat/jq/squeue/...), against 62-90% for every other judgement row. Its calls are DISPATCH — sbatch, srun, kills — which are irreversible acts that must stay with the agent that owns the queue. Delegating them adds a hop without removing context.
+topics = ["sweep", "run eval on all", "batch", "queue of jobs", "every checkpoint"]
+globs = []
+load = "mega/05_runbook.md#r1-boot-runbook"
+agent = "job-runner"
+model = "sonnet"
+effort = "medium"
+max_report = 3000
+cache_ttl = "1h"
+stop = "every queue item is marked done or failed in the queue file"
+repo_home = "agrescap"
+note = "KEPT as a persona, and it is the strongest keep. Measured: 34 spawns, 4,018 calls, 558.9M tokens. Compressed 11,817 -> 3,861 B; the ORIGINAL body instructs `pkill -f` and `pgrep -f` in three places, which laws 12 and 14 forbid and the permission layer blocks — the compressed body replaces that with resolve-named-PIDs-then-kill-then-verify-VRAM, and restates 'a wedge is no output growth, never low utilization'. Cut: the inline bash runner template and the report-format taxonomy. This is the row where compression FIXED a defect rather than only shrinking one. job-runner is the one row where a long life is the point. Its budget is high but finite, and its progress lives in a queue file on disk, so a fresh one can resume instead of a long one continuing."
+
+# ---------------------------------------------------------------------------
+# Concurrency, by model. Enforced by counting live spawns, not by the built-in
+# limit, which is model-blind.
+# ---------------------------------------------------------------------------
+[concurrency]
+fable = 3
+opus = 4
+sonnet = 10
+total = 16
+# The built-in default is 20 concurrent subagents of any model. These numbers
+# sit underneath it. Raise or lower them here; nothing else reads them.
+# Codex-engine rows are not governed here: codex runs on compute nodes and its
+# concurrency is a node question, not a spawn question.

@@ -51,4 +51,41 @@ If returning to a work session, that wasn't completed or was interrupted, I have
 
 
 
+# The token kit (one-command setup)
+
+If you want the same hooks, agents and settings on another machine, run this in a clone of this repo:
+
+```
+bash vibe_coding/token_kit/install.sh
+```
+
+It is one command and it is safe to run twice: a second run changes nothing and says so. It picks a
+profile from `vibe_coding/token_kit/profiles/` by looking at the machine (Slurm plus `/oscar` means the
+cluster, anything else means a workstation); pass `--profile <name>` to choose. Add `--dry-run` to see
+exactly what it would do without it doing anything.
+
+What it installs:
+
+- the settings keys the measurements showed actually take effect, merged into `~/.claude/settings.json`
+  (a dated backup is taken first, your existing keys keep their values and their order, and a key of
+  yours that disagrees is reported, never overwritten);
+- a `PreToolUse` hook, registered once, that carries the per-agent call cap and the routing table;
+- the agents from `vibe_coding/token_kit/agents/` symlinked into `~/.claude/agents/` (a real file of
+  yours with the same name is reported as a conflict and left alone);
+- `agent_trigger_matrix.toml`, the table that decides which agent and model a spawn gets.
+
+Everything is a symlink back into the clone, so `git pull` updates the machine. Nothing is written
+outside `~/.claude`, `~/.config/token_kit`, and the clone itself.
+
+It needs `uv` (it installs it if missing) and the `claude` CLI; `codex` is optional. The kit is Python
+on top of a small bash bootstrap, standard library only, so there is no environment to build.
+
+To remove it:
+
+```
+bash vibe_coding/token_kit/install.sh --uninstall
+```
+
+That reads the manifest of what was added and removes exactly that.
+
 # Other People's Setups that I borrow:

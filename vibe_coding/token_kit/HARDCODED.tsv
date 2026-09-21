@@ -1,0 +1,136 @@
+kind	file	line_no	line_text
+login_host	reference_bash/codex_native/codex_lane_dispatch.sh	3	# node from a Claude session that lives on login009, and refuses fast when it
+oscar_path	reference_bash/codex_native/codex_lane_dispatch.sh	7	#   /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	reference_bash/codex_native/codex_lane_dispatch.sh	7	#   /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+slurm_call	reference_bash/codex_native/codex_lane_dispatch.sh	26	#   directly. No node wrapper, no cache patch, no per-dispatch `srun`.
+oscar_path	reference_bash/codex_native/codex_lane_dispatch.sh	33	ENDPOINT="${CODEX_FLEET_ENDPOINT:-/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json}"
+username	reference_bash/codex_native/codex_lane_dispatch.sh	33	ENDPOINT="${CODEX_FLEET_ENDPOINT:-/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json}"
+oscar_path	reference_bash/codex_native/codex_lane_dispatch.sh	34	FLEET="${CODEX_FLEET_SH:-/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh}"
+username	reference_bash/codex_native/codex_lane_dispatch.sh	34	FLEET="${CODEX_FLEET_SH:-/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh}"
+home_path	reference_bash/codex_native/guard_test.sh	19	#   /users/glvov/.claude/agents/architect.md            -> name description model color
+username	reference_bash/codex_native/guard_test.sh	19	#   /users/glvov/.claude/agents/architect.md            -> name description model color
+slurm_call	reference_bash/codex_native/guard_test.sh	68	for needle in 'resume-last' 'codex-companion' 'plugins/cache' '--jobid' 'srun --overlap'; do
+oscar_path	reference_bash/codex_native/guard_test.sh	79	FLEET=/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh
+username	reference_bash/codex_native/guard_test.sh	79	FLEET=/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh
+slurm_call	reference_bash/codex_surface/codex_fleet.sh	31	#                          srun --overlap) is what lets a daemon reparent to
+oscar_path	reference_bash/codex_surface/codex_fleet.sh	104	/oscar/*|/gpfs/*|"$HOME"/*) die "--home is on NFS ($HOME_DIR); codex SQLite does not survive NFS locking" ;;
+gpfs_path	reference_bash/codex_surface/codex_fleet.sh	104	/oscar/*|/gpfs/*|"$HOME"/*) die "--home is on NFS ($HOME_DIR); codex SQLite does not survive NFS locking" ;;
+login_host	reference_bash/codex_surface/codex_fleet_serve.sh	3	# the compute node. Claude stays on login009 and never runs codex there.
+login_host	reference_bash/codex_surface/codex_fleet_serve.sh	20	#   --ws-token-file`, but a token file good enough to publish to login009 has to
+slurm_call	reference_bash/codex_surface/codex_fleet_serve.sh	26	#   (srun --overlap reaps detached children; ssh does not).
+oscar_path	reference_bash/codex_surface/codex_fleet_serve.sh	31	ENDPOINT_DEFAULT=/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json
+username	reference_bash/codex_surface/codex_fleet_serve.sh	31	ENDPOINT_DEFAULT=/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json
+oscar_path	reference_bash/codex_surface/codex_fleet_serve.sh	48	/oscar/*|/gpfs/*|"$HOME"/*) die "CODEX_HOME $HOME_DIR is on NFS; codex SQLite does not survive NFS locking" ;;
+gpfs_path	reference_bash/codex_surface/codex_fleet_serve.sh	48	/oscar/*|/gpfs/*|"$HOME"/*) die "CODEX_HOME $HOME_DIR is on NFS; codex SQLite does not survive NFS locking" ;;
+login_host	reference_bash/codex_surface/guard_test.sh	7	# Runs on login009. Needs no Slurm allocation and no model turn.
+oscar_path	reference_bash/lane_recycler/lane_recycler.conf	6	#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
+username	reference_bash/lane_recycler/lane_recycler.conf	6	#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
+oscar_path	reference_bash/lane_recycler/lane_recycler.conf	40	# LANE_RECYCLER_MATRIX="/oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml"
+username	reference_bash/lane_recycler/lane_recycler.conf	40	# LANE_RECYCLER_MATRIX="/oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml"
+oscar_path	reference_bash/lane_recycler/lane_recycler.sh	63	DATA_ROOT=${LANE_RECYCLER_DATA_ROOT:-/oscar/data/stellex/glvov}
+username	reference_bash/lane_recycler/lane_recycler.sh	63	DATA_ROOT=${LANE_RECYCLER_DATA_ROOT:-/oscar/data/stellex/glvov}
+home_path	reference_bash/lane_recycler/lane_recycler.sh	313	CODEX_AGENTS=$(jq -r '.codex.agents_dir // "/users/glvov/.claude/agents"' "$MJ")
+username	reference_bash/lane_recycler/lane_recycler.sh	313	CODEX_AGENTS=$(jq -r '.codex.agents_dir // "/users/glvov/.claude/agents"' "$MJ")
+oscar_path	reference_bash/lane_recycler/tests/guard_test.sh	18	CWD=/oscar/data/stellex/glvov
+username	reference_bash/lane_recycler/tests/guard_test.sh	18	CWD=/oscar/data/stellex/glvov
+oscar_path	reference_bash/lane_recycler/tests/guard_test.sh	123	'{session_id:$s,cwd:"/oscar/data/stellex/glvov",hook_event_name:"PreToolUse",
+username	reference_bash/lane_recycler/tests/guard_test.sh	123	'{session_id:$s,cwd:"/oscar/data/stellex/glvov",hook_event_name:"PreToolUse",
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	135	O=$(spawn "squeue check on the training node" "do the thing")
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	148	O=$(spawn "squeue check on the training node" "$BODY")
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	155	O=$(spawn "squeue check on the training node" "ROW: harness-broker
+oscar_path	reference_bash/lane_recycler/tests/guard_test.sh	177	O=$(spawn "please handle this" "the file is /oscar/data/stellex/glvov/wbc/wbc-latest/launch/x.sbatch")
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	177	O=$(spawn "please handle this" "the file is /oscar/data/stellex/glvov/wbc/wbc-latest/launch/x.sbatch")
+username	reference_bash/lane_recycler/tests/guard_test.sh	177	O=$(spawn "please handle this" "the file is /oscar/data/stellex/glvov/wbc/wbc-latest/launch/x.sbatch")
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	251	O=$(PATH="$FAKEBIN:$PATH" spawn "squeue check" "x" cxsess3 "$PRESENT")
+slurm_call	reference_bash/lane_recycler/tests/guard_test.sh	259	O=$(spawn "squeue check" "x" badsess "$BADMX")
+home_path	reference_bash/matrix_final/DEPRECATION.md	3	Nothing in this file has been run. No file in `/users/glvov/.claude/agents/`
+username	reference_bash/matrix_final/DEPRECATION.md	3	Nothing in this file has been run. No file in `/users/glvov/.claude/agents/`
+oscar_path	reference_bash/matrix_final/DEPRECATION.md	10	A session rooted at `/oscar/data/stellex/glvov` lists 11 selectable agent
+username	reference_bash/matrix_final/DEPRECATION.md	10	A session rooted at `/oscar/data/stellex/glvov` lists 11 selectable agent
+oscar_path	reference_bash/matrix_final/DEPRECATION.md	41	D=/users/glvov/.claude/agents; S=/oscar/data/stellex/glvov/agrescap/canonical/tools/matrix_final/agents; mkdir -p $D/deprecated && for b in architect bloat-killer grizzly-veteran job-runner; do mv "$D
+home_path	reference_bash/matrix_final/DEPRECATION.md	41	D=/users/glvov/.claude/agents; S=/oscar/data/stellex/glvov/agrescap/canonical/tools/matrix_final/agents; mkdir -p $D/deprecated && for b in architect bloat-killer grizzly-veteran job-runner; do mv "$D
+username	reference_bash/matrix_final/DEPRECATION.md	41	D=/users/glvov/.claude/agents; S=/oscar/data/stellex/glvov/agrescap/canonical/tools/matrix_final/agents; mkdir -p $D/deprecated && for b in architect bloat-killer grizzly-veteran job-runner; do mv "$D
+home_path	reference_bash/matrix_final/DEPRECATION.md	47	D=/users/glvov/.claude/agents; for b in architect bloat-killer grizzly-veteran job-runner; do rm -f "$D/$b.md" && mv "$D/deprecated/$b.md" "$D/$b.md"; done && rmdir $D/deprecated 2>/dev/null; ls -l $D
+username	reference_bash/matrix_final/DEPRECATION.md	47	D=/users/glvov/.claude/agents; for b in architect bloat-killer grizzly-veteran job-runner; do rm -f "$D/$b.md" && mv "$D/deprecated/$b.md" "$D/$b.md"; done && rmdir $D/deprecated 2>/dev/null; ls -l $D
+home_path	reference_bash/matrix_final/DEPRECATION.md	61	D=/users/glvov/.claude/agents; mkdir -p $D/deprecated && mv $D/architect.md $D/bloat-killer.md $D/grizzly-veteran.md $D/job-runner.md $D/deprecated/ && ls -l $D $D/deprecated
+username	reference_bash/matrix_final/DEPRECATION.md	61	D=/users/glvov/.claude/agents; mkdir -p $D/deprecated && mv $D/architect.md $D/bloat-killer.md $D/grizzly-veteran.md $D/job-runner.md $D/deprecated/ && ls -l $D $D/deprecated
+home_path	reference_bash/matrix_final/DEPRECATION.md	67	D=/users/glvov/.claude/agents; mv $D/deprecated/architect.md $D/deprecated/bloat-killer.md $D/deprecated/grizzly-veteran.md $D/deprecated/job-runner.md $D/ && rmdir $D/deprecated; ls -l $D
+username	reference_bash/matrix_final/DEPRECATION.md	67	D=/users/glvov/.claude/agents; mv $D/deprecated/architect.md $D/deprecated/bloat-killer.md $D/deprecated/grizzly-veteran.md $D/deprecated/job-runner.md $D/ && rmdir $D/deprecated; ls -l $D
+oscar_path	reference_bash/matrix_final/DEPRECATION.md	86	bash /oscar/data/stellex/glvov/agrescap/canonical/tools/matrix_final/guard_matrix.sh
+username	reference_bash/matrix_final/DEPRECATION.md	86	bash /oscar/data/stellex/glvov/agrescap/canonical/tools/matrix_final/guard_matrix.sh
+home_path	reference_bash/matrix_final/DEPRECATION.md	91	move them to `/users/glvov/.claude/agents-deprecated/` (a sibling, not a
+username	reference_bash/matrix_final/DEPRECATION.md	91	move them to `/users/glvov/.claude/agents-deprecated/` (a sibling, not a
+home_path	reference_bash/matrix_final/guard_matrix.sh	25	AGENTS_DIR="${2:-/users/glvov/.claude/agents}"
+username	reference_bash/matrix_final/guard_matrix.sh	25	AGENTS_DIR="${2:-/users/glvov/.claude/agents}"
+home_path	reference_bash/matrix_final/guard_matrix.sh	44	for f in /users/glvov/.claude/plugins/synced/*/agents/*.md \
+username	reference_bash/matrix_final/guard_matrix.sh	44	for f in /users/glvov/.claude/plugins/synced/*/agents/*.md \
+home_path	reference_bash/matrix_final/guard_matrix.sh	45	/users/glvov/.claude/plugins/marketplaces/*/*/agents/*.md; do
+username	reference_bash/matrix_final/guard_matrix.sh	45	/users/glvov/.claude/plugins/marketplaces/*/*/agents/*.md; do
+home_path	reference_bash/matrix_final/guard_matrix.sh	55	*:*) [ -d "/users/glvov/.claude/plugins/synced/${want%%:*}" ] && return 0 ;;
+username	reference_bash/matrix_final/guard_matrix.sh	55	*:*) [ -d "/users/glvov/.claude/plugins/synced/${want%%:*}" ] && return 0 ;;
+home_path	reference_bash/matrix_final/out-of-scope.md	8	- `/users/glvov/.claude/settings.json` registers exactly one `PreToolUse`
+username	reference_bash/matrix_final/out-of-scope.md	8	- `/users/glvov/.claude/settings.json` registers exactly one `PreToolUse`
+slurm_call	reference_bash/token_supervisor/ccsup	219	# so it survives the launching shell. `srun --overlap` is NOT used: it reaps
+username	reference_bash/token_supervisor/ccsup.conf	13	# largest transcripts under $CLAUDE_HOME/projects/-oscar-data-stellex-glvov/:
+oscar_path	reference_bash/token_supervisor/ccsup.conf	34	: "${CAMPAIGN_DIR:=/oscar/data/stellex/glvov/agrescap/tasks/token_spend_20260918/campaign}"
+username	reference_bash/token_supervisor/ccsup.conf	34	: "${CAMPAIGN_DIR:=/oscar/data/stellex/glvov/agrescap/tasks/token_spend_20260918/campaign}"
+login_host	agent_trigger_matrix.toml	15	#     fallback is UNTESTED (it could not be tested from login009).
+slurm_call	agent_trigger_matrix.toml	85	#     head, jq, squeue, stat, ...). Mechanistic share of ALL calls, per row:
+slurm_call	agent_trigger_matrix.toml	149	#          "tool_input":{"description":"squeue check","prompt":"x"}}' \
+oscar_path	agent_trigger_matrix.toml	164	#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
+username	agent_trigger_matrix.toml	164	#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
+oscar_path	agent_trigger_matrix.toml	173	#   globs        path patterns, relative to /oscar/data/stellex/glvov
+username	agent_trigger_matrix.toml	173	#   globs        path patterns, relative to /oscar/data/stellex/glvov
+home_path	agent_trigger_matrix.toml	232	agents_dir = "/users/glvov/.claude/agents"
+username	agent_trigger_matrix.toml	232	agents_dir = "/users/glvov/.claude/agents"
+oscar_path	agent_trigger_matrix.toml	233	dispatch = "bash /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh turn --model gpt-5.6-luna --effort high --message '<one mechanistic sub-step>'"
+username	agent_trigger_matrix.toml	233	dispatch = "bash /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh turn --model gpt-5.6-luna --effort high --message '<one mechanistic sub-step>'"
+home_path	agent_trigger_matrix.toml	259	installed  = "/users/glvov/.claude/agents"
+username	agent_trigger_matrix.toml	259	installed  = "/users/glvov/.claude/agents"
+slurm_call	agent_trigger_matrix.toml	316	topics = ["squeue", "sacct", "nvidia-smi", "VRAM", "df", "quota", "which node",
+slurm_call	agent_trigger_matrix.toml	319	load = "mega/05_runbook.md#r2-the-channel-law-srun-one-shots-vs-ssh-daemons"
+oscar_path	agent_trigger_matrix.toml	330	note = "WAS agent = gpu-probe. Re-pointed 2026-09-20. gpu-probe.md (2,147 B) exists ONLY as a PROJECT agent in canonical/.claude/agents and wbc-latest/.claude/agents, so it is not selectable from the 
+username	agent_trigger_matrix.toml	330	note = "WAS agent = gpu-probe. Re-pointed 2026-09-20. gpu-probe.md (2,147 B) exists ONLY as a PROJECT agent in canonical/.claude/agents and wbc-latest/.claude/agents, so it is not selectable from the 
+slurm_call	agent_trigger_matrix.toml	402	use_when = "edit or debug a launcher, sbatch or srun script"
+slurm_call	agent_trigger_matrix.toml	405	"agrescap/canonical/launch_*.sh", "**/*.sbatch",
+slurm_call	agent_trigger_matrix.toml	407	topics = ["launcher", "sbatch", "srun", "launch script", "job script"]
+slurm_call	agent_trigger_matrix.toml	417	note = "sbatch copies the script at submit time, so editing a pending job's script does nothing. The reviewer's one job is to catch that."
+slurm_call	agent_trigger_matrix.toml	568	shape = "claude-direct"   # MEASURED 2026-09-20 over the 510-spawn replay: only 37.4% of this row's Bash calls are read-ish (grep/ls/cat/jq/squeue/...), against 62-90% for every other judgement row. I
+slurm_call	agents/codex-cluster-state.md	3	description: Codex lane for the "cluster-state" matrix row — runs gpt-5.6-luna at high effort on a compute node and relays at most three lines. Use for squeue/sacct/nvidia-smi/df/quota lookups — which
+slurm_call	agents/codex-cluster-state.md	16	- smallest guidance the row allows: `mega/05_runbook.md#r2-the-channel-law-srun-one-shots-vs-ssh-daemons`
+oscar_path	agents/codex-cluster-state.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-cluster-state/v0`
+username	agents/codex-cluster-state.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-cluster-state/v0`
+oscar_path	agents/codex-cluster-state.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-cluster-state.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-cluster-state.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-cluster-state.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+oscar_path	agents/codex-doctrine-lookup.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-doctrine-lookup/v0`
+username	agents/codex-doctrine-lookup.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-doctrine-lookup/v0`
+oscar_path	agents/codex-doctrine-lookup.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-doctrine-lookup.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-doctrine-lookup.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-doctrine-lookup.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+oscar_path	agents/codex-log-read.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-log-read/v0`
+username	agents/codex-log-read.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-log-read/v0`
+oscar_path	agents/codex-log-read.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-log-read.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-log-read.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-log-read.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+oscar_path	agents/codex-register-write.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-register-write/v0`
+username	agents/codex-register-write.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-register-write/v0`
+oscar_path	agents/codex-register-write.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-register-write.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-register-write.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-register-write.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+oscar_path	agents/codex-training-code-read.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-training-code-read/v0`
+username	agents/codex-training-code-read.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-training-code-read/v0`
+oscar_path	agents/codex-training-code-read.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-training-code-read.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-training-code-read.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-training-code-read.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+oscar_path	agents/codex-watch-readback.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-watch-readback/v0`
+username	agents/codex-watch-readback.md	22	`/oscar/data/stellex/glvov/agrescap/tasks/<campaign>/lanes/codex-watch-readback/v0`
+oscar_path	agents/codex-watch-readback.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+username	agents/codex-watch-readback.md	27	`/oscar/data/stellex/glvov/agrescap/evidence/codex_fleet/endpoint.json`.
+oscar_path	agents/codex-watch-readback.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
+username	agents/codex-watch-readback.md	32	/oscar/data/stellex/glvov/agrescap/canonical/tools/codex_native/codex_lane_dispatch.sh \
