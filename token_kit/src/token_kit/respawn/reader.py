@@ -174,13 +174,13 @@ def report_lane(cfg: Config, event: str, session: str, lane: str) -> str:
                  f"\trespawn_no={number}\n")
 
     if number > cfg.max_respawns:
-        return (f"STOP — lane {lane} has been recycled {number} times "
+        return (f"STOP: lane {lane} has been recycled {number} times "
                 f"(cap {cfg.max_respawns}). Do NOT respawn it again. Read "
                 f"{lane}/out.md yourself and decide what to do; the lane is "
                 "not converging.")
     return (f"lane {lane} was recycled at {calls.group(1) if calls else '?'} calls "
             f"(agent {agent.group(1) if agent else '?'}; respawn {number} of "
-            f"{cfg.max_respawns}); respawn a fresh agent on the same in.md — "
+            f"{cfg.max_respawns}); respawn a fresh agent on the same in.md; "
             f"{lane}/in.md; its out.md holds the RESUME block, whose first line "
             "is the single next command.")
 

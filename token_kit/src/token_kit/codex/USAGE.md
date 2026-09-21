@@ -10,7 +10,7 @@ A codex job is a background turn you can talk to. `codex-job` = `<kit>/src/token
 - **start** prints a job id and returns in ~1 s; the turn runs in a detached owner process.
 - **send** while the turn is RUNNING = a real mid-turn steer: the text joins the turn already in
   flight (proven on codex-cli 0.153.4). After it finishes, the same command continues the SAME
-  thread as a new turn — within `--linger-s` (default 120 s) in the same owner, later by resuming
+  thread as a new turn: within `--linger-s` (default 120 s) in the same owner, later by resuming
   the thread id. Every message gets a row: steered | queued-next-turn | resumed | failed(<why>).
   No message is ever dropped: it stays in the job's `inbox/` until its row is written.
 - **wait** blocks, then prints the last answer and the delivery rows. Run it in the BACKGROUND:
@@ -19,7 +19,7 @@ A codex job is a background turn you can talk to. `codex-job` = `<kit>/src/token
 
 Use a job instead of one-shot `codex-dispatch` when you expect to redirect the work or want to be
 told it finished; use `codex-dispatch` for one question you will read right away. Exit codes: 0 answered · 2 usage · 3 a turn failed · **42 codex unavailable
-(reason=absent|auth|busy|protocol|quota) — do the step yourself with a Claude model.**
+(reason=absent|auth|busy|protocol|quota): do the step yourself with a Claude model.**
 `reason=quota` writes a cooldown marker and the next `start` refuses until it expires
 (`--ignore-cooldown` overrides). Model and effort are REQUIRED and have no defaults.
 
@@ -30,4 +30,4 @@ Cross-host: `send` to a live owner writes the shared inbox and reports `queued-r
 message in the job's `undelivered/`; `stop` writes a stop request the owner honours, never a kill.
 **`codex-run`** is the interactive entry point (`codex-run`, `codex-run --reseed`, `codex-run
 update`): it is the kit's own launcher, so CODEX_HOME lands on node-local disk wherever a profile
-sets `node_local_home = true` — no dependency on any hand-written wrapper in a home directory.
+sets `node_local_home = true`, with no dependency on any hand-written wrapper in a home directory.

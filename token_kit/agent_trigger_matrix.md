@@ -1,19 +1,19 @@
 # Agent trigger matrix
 
 A soft guide for the thread that delegates: what kind of work goes to which engine, model and
-effort, and why. It decides nothing for you — put a line `KIND: <name>` in a spawn's prompt and the
+effort, and why. It decides nothing for you. Put a line `KIND: <name>` in a spawn's prompt and the
 hook resolves that kind's ladder and writes the header; name nothing and the spawn goes through
 untouched.
 
 The one cost fact behind every row: an agent re-pays for its whole standing context on **every call
 it makes**, so a long agent costs far more than a long prompt. Two levers follow and nothing else
-comes close — run the cheapest engine and model that is safe for the work, and end the agent the
+comes close: run the cheapest engine and model that is safe for the work, and end the agent the
 moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
 candidate runs and every skip is logged with its reason. Every ladder ends in a Claude candidate so
 a maxed-out codex can never block a kind. Claude tiers, cheapest first: **sonnet > opus > fable**.
-A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier — cheap work
+A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
 that falls through stays cheap. Worked examples are at the end, under **Examples**.
 
 | kind | use when | who does it | prefer | done when |
@@ -36,7 +36,7 @@ status file; a model may not be the loop.
 
 ## Call budget
 
-One band for every kind — the kit's one hard mechanism. Change a number here and the hook changes.
+One band for every kind, and the kit's one hard mechanism. Change a number here and the hook changes.
 
 | threshold | calls | what happens |
 | --- | --- | --- |
@@ -80,13 +80,13 @@ Agents talk through files, not through long replies. One folder per piece of del
 Only the main thread writes `STATE.md`, and it records decisions; the user's exact words are in
 `PROMPTS.md`, which is extracted, not written, so it cannot drift. When several briefs share the
 same constraints, put them in one file and point each brief at it instead of repeating them. An
-agent owns its lane folder and the source paths its brief names — nothing else. The main thread
+agent owns its lane folder and the source paths its brief names, and nothing else. The main thread
 reads `out.md`, never an agent's transcript.
 
 ## Session rollover
 
 The main thread pays the same per-call cost as any agent, so it is restarted before its context gets
-expensive — a restart from `STATE.md`, which is cheaper and more faithful than compacting in place.
+expensive. It is a restart from `STATE.md`, which is cheaper and more faithful than compacting in place.
 
 ```
 token-kit-supervise launch [--state-file STATE.md] [--cwd DIR]   # start the session under the watcher
@@ -101,7 +101,7 @@ continue from it. The ceiling is a cost choice, not a window limit; change it un
 ## Examples
 
 **Dispatch a big task, and get the result by file.** Write the brief to a file first, name the kind
-in the prompt, and let the agent hand the result back as a file — never by being watched.
+in the prompt, and let the agent hand the result back as a file, never by being watched.
 
 ```
 Write  <lane>/in.md                      # the brief; first line of the spawn names the lane
@@ -120,13 +120,13 @@ TaskStop     task_id: "<agent name or id>"        # stops the background agent
 SendMessage  to: "<agent name>", message: "skip the legacy parser; only src/ matters"
 ```
 
-A `SendMessage` to a live agent is delivered at its next tool round — the agent keeps its context
+A `SendMessage` to a live agent is delivered at its next tool round: the agent keeps its context
 and changes course. `TaskStop` ends it; whatever it had written to `out.md` survives, nothing else.
 
 **Resume it, or respawn it cold.** A name keeps working after an agent completes: a `SendMessage`
 to a finished agent resumes it from its transcript with its context intact, while a new `Agent` call
 starts cold. Resuming re-pays that whole context on every call it then makes, so resume for ONE
-short follow-up ("also paste the diff") and respawn for real work — a fresh agent pointed at the
+short follow-up ("also paste the diff") and respawn for real work: a fresh agent pointed at the
 `RESUME` block of the previous `out.md` starts cheap and knows the same facts. When an agent crosses
 the floor of the call budget it is refused everything but its own `out.md` write and the handback,
 which is the same handoff arriving the other way round: the lane's `RESPAWN_REQUEST.md` is written
@@ -134,7 +134,7 @@ for you, and the respawn reader turns it into a notice on the main thread.
 
 **An opus agent that plans and runs the mechanical steps through codex.** This is the
 `claude-plans-codex-executes` shape: the Claude agent keeps the judgement and hands every lookup,
-log read and deterministic transform to codex, by Bash — one call per step, where a nested agent
+log read and deterministic transform to codex, by Bash: one call per step, where a nested agent
 would re-pay a context of its own. One shot, read right away:
 
 ```
