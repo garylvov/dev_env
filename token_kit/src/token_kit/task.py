@@ -47,8 +47,21 @@ from pathlib import Path
 
 from token_kit import timefmt
 
-#: Where `new` and `list` look when no --root is given.
-DEFAULT_ROOT = "tasks"
+def default_root() -> Path:
+    """Where `new` and `list` look when no --root is given.
+
+    Beside Claude Code's own per-user data, never in the directory you happen to
+    stand in: working folders are then in ONE place on the machine, no project
+    tree grows a folder it did not ask for, and `--root` still puts one anywhere.
+    The project a task belongs to is its `Cwd:` line, not its location.
+    """
+    base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+    return Path(base) / "token_kit" / "work"
+
+def resolve_root(root) -> Path:
+    return Path(root).expanduser().absolute() if root else default_root()
+
+
 
 #: The folder name: sortable stamp first, readable slug last.
 DIR_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})_(\d{4})_(.+)$")
@@ -373,7 +386,7 @@ def tasks_from_index() -> tuple[list[Task], int]:
 
 # ----------------------------------------------------------------------- verbs
 def cmd_new(args) -> int:
-    root = Path(args.root).expanduser().absolute()
+    root = resolve_root(args.root)
     when = datetime.now().astimezone()
     root.mkdir(parents=True, exist_ok=True)
     task = free_path(root, dir_name(when, args.title))
@@ -421,7 +434,7 @@ def cmd_list(args) -> int:
         if gone:
             print(f"# {gone} task(s) in the index no longer exist on disk")
     else:
-        root = Path(args.root).expanduser().absolute()
+        root = resolve_root(args.root)
         tasks = sorted(tasks_in(root), key=lambda t: t.stamp, reverse=True)
         if not tasks:
             print(f"# no tasks under {root} (try --all for the machine wide index)")
@@ -556,7 +569,7 @@ def search(words: list[str], everywhere: bool, root: Path) -> list[Task]:
 
 
 def cmd_find(args) -> int:
-    hits = search(args.words, args.all, Path(args.root).expanduser().absolute())
+    hits = search(args.words, args.all, resolve_root(args.root))
     if not hits:
         print("# no task matched")
         return 1
@@ -571,7 +584,7 @@ def resume_command(task: Task) -> str:
 
 
 def cmd_resume(args) -> int:
-    root = Path(args.root).expanduser().absolute()
+    root = resolve_root(args.root)
     direct = Path(" ".join(args.words)).expanduser()
     if (direct / STATE_NAME).is_file():
         hits = [Task(direct.resolve())]
@@ -607,7 +620,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("new", help="create a titled task folder")
     s.add_argument("title")
-    s.add_argument("--root", default=DEFAULT_ROOT)
+    s.add_argument("--root", default=None)
     s.add_argument("--summary", default="")
     s.set_defaults(fn=cmd_new)
 
@@ -618,7 +631,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_lane)
 
     s = sub.add_parser("list", help="one line per task")
-    s.add_argument("--root", default=DEFAULT_ROOT)
+    s.add_argument("--root", default=None)
     s.add_argument("--all", action="store_true", help="the machine wide index")
     s.add_argument("--open", action="store_true", help="only tasks still open")
     s.set_defaults(fn=cmd_list)
@@ -631,13 +644,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("find", help="search titles, summaries and bodies")
     s.add_argument("words", nargs="+")
-    s.add_argument("--root", default=DEFAULT_ROOT)
+    s.add_argument("--root", default=None)
     s.add_argument("--all", action="store_true")
     s.set_defaults(fn=cmd_find)
 
     s = sub.add_parser("resume", help="print the command that restarts a task")
     s.add_argument("words", nargs="+")
-    s.add_argument("--root", default=DEFAULT_ROOT)
+    s.add_argument("--root", default=None)
     s.add_argument("--local", action="store_true", help="search --root, not the index")
     s.add_argument("--go", action="store_true", help="run it instead of printing it")
     s.set_defaults(fn=cmd_resume)

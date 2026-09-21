@@ -368,5 +368,26 @@ class Entrypoint(Base):
         self.assertTrue(Path(p.stdout.strip()).is_dir())
 
 
+class DefaultLocation(Base):
+    """With no --root a task goes under the Claude config dir, never the cwd."""
+
+    def test_new_without_root_lands_under_the_claude_config_dir(self):
+        claude = self.root / "claude"
+        os.environ["CLAUDE_CONFIG_DIR"] = str(claude)
+        self.addCleanup(os.environ.pop, "CLAUDE_CONFIG_DIR", None)
+        elsewhere = self.root / "some-project"
+        elsewhere.mkdir()
+        before = os.getcwd()
+        os.chdir(elsewhere)
+        self.addCleanup(os.chdir, before)
+        rc, out = self.run_task("new", "fix the thing")
+        self.assertEqual(rc, 0)
+        made = Path(out.strip().splitlines()[-1])
+        self.assertEqual(made.parent, claude / "token_kit" / "work")
+        self.assertEqual(list(elsewhere.iterdir()), [])
+        rc, listed = self.run_task("list")
+        self.assertIn("fix the thing", listed)
+
+
 if __name__ == "__main__":
     unittest.main()

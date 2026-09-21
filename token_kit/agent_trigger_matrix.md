@@ -64,10 +64,11 @@ the lead reads it. Every level is bounded by the same call budget.
 ## Working folder
 
 Agents talk through files, not through long replies. One folder per piece of delegated work, and the
-folder titles itself so it sorts by age and can be found again from anywhere:
+folder titles itself so it sorts by age and can be found again from anywhere. Folders live under
+`~/.claude/token_kit/work/`, not in the project tree; the project is the `Cwd:` line in `STATE.md`:
 
 ```
-token-kit-task new "migrate the date parsing"        # -> tasks/2026-09-21_2242_migrate-the-date-parsing
+token-kit-task new "migrate the date parsing"        # -> ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing
 token-kit-task retitle <task-dir> "replace the date helper" --summary "what it turned out to be"
 token-kit-task find date parsing --all               # then resume it: token-kit-task resume <words>
 ```
@@ -77,7 +78,7 @@ as a symlink, so paths already written into briefs and out.md files still resolv
 `token-kit-task lane <task-dir> <name> --under <lane-dir>`.
 
 ```
-tasks/2026-09-21_2242_migrate-the-date-parsing/
+~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing/
   STATE.md                 # "# <title>", then Started: / Status: / Cwd: / Summary:, then the main
                            #   thread's only memory: decisions, what is in flight, what to do NEXT
   PROMPTS.md               # what the user typed, verbatim, extracted from the session transcripts by

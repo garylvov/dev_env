@@ -33,16 +33,18 @@ It installs no agent prompts of its own and never touches yours.
 
 Agents talk through files, not long replies.
 
-`token-kit-task` names the folder so you do not have to, and can find it again later:
+`token-kit-task` names the folder and puts it under `~/.claude/token_kit/work/`, so no project tree
+grows a folder it did not ask for (`--root DIR` puts one elsewhere). Which project a task belongs to
+is its `Cwd:` line, and `resume` starts the session there:
 
 ```
-token-kit-task new "migrate the date parsing"      # -> tasks/2026-09-21_2242_migrate-the-date-parsing
+token-kit-task new "migrate the date parsing"      # -> ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing
 token-kit-task retitle <task-dir> "replace the date helper" --summary "one line"
 token-kit-task find date parsing --all             # then: token-kit-task resume <words-or-path>
 ```
 
 ```
-tasks/2026-09-21_2242_migrate-the-date-parsing/
+~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing/
   STATE.md               # "# <title>", then Started: / Status: / Cwd: / Summary:, then your own text
   PROMPTS.md             # what you typed, verbatim; extracted by token-kit-prompts, refreshed at rollover
   lanes/<name>/v0/       # one agent, one attempt; a retry is v1, never an overwrite
