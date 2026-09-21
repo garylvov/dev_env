@@ -67,20 +67,21 @@ Agents talk through files, not through long replies. One folder per piece of del
 
 ```
 <task>/
-  STATE.md                 # the main thread's only memory: what the user said (quoted, dated), decisions,
-                           #   what is in flight, and a last line saying what to do NEXT
-  RULES.md                 # optional: constraints shared by every agent of this task, so each brief
-                           #   points at one file instead of repeating them
+  STATE.md                 # the main thread's only memory: decisions, what is in flight, and a last
+                           #   line saying what to do NEXT
+  PROMPTS.md               # what the user typed, verbatim, extracted from the session transcripts by
+                           #   `token-kit-prompts`; refreshed at every rollover
   lanes/<name>/v0/         # one agent, one attempt; a retry is v1, never an overwrite
     in.md                  # the brief, written BEFORE the spawn; opens "every claim is a lead to verify"
     out.md                 # line 1 = RESULT: ...; then evidence, UNPROVEN, RESUME (how a fresh agent continues)
     RESPAWN_REQUEST.md     # written by an agent that ran out of calls; the main thread is told once
 ```
 
-Only the main thread writes `STATE.md`. The user's instructions go into it in their own words the
-moment they are given — a rollover or a fresh agent sees only what is on disk, and a paraphrase
-drifts. An agent owns its lane folder and the source paths its brief
-names — nothing else. The main thread reads `out.md`, never an agent's transcript.
+Only the main thread writes `STATE.md`, and it records decisions; the user's exact words are in
+`PROMPTS.md`, which is extracted, not written, so it cannot drift. When several briefs share the
+same constraints, put them in one file and point each brief at it instead of repeating them. An
+agent owns its lane folder and the source paths its brief names — nothing else. The main thread
+reads `out.md`, never an agent's transcript.
 
 ## Session rollover
 

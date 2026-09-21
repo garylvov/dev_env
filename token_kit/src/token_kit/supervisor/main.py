@@ -151,13 +151,44 @@ def seed_arg(seed: Path) -> str:
             "starting now. Treat every claim in it as a lead to verify.")
 
 
-def seed_text(cfg) -> str:
+def prompts_path(cfg) -> Path:
+    """The verbatim prompt file, beside the handoff it complements."""
+    return cfg.state_path.parent / "PROMPTS.md"
+
+
+def refresh_prompts(cfg) -> Path | None:
+    """Bring the verbatim prompt file current just before the relaunch.
+
+    The handoff is the outgoing session's summary of what was asked; this is
+    what was actually asked, in the user's own words, so the fresh session can
+    check the summary against the source.
+
+    FAIL OPEN: an extraction error is a ROW, never a blocked rollover. A
+    rollover that refuses because a nice-to-have file could not be written is a
+    far worse defect than a rollover with one file missing.
+    """
+    out = prompts_path(cfg)
+    try:
+        from token_kit import prompts as prompts_mod
+
+        stats = prompts_mod.refresh(str(cfg.work_dir), out)
+    except Exception as exc:                       # noqa: BLE001 -- fail open
+        row(cfg, "prompts_failed", f"path={out} error={type(exc).__name__}: {exc}")
+        say(f"prompt extraction failed ({exc}) -- rollover continues without it")
+        return None
+    row(cfg, "prompts_refreshed", f"path={out} {stats.line()}")
+    return out
+
+
+def seed_text(cfg, prompts: Path | None = None) -> str:
     """The handoff, naming the state file the operator pointed us at."""
     state = cfg.state_path
+    said = f"What the user said, verbatim: {prompts}\n" if prompts else ""
     return ("Rollover: the previous session ended at its context ceiling.\n"
             f"Working directory: {cfg.work_dir}\n"
             f"Read {state} -- the handoff -- and continue from it.\n"
-            f"Anything {state.parent} names as required reading, read too.\n"
+            + said
+            + f"Anything {state.parent} names as required reading, read too.\n"
             "Treat every claim in it as a lead to verify.\n")
 
 
@@ -184,7 +215,7 @@ def launch_from_file(cfg) -> int | None:
     name = f"{cfg.tmux_prefix}-{datetime.now().strftime('%H%M%S')}"
     seed = cfg.run_dir / f"seed.{name}.md"
     cfg.run_dir.mkdir(parents=True, exist_ok=True)
-    seed.write_text(seed_text(cfg))
+    seed.write_text(seed_text(cfg, refresh_prompts(cfg)))
 
     cmd = f"{cfg.claude_bin} {flags}".strip()
     if cfg.seed_as_arg:

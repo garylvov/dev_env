@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """token_kit -- put the whole token-spend kit on a machine with one command.
 
-Subcommands: install, uninstall, probe, census, config, hook.
+Subcommands: install, uninstall, probe, census, config, hook, prompts.
 
 Reached through `install.sh`, which is a thin bootstrap: it makes sure `uv` is
 present and then runs this file with a modern Python. Nothing here imports a
@@ -64,6 +64,7 @@ COMPONENTS = [
     ("respawn-reader", "the PostToolUse(Agent)+Stop lane respawn reader"),
     ("supervisor", "token-kit-supervise, the rollover supervisor"),
     ("codex-bin", "the codex-dispatch / codex-job / codex-run shims"),
+    ("prompts", "token-kit-prompts, the verbatim user-prompt extractor"),
     ("kind-agents", "one generated agent file per kind and Claude candidate"),
     ("agent-trigger-matrix", "the routing chart itself"),
 ]
@@ -78,6 +79,9 @@ EXECUTABLES = [
     # The interactive entry point: the kit's own launcher, so a new cluster
     # machine needs no hand-written wrapper in anybody's home directory.
     ("codex-run", "src/token_kit/codex/bin/codex-run"),
+    # What the user typed, extracted from the transcripts on demand and at
+    # every rollover. An operator runs it by hand too, so it is on PATH.
+    ("token-kit-prompts", "src/token_kit/bin/token-kit-prompts"),
 ]
 
 # --------------------------------------------------------------------------
@@ -843,6 +847,24 @@ def cmd_config(args) -> int:
     return 0
 
 
+def cmd_prompts(args) -> int:
+    """What the user typed, verbatim, out of the CLI's own transcripts.
+
+    The work is all in token_kit.prompts; this is the same argument surface as
+    the `token-kit-prompts` shim, so either spelling does the same thing.
+    """
+    from token_kit import prompts as prompts_mod
+
+    argv = ["--cwd", args.cwd, "--out", args.out]
+    if args.since:
+        argv += ["--since", args.since]
+    if args.session:
+        argv += ["--session", args.session]
+    if args.stdout:
+        argv += ["--stdout"]
+    return prompts_mod.main(argv)
+
+
 # --------------------------------------------------------------------------
 # hook -- the PreToolUse entry point
 # --------------------------------------------------------------------------
@@ -869,6 +891,9 @@ def cmd_hook(args) -> int:
 # --------------------------------------------------------------------------
 def main(argv=None) -> int:
     import argparse
+
+    from token_kit import prompts as prompts_mod
+
     ap = argparse.ArgumentParser(prog="token_kit", description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -893,6 +918,14 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("hook", help="PreToolUse hook entry point (reads stdin)")
     p.set_defaults(fn=cmd_hook)
+
+    p = sub.add_parser("prompts", help="write what the user typed, verbatim, to one file")
+    p.add_argument("--cwd", default=".")
+    p.add_argument("--out", default=prompts_mod.DEFAULT_OUT)
+    p.add_argument("--since", default="", metavar="YYYY-MM-DD")
+    p.add_argument("--session", default="", metavar="ID")
+    p.add_argument("--stdout", action="store_true")
+    p.set_defaults(fn=cmd_prompts)
 
     args = ap.parse_args(argv)
     return args.fn(args)

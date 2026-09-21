@@ -3,7 +3,7 @@
 # `uv` and a modern Python exist, then hand every decision to the Python CLI.
 #
 #   bash token_kit/install.sh [--dry-run] [--uninstall] [--probe] [--census]
-#                             [--config]
+#                             [--config] [--prompts [--out FILE] [--since D]]
 #
 # There is no profile to pick: every machine fact is detected at run time.
 # `--config` prints what this machine decided and where each value came from.
@@ -28,6 +28,7 @@ for a in "$@"; do
     --probe)      SUB=probe ;;
     --census)     SUB=census ;;
     --config)     SUB=config ;;
+    --prompts)    SUB=prompts ;;
     --help-full)  SUB=""; ;;
     *)            ARGS+=("$a") ;;
   esac

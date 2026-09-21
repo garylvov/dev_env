@@ -34,6 +34,7 @@ It installs no agent prompts of its own and never touches yours.
 | `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. When your home is on a network filesystem it keeps `CODEX_HOME` on node-local `/tmp` — Codex's SQLite breaks there — seeds it once per machine, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. |
 | `token-kit-supervise` | `launch [--state-file FILE] [--cwd DIR]` — runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from that handoff file (default `./STATE.md`). Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. Its bookkeeping goes under the XDG state dir keyed by a hash of the file's path, so two projects never collide. |
 | `respawn-reader` | Tells the main thread, once, when a background agent asked to be restarted. |
+| `token-kit-prompts` | `--cwd DIR --out FILE [--since YYYY-MM-DD] [--session ID] [--stdout]` — writes what you actually typed, verbatim, from this directory's session transcripts into one markdown file (default `./PROMPTS.md`, mode 0600). Tool output, subagent transcripts, compaction summaries and harness notices are excluded; re-running rewrites the same bytes. A rollover refreshes it beside the handoff file. |
 | `canary` | Proves mechanically whether an instruction file is really in a model's context: LOADED / NOT_LOADED / PROBE_BROKEN, never collapsed. |
 
 Details for the Codex commands: `src/token_kit/codex/USAGE.md`.

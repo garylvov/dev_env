@@ -261,6 +261,58 @@ class Launch(Fixture):
         sup.launch_from_file(cfg)
         self.assertNotIn("Rollover seed", self.argv.read_text())
 
+    def prompts_fixture(self, text="the operator's own words"):
+        """A transcript for the work dir, under a projects root of our own."""
+        from token_kit.router.hook import slug
+
+        projects = self.root / "projects"
+        d = projects / slug(str(self.work.resolve()))
+        d.mkdir(parents=True)
+        (d / "sess.jsonl").write_text(json.dumps({
+            "type": "user", "uuid": "u1", "timestamp": "2026-01-31T14:05:00.000Z",
+            "sessionId": "sess", "isSidechain": False, "promptSource": "typed",
+            "message": {"role": "user", "content": text}}) + "\n")
+        os.environ["LANE_RECYCLER_PROJECTS_ROOT"] = str(projects)
+        self.addCleanup(os.environ.pop, "LANE_RECYCLER_PROJECTS_ROOT", None)
+
+    def test_23_the_relaunch_refreshes_the_verbatim_prompt_file_and_names_it(self):
+        """The handoff says what was decided; this says what was ASKED."""
+        self.prompts_fixture()
+        self.register(self.pane_pid, S.proc_start(self.pane_pid))
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        cfg.flags_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg.flags_file.write_text("--model haiku\n")
+        sup.launch_from_file(cfg)
+
+        prompts = self.state_file.parent / "PROMPTS.md"
+        self.assertTrue(prompts.is_file(), "no PROMPTS.md beside the state file")
+        self.assertIn("the operator's own words", prompts.read_text())
+        self.assertEqual(0o600, prompts.stat().st_mode & 0o777)
+        self.assertEqual(1, len(self.rows(cfg, "prompts_refreshed")))
+        seed = sorted(cfg.run_dir.glob("seed.*.md"))[-1].read_text()
+        self.assertIn(f"What the user said, verbatim: {prompts}", seed)
+
+    def test_24_a_failed_extraction_is_a_row_and_the_rollover_still_launches(self):
+        """FAIL OPEN: a nice-to-have file may never block a relaunch."""
+        from token_kit import prompts as P
+
+        self.register(self.pane_pid, S.proc_start(self.pane_pid))
+        cfg = self.cfg(tmux_bin=self.fake_tmux(), autowatch=False)
+        cfg.flags_file.parent.mkdir(parents=True, exist_ok=True)
+        cfg.flags_file.write_text("--model haiku\n")
+        real = P.collect
+        P.collect = lambda *a, **k: (_ for _ in ()).throw(OSError("transcripts unreadable"))
+        self.addCleanup(setattr, P, "collect", real)
+
+        pid = sup.launch_from_file(cfg)
+        self.assertEqual(self.pane_pid, pid, "a failed extraction blocked the relaunch")
+        rows = self.rows(cfg, "prompts_failed")
+        self.assertEqual(1, len(rows))
+        self.assertIn("transcripts unreadable", rows[0])
+        seed = sorted(cfg.run_dir.glob("seed.*.md"))[-1].read_text()
+        self.assertNotIn("What the user said", seed)
+        self.assertIn("Rollover:", seed)
+
     def test_13_unresolvable_pid_is_a_loud_row_not_a_crash(self):
         cfg = self.cfg(tmux_bin=self.fake_tmux(pane=False), autowatch=True)
         cfg.flags_file.parent.mkdir(parents=True, exist_ok=True)

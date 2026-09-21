@@ -266,6 +266,32 @@ class TestEveryComponentLands(ScratchHome):
         run_cli(self.home, "uninstall")
         self.assertFalse(shim.exists(), "codex-run left behind by uninstall")
 
+    def test_8d_the_prompt_extractor_is_installed_and_runs_from_the_link(self):
+        """`token-kit-prompts` writes the user's own words to one file.
+
+        It is on PATH for the same reason the launcher is: the rollover calls
+        the module directly, but a person asking "what did I actually say?"
+        needs a command, not an import. The shim is linked, so it must resolve
+        its clone through its link target like every other shim here.
+        """
+        self.assertIn("token-kit-prompts", [name for name, _rel in cli.EXECUTABLES])
+        self.install()
+        shim = self.home / ".config/token_kit/bin/token-kit-prompts"
+        self.assertTrue(shim.is_symlink(), "token-kit-prompts was not linked")
+        self.assertEqual(Path(os.readlink(shim)),
+                         cli.KIT_DIR / "src/token_kit/bin/token-kit-prompts")
+        out = self.home / "PROMPTS.md"
+        p = subprocess.run([str(shim), "--cwd", str(self.home), "--out", str(out)],
+                           capture_output=True, text=True,
+                           env={**os.environ, "HOME": str(self.home)})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("No module named", p.stderr)
+        self.assertEqual(0o600, out.stat().st_mode & 0o777)
+        manifest = (self.home / ".config/token_kit/manifest.tsv").read_text()
+        self.assertIn(str(shim), manifest, "token-kit-prompts is not in the manifest")
+        run_cli(self.home, "uninstall")
+        self.assertFalse(shim.exists(), "token-kit-prompts left behind by uninstall")
+
     def test_9_generated_row_agents_land_one_per_candidate(self):
         self.install()
         agents = self.home / ".claude/agents"
