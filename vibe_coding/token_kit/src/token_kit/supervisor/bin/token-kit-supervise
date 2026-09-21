@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# token-kit-supervise -- thin shim over token_kit.supervisor.main. See that file.
+# Same cached-interpreter trick as respawn-reader: `uv run` spends ~65-95 ms
+# resolving an interpreter that costs ~17 ms to start, and a watcher re-invokes
+# this shim on every rollover.
+set -euo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # .../token_kit/src
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/token_kit/python"
+if [ ! -x "$CACHE" ]; then
+  mkdir -p "$(dirname "$CACHE")"
+  uv run --python '>=3.11' --no-project python -c 'import sys;print(sys.executable)' \
+    > "$CACHE.tmp.$$" 2>/dev/null && ln -sf "$(cat "$CACHE.tmp.$$")" "$CACHE"
+  rm -f "$CACHE.tmp.$$"
+fi
+if [ -x "$CACHE" ]; then
+  exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" "$CACHE" \
+    -m token_kit.supervisor.main "$@"
+fi
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python '>=3.11' --no-project python -m token_kit.supervisor.main "$@"

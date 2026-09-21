@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# respawn-reader -- the PostToolUse(Agent)+Stop hook entry point.
+# See token_kit/respawn/reader.py. This shim is what settings.json points at.
+#
+# MEASURED on this box: `uv run --python '>=3.11' --no-project python -c pass`
+# costs ~65-95 ms of interpreter RESOLUTION before any of our code runs, and the
+# resolved interpreter alone costs ~17 ms. A hook pays that on every main-thread
+# turn end, so the resolution is done ONCE and cached; the cache is validated by
+# executing it, and a miss falls back to uv and re-writes the cache.
+set -euo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # .../token_kit/src
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/token_kit/python"
+if [ ! -x "$CACHE" ]; then
+  mkdir -p "$(dirname "$CACHE")"
+  uv run --python '>=3.11' --no-project python -c 'import sys;print(sys.executable)' \
+    > "$CACHE.tmp.$$" 2>/dev/null && ln -sf "$(cat "$CACHE.tmp.$$")" "$CACHE"
+  rm -f "$CACHE.tmp.$$"
+fi
+if [ -x "$CACHE" ]; then
+  exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" "$CACHE" \
+    -m token_kit.respawn.reader "$@"
+fi
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python '>=3.11' --no-project python -m token_kit.respawn.reader "$@"
