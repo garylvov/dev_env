@@ -506,7 +506,17 @@ def dispatch(
             turn_id = turn.get("id") or turn_id
             texts.extend(t for t in _agent_texts(turn.get("items") or []) if t not in texts)
             if status != "completed":
-                err = (turn.get("error") or {}).get("message") or status or "unknown"
+                from token_kit.codex import errors as _errors
+
+                error = turn.get("error") or {}
+                if _errors.is_quota(error):
+                    # Out of quota is not "codex ran and failed" (rc 3, retry):
+                    # it is "codex is unavailable" (rc 42, do it yourself), and
+                    # it boards a cooldown so the next caller does not re-hit it.
+                    marker = _errors.board_quota(json.dumps(error))
+                    raise CodexUnavailable("quota", f"{error.get('message', '')} "
+                                                    f"cooldown boarded at {marker}")
+                err = error.get("message") or status or "unknown"
                 raise CodexTurnFailed(f"turn status={status}: {err}")
             answer = texts[-1].strip() if texts else ""
             if not answer:

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# codex-job -- a codex job you can start in the background and then message.
+# See token_kit/codex/job.py.  `start` returns at once; `wait` is the thing you
+# run as a background command so the harness tells you when the job ends.
+set -euo pipefail
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # .../token_kit/src
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python 3.11 --no-project python -m token_kit.codex.job "$@"

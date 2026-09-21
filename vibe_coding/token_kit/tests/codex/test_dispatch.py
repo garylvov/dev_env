@@ -186,6 +186,21 @@ class DispatchCase(unittest.TestCase):
         self.assertEqual(proc.stdout.strip(), "")
         self.assertIn("CODEX_FAILED", proc.stderr)
 
+    def test_quota_is_rc42_not_rc3(self):
+        """A maxed-out account is codex UNAVAILABLE, not a turn that failed.
+
+        rc 3 invites a retry into the same wall; rc 42 hands the step to a
+        Claude model and boards the cooldown marker for the next caller.
+        """
+        marker = self.tmp / "cooldown.json"
+        proc, _ = self.run_cli(scenario="quota",
+                               env_extra={"TOKEN_KIT_CODEX_COOLDOWN_MARKER": str(marker)})
+        self.assertEqual(proc.returncode, D.EXIT_BUSY_OR_ABSENT, proc.stderr)
+        self.assertIn("reason=quota", proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "")
+        self.assertIn("usageLimitExceeded",
+                      json.loads(marker.read_text(encoding="utf-8"))["detail"])
+
     def test_slot_is_released_so_a_second_call_runs(self):
         first, _ = self.run_cli("--max-children", "1")
         self.assertEqual(first.returncode, 0, first.stderr)
