@@ -12,7 +12,7 @@
 #     Every codex row names BOTH model and effort: the config default is never
 #     trusted. Codex runs on a COMPUTE node only — a codex row selected from a
 #     login session must fall back to the row's Claude `model`, and that
-#     fallback is UNTESTED (it could not be tested from login009).
+#     fallback is UNTESTED (it could not be tested from the login node).
 # R3. ONE BUDGET, ALL KINDS: see [budget] below. The per-row max_calls numbers
 #     are gone. Only max_report stays per row.
 # R4. cache_ttl is INERT until settings.json `subagentPromptCacheTtl` is UNSET.
@@ -160,9 +160,12 @@ hard = 250    # the reason escalates; the out.md write is STILL never denied
 # tools/matrix_final/guard_matrix.sh still checks that the rows are
 # INTERNALLY sound; the recycler guard checks that they are LIVE.
 #
-# Where it should live when it stops being a draft:
-#   /oscar/data/stellex/glvov/agrescap/canonical/agent_trigger_matrix.toml
-# (canonical is a git checkout, so the file is versioned; agrescap/tasks is not.)
+# WHERE THIS FILE LIVES (2026-09-20): this copy, in the token_kit clone, is THE
+# AUTHORITY. It is versioned with the code that reads it and it is what the
+# installer links into ~/.config/token_kit/. The copy under the doctrine
+# checkout is the frozen bash-era table and is no longer edited; the two
+# diverged the moment `prefer` was added, and keeping two writable copies of a
+# routing table is how a router and its operator stop agreeing.
 #
 # Every path below was confirmed to exist on disk on 2026-09-18 with ls/find.
 # The claim that used to stand here — "every column is enforced by a mechanism
@@ -170,13 +173,33 @@ hard = 250    # the reason escalates; the out.md write is STILL never denied
 # (see above), and there is no enforcement.md in this directory.
 #
 # Column meanings:
-#   globs        path patterns, relative to /oscar/data/stellex/glvov
+#   globs        path patterns, relative to the profile's `[paths] data_root`
 #   topics       words/phrases matched, as whole words, against the spawn's
 #                `description` field ONLY — never the prompt body. RULING
 #                2026-09-20: every brief we write contains "no background
 #                waits" and "do not poll", so matching topics against the
 #                body sends nearly every spawn to watch-poll-wait, which
 #                REFUSES. The replay measured this. Do not soften it.
+#   prefer       ORDERED candidate list, one grammar for every engine:
+#                  "<engine>:<model>:<effort>"
+#                e.g. ["codex:gpt-6-astra:high", "claude:fable:high",
+#                      "claude:opus:high"]. The router takes the FIRST
+#                AVAILABLE candidate and appends an event row naming the one
+#                it chose and why each earlier one was skipped — that log is
+#                how the operator sees the dynamics without asking.
+#                Effort is PER CANDIDATE, which is where the operator's
+#                "effort should def be part of the matrix" lands.
+#                Availability, a closed set: a codex candidate is unavailable
+#                when the binary/launcher is absent, when the quota cooldown
+#                marker is live, or when the per-host codex bound is full; a
+#                claude candidate is unavailable when [concurrency] for that
+#                model is full. EVERY list must END in a claude candidate, so
+#                no row can be blocked by codex being maxed out (guarded).
+#                A `refuse` row is the one exception: its list is empty.
+#                `model`/`engine`/`codex_model`/`codex_effort`/`effort`
+#                are now DERIVED views of the last/first candidate and are
+#                kept only because the bash router reads them; the Python
+#                port reads `prefer` and they can go.
 #   use_when     one line, written for the SPAWNING thread: when to put
 #                `ROW: <name>` in the spawn prompt. This is what the menu
 #                shows; the menu is generated from this file, so it cannot
@@ -225,12 +248,26 @@ hard = 250    # the reason escalates; the out.md write is STILL never denied
 # fallback, which stops being untestable now that availability is a binary
 # check rather than a live service.
 # ---------------------------------------------------------------------------
+# OPERATOR RULING 2026-09-20: "we shouldn't be blocked if codex is maxed out."
+# Hence `prefer` on every row (see the column meanings) and the cooldown below:
+# a QUOTA refusal from the dispatcher writes a marker, and until it expires the
+# router skips codex candidates instead of paying for the same refusal on every
+# spawn. absent/busy refusals do NOT arm the cooldown — they are per-call.
 [codex]
 run = "on-demand"
 binary = "codex"
-refusal_code = 2
-agents_dir = "/users/glvov/.claude/agents"
-dispatch = "bash /oscar/data/stellex/glvov/agrescap/canonical/tools/codex_surface/codex_fleet.sh turn --model gpt-5.6-luna --effort high --message '<one mechanistic sub-step>'"
+refusal_code = 42
+refusal_reasons = ["absent", "busy", "quota"]
+quota_cooldown_s = 1800
+cooldown_marker = "codex_quota_cooldown"
+agents_dir = "~/.claude/agents"
+# The two installed shims. They are linked into ~/.config/token_kit/bin, which
+# is where every path in this block is resolved from, so no machine-specific
+# path appears in this table.
+dispatch = "codex-dispatch --model gpt-5.6-luna --effort high --message '<one mechanistic sub-step>'"
+job = "codex-job"
+# Paste-in surface for the four job commands (SessionStart menu, brief headers).
+usage_text = "${TOKEN_KIT_CLONE}/src/token_kit/codex/USAGE.md"
 
 [defaults]
 model = "sonnet"
@@ -256,7 +293,7 @@ reviewer = ""
 # ---------------------------------------------------------------------------
 [personas]
 source_dir = "agrescap/canonical/tools/matrix_final/agents"
-installed  = "/users/glvov/.claude/agents"
+installed  = "~/.claude/agents"
 bodies = ["architect", "grizzly-veteran", "job-runner", "bloat-killer"]
 # measured, 2026-09-20:  architect 6802->1750  grizzly-veteran 6706->1888
 #                        job-runner 11817->3861  bloat-killer 8490->2209
@@ -271,6 +308,7 @@ bodies = ["architect", "grizzly-veteran", "job-runner", "bloat-killer"]
 name = "watch-poll-wait"
 use_when = "the ask is to watch, poll, wait for, tail, or babysit something that is still running"
 shape = "refuse"
+prefer = []   # a refuse row has no candidate: nothing runs
 topics = ["watch", "poll", "wait", "monitor", "babysit", "keep checking",
           "until it finishes", "every N minutes", "tail the log", "when it lands"]
 globs = []
@@ -291,6 +329,7 @@ repo_home = "agrescap"
 name = "watch-readback"
 use_when = "read back what a watcher's status file already recorded"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
 topics = ["read the status file", "what did the watcher see", "status file"]
 globs = ["agrescap/evidence/watch/**"]
 load = "agrescap/evidence/watch/README"
@@ -313,6 +352,7 @@ repo_home = "agrescap"
 name = "cluster-state"
 use_when = "answer a queue, VRAM, disk, quota or node question with one command and its output"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
 topics = ["squeue", "sacct", "nvidia-smi", "VRAM", "df", "quota", "which node",
           "is the job running", "allocation", "sinfo"]
 globs = []
@@ -327,12 +367,13 @@ codex_effort = "high"
 cache_ttl = "5m"
 stop = "the command output is quoted with the command that produced it"
 repo_home = "none"
-note = "WAS agent = gpu-probe. Re-pointed 2026-09-20. gpu-probe.md (2,147 B) exists ONLY as a PROJECT agent in canonical/.claude/agents and wbc-latest/.claude/agents, so it is not selectable from the work home /oscar/data/stellex/glvov — verified by the selectable-agent list of a live session rooted there, which does not contain it. Measured spawns of gpu-probe across every transcript: ZERO. Its frontmatter also says model: haiku, so it cannot be installed as-is without breaking R1. This row still replaces ad-hoc opus spawns for the same question."
+note = "WAS agent = gpu-probe. Re-pointed 2026-09-20. gpu-probe.md (2,147 B) exists ONLY as a PROJECT agent in canonical/.claude/agents and wbc-latest/.claude/agents, so it is not selectable from the work home — verified by the selectable-agent list of a live session rooted there, which does not contain it. Measured spawns of gpu-probe across every transcript: ZERO. Its frontmatter also says model: haiku, so it cannot be installed as-is without breaking R1. This row still replaces ad-hoc opus spawns for the same question."
 
 [[row]]
 name = "log-read"
 use_when = "read a log, stdout or steps.jsonl and say what it shows"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
 topics = ["what does the log say", "stdout", "steps.jsonl", "did it crash",
           "last lines", "error in the log"]
 globs = ["agrescap/logs/**", "**/runs/**/*.log", "**/*.out", "**/*.err"]
@@ -356,6 +397,7 @@ note = "Two samples, because the doctrine says a wedge is no output growth, neve
 name = "doctrine-lookup"
 use_when = "find a ruling, debt id, law or doctrine section — or show it is absent"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
 topics = ["ruling", "which ruling", "doctrine", "law", "INDEX", "KEYWORDS",
           "where did section", "is this already boarded"]
 globs = ["agrescap/canonical/docs/curric-dawn/mega/**"]
@@ -376,6 +418,7 @@ note = "KEYWORDS.md is the grep index and is the cheapest entry point. Never loa
 name = "register-write"
 use_when = "claim a debt id and write its ledger or failure-register row"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:medium"]
 topics = ["board a debt", "debt row", "failure register", "claim an id",
           "N27-", "N19-GROVE4-"]
 globs = ["agrescap/canonical/docs/curric-dawn/mega/04_debt_ledger.md",
@@ -401,6 +444,7 @@ repo_home = "agrescap"
 name = "launcher-edit"
 use_when = "edit or debug a launcher, sbatch or srun script"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:medium", "claude:opus:medium"]
 globs = ["wbc/wbc-latest/launch/**", "wbc/wbc-latest/launch_*.sh",
          "agrescap/canonical/launch_*.sh", "**/*.sbatch",
          "wbc/wbc-canon/imprint/launch/**"]
@@ -424,6 +468,7 @@ note = "sbatch copies the script at submit time, so editing a pending job's scri
 name = "training-code-read"
 use_when = "establish which copy of training code a live process actually imports"
 shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
 globs = ["wbc/wbc-canon/protomotions/**", "wbc/wbc-canon/imprint/src/imprint/**"]
 topics = ["what does production import", "which copy runs", "train_agent",
           "protomotions", "PYTHONPATH"]
@@ -444,6 +489,7 @@ note = "wbc-canon is read-only by default. Two copies of a module diverging is n
 name = "training-code-change"
 use_when = "change a reward, observation, actor/critic, sampler or curriculum in wbc-latest"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:high", "claude:opus:high"]
 globs = ["wbc/wbc-latest/src/imprint/**", "wbc/wbc-latest/imprint_isaaclab_ext/**"]
 topics = ["reward term", "observation", "actor", "critic", "policy", "curriculum",
           "sampler", "heldout", "motion clip"]
@@ -465,6 +511,7 @@ repo_home = "wbc-latest"
 name = "eval-film-judge"
 use_when = "change or run eval, film, render or the visual judge"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:medium", "claude:opus:medium"]
 globs = ["**/sim2sim/cross_eval.py", "**/sim2sim/mujoco_eval.py",
          "**/vqa_workflow/**", "**/robojudo/**",
          "wbc/wbc-latest/eval_loop.sh", "wbc/wbc-latest/mm_eval_loop.sh"]
@@ -487,6 +534,7 @@ note = "In-training eval has rewritten the motion sampler before. Any change her
 name = "harness-broker"
 use_when = "debug the grove4 harness, a broker, a role prompt, the directive ledger or a stage gate"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:opus:high", "claude:fable:high", "claude:sonnet:high"]
 globs = ["**/src/imprint/grove4/**", "agrescap/research/agor-work/**",
          "**/grove4/roles/**"]
 topics = ["broker", "runner.py", "role prompt", "directive ledger", "tick",
@@ -508,6 +556,7 @@ repo_home = "agrescap"
 name = "retread-store"
 use_when = "work on retread, the cold-solve stores, wheels, lockfiles or determinism"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:high", "claude:opus:high"]
 globs = ["wbc/wbc-canon/imprint/.retread/**", "wbc/wbc-canon/imprint/tools/**",
          "wbc/wbc-canon/imprint/pypi-packs/**"]
 topics = ["retread", "cold solve", "store", "wheel", "resolve_conda",
@@ -529,6 +578,7 @@ repo_home = "wbc-canon"   # the stores live under wbc/wbc-canon/imprint/; law 7 
 name = "design"
 use_when = "compare two or three approaches and recommend one before any code is written"
 shape = "claude-direct"
+prefer = ["claude:opus:high", "claude:fable:high"]
 topics = ["design", "architecture", "how should we structure", "plan the",
           "which approach", "trade-off"]
 globs = []
@@ -538,6 +588,7 @@ model = "opus"
 effort = "high"
 max_report = 4000
 cache_ttl = "1h"
+reviewer = "codex:gpt-6-astra:high"   # operator 2026-09-20: a design may be reviewed by astra. The reviewer column now accepts a candidate in the `prefer` grammar as well as an agent name.
 stop = "two or three approaches are compared and one is recommended with its cost"
 repo_home = "none"
 note = "KEPT as a persona, not re-pointed. Measured: 9 spawns, 691 calls, 50.9M tokens all time — 77 calls/spawn, the cheapest persona per spawn. Its load is empty, so there is no file to replace it with; the compressed 1,750 B body IS the load. Cut: the four auto-selection <example> blocks (1,874 B, 28% of the file) and the design-pattern catalogue, which opus already knows."
@@ -546,6 +597,7 @@ note = "KEPT as a persona, not re-pointed. Measured: 9 spawns, 691 calls, 50.9M 
 name = "stuck"
 use_when = "previous attempts failed and a root cause has to be named"
 shape = "claude-plans-codex-executes"
+prefer = ["claude:opus:high", "claude:fable:high"]
 topics = ["already tried", "still failing", "root cause", "nothing worked",
           "third attempt"]
 globs = []
@@ -566,6 +618,7 @@ note = "This row is the only place a call budget above 90 is allowed. It must be
 name = "batch-sweep"
 use_when = "run a queue of jobs, a sweep, or eval over many checkpoints"
 shape = "claude-direct"   # MEASURED 2026-09-20 over the 510-spawn replay: only 37.4% of this row's Bash calls are read-ish (grep/ls/cat/jq/squeue/...), against 62-90% for every other judgement row. Its calls are DISPATCH — sbatch, srun, kills — which are irreversible acts that must stay with the agent that owns the queue. Delegating them adds a hop without removing context.
+prefer = ["claude:sonnet:medium", "claude:opus:medium"]
 topics = ["sweep", "run eval on all", "batch", "queue of jobs", "every checkpoint"]
 globs = []
 load = "mega/05_runbook.md#r1-boot-runbook"
@@ -577,6 +630,35 @@ cache_ttl = "1h"
 stop = "every queue item is marked done or failed in the queue file"
 repo_home = "agrescap"
 note = "KEPT as a persona, and it is the strongest keep. Measured: 34 spawns, 4,018 calls, 558.9M tokens. Compressed 11,817 -> 3,861 B; the ORIGINAL body instructs `pkill -f` and `pgrep -f` in three places, which laws 12 and 14 forbid and the permission layer blocks — the compressed body replaces that with resolve-named-PIDs-then-kill-then-verify-VRAM, and restates 'a wedge is no output growth, never low utilization'. Cut: the inline bash runner template and the report-format taxonomy. This is the row where compression FIXED a defect rather than only shrinking one. job-runner is the one row where a long life is the point. Its budget is high but finite, and its progress lives in a queue file on disk, so a fresh one can resume instead of a long one continuing."
+
+# ---------------------------------------------------------------------------
+# 11. Independent critique of a written design, before anyone implements it.
+#     Operator 2026-09-20: "in the agent trigger matrix, I want to also
+#     sometimes delegate reviewing a design to astra" and "for the design
+#     review, could also do the fable. I want it to be highly dynamic. E.g.
+#     prefer codex, if not available, use opus." That is what `prefer` is.
+# ---------------------------------------------------------------------------
+[[row]]
+name = "design-review"
+use_when = "a written design, plan or spec file already exists and needs an independent critique before anyone implements it"
+shape = "codex-direct"
+prefer = ["codex:gpt-6-astra:high", "claude:fable:high", "claude:opus:high"]
+topics = ["review the design", "critique", "second opinion on the plan",
+          "poke holes", "review this plan", "design review"]
+globs = ["agrescap/tasks/**/*PLAN*.md", "agrescap/tasks/**/in.md",
+         "agrescap/canonical/docs/curric-dawn/mega/02_design_s3.md"]
+load = ""
+agent = "general-purpose"
+model = "opus"          # the last candidate of `prefer`, kept for the bash router
+engine = "codex"
+codex_model = "gpt-6-astra"
+codex_effort = "high"
+effort = "high"
+max_report = 2500
+cache_ttl = "1h"
+stop = "each objection names the section it attacks and what would change the verdict"
+repo_home = "none"
+note = "A review is not a rewrite: this row may not edit the thing it reviews, which is why repo_home is none. astra is the first candidate because a critique is judgement done cheaply elsewhere; fable is the second because it is the cheapest Claude tier that still argues; opus is the floor so the row can never be blocked by codex being maxed out."
 
 # ---------------------------------------------------------------------------
 # Concurrency, by model. Enforced by counting live spawns, not by the built-in
@@ -591,3 +673,99 @@ total = 16
 # sit underneath it. Raise or lower them here; nothing else reads them.
 # Codex-engine rows are not governed here: codex runs on compute nodes and its
 # concurrency is a node question, not a spawn question.
+
+# ===========================================================================
+# ROWS 12-16, landed 2026-09-21 from the replay of 510 historical spawns
+# (the five largest unrouted clusters). Appended LAST on purpose: a row here
+# can only catch a spawn no earlier row caught by GLOB, and topics are tried
+# before globs, so a generic topic word WOULD steal traffic from an existing
+# row. Operator ruling of 2026-09-21, applied below: NARROW the generic
+# topics -- "merge branches" not "merge", "verify the claim" not "verify",
+# "node check" not "check", and "audit the"/"code audit" not bare "audit" --
+# and keep the routing order as it is. Measured effect of the narrowing:
+# the 7 already-routed spawns that the unnarrowed proposal displaced drop to
+# the ones that are defensible corrections; see the lane's replay table.
+# ===========================================================================
+
+[[row]]
+name = "node-check"
+use_when = "the recurring cheap sweep of the cluster's nodes - is anything wedged, idle or gone"
+shape = "codex-direct"
+prefer = ["codex:gpt-5.6-luna:high", "claude:sonnet:low"]
+topics = ["node check", "light node check", "health check", "node sweep", "hourly check"]
+globs = []
+load = "mega/05_runbook.md#r2-the-channel-law-srun-one-shots-vs-ssh-daemons"
+agent = "general-purpose"
+model = "sonnet"
+engine = "codex"
+codex_model = "gpt-5.6-luna"
+codex_effort = "high"
+effort = "low"
+max_report = 800
+stop = "each assigned node is named with one measured number and a verdict, or shown absent"
+repo_home = "none"
+note = "MEASURED: 26 of the 347 unrouted spawns are this one recurring probe, the single largest unrouted cluster. It ran on [defaults] (sonnet, medium, no stop) every time. Topics are two-word on purpose: bare 'check' stole traffic from four existing rows."
+
+[[row]]
+name = "audit"
+use_when = "audit something already done - spend, a corpus, a licence split, a night's lanes - and say what is wrong with it"
+shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:medium", "claude:opus:medium"]
+topics = ["code audit", "spend audit", "night audit", "audit the", "post-mortem", "postmortem", "review the night", "what did we get wrong"]
+globs = []
+load = "mega/KEYWORDS.md"
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 2000
+stop = "every finding names the file and the line of evidence, or is withdrawn"
+repo_home = "agrescap"
+note = "MEASURED: 22 of the 347 unrouted descriptions contain 'audit'. NARROWED 2026-09-21: bare 'audit' took 'Rulings grep audit' off doctrine-lookup, which the operator ruled wrong, so the topic must carry its object."
+
+[[row]]
+name = "claim-verify"
+use_when = "check whether a claim someone already made is true, against evidence"
+shape = "claude-plans-codex-executes"
+prefer = ["claude:sonnet:medium", "claude:opus:medium"]
+topics = ["verify the claim", "verify that", "confirm the claim", "is it actually", "re-verify", "still true"]
+globs = []
+load = ""
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 1500
+stop = "the claim is quoted, the command that tests it is shown, and the verdict is one word"
+repo_home = "none"
+note = "MEASURED: 14 of the 347. NARROWED 2026-09-21: bare 'verify' appears in many descriptions a more specific row should win first, and topics beat globs."
+
+[[row]]
+name = "merge-land"
+use_when = "merge, rebase, land or push work, or clean up a worktree"
+shape = "claude-direct"
+prefer = ["claude:sonnet:high", "claude:opus:high"]
+topics = ["merge branches", "land the", "rebase", "worktree", "push the", "cherry-pick"]
+globs = []
+load = "CLAUDE.md#law-11"
+agent = "general-purpose"
+model = "sonnet"
+effort = "high"
+max_report = 1500
+stop = "the tip commit is named and `git status` is shown clean, or the refusal names the dirty path"
+repo_home = "agrescap"
+note = "MEASURED: 19 of the 347. claude-direct, not a codex split: law 11 says merge/stash/checkout/reset on a dirty tree here reset the tree and lose the stash, so these calls are irreversible acts that stay with the agent that owns them - the same argument that keeps batch-sweep claude-direct. NARROWED 2026-09-21: 'merge branches', not bare 'merge'."
+
+[[row]]
+name = "handoff-write"
+use_when = "write or update a handoff, a morning brief, a README or a status document"
+shape = "claude-direct"
+prefer = ["claude:sonnet:medium", "claude:fable:medium"]
+topics = ["handoff", "morning brief", "status doc", "write-up", "README", "update the doc"]
+globs = []
+load = ""
+agent = "general-purpose"
+model = "sonnet"
+effort = "medium"
+max_report = 2500
+stop = "the document is written and its absolute path is named"
+repo_home = "agrescap"
+note = "MEASURED: 9 of the 347."

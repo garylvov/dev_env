@@ -5,6 +5,11 @@
 
 name = "workstation"
 
+[detect]
+# The fallback profile: no evidence, lowest priority. Anything that does not
+# match a more specific profile lands here.
+priority = 0
+
 [paths]
 # Where bulk data and checkouts live on this machine.
 data_root = "~"
@@ -12,6 +17,8 @@ data_root = "~"
 campaign_dir = "~/token_kit/campaign"
 # Where evidence packets are written.
 evidence_dir = "~/token_kit/evidence"
+# Where `census --import` re-copies the frozen bash behaviour spec from.
+reference_source = "~/token_kit/reference"
 
 [codex]
 # codex runs ON DEMAND on whatever host the session is on. There is no serving
@@ -31,6 +38,8 @@ slurm = false
 # "Agent" while a DENIED spawn reports tool_name "Task" -- match one, parse the
 # other.
 matcher = "*"
+# Also register the SessionStart row menu (the matrix menu, <=400 tokens).
+session_start = true
 
 [settings]
 # Keys merged into ~/.claude/settings.json. ONLY keys the campaign MEASURED as

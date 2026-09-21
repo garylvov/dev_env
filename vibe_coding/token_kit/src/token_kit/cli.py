@@ -49,9 +49,27 @@ COMPONENTS = [
     ("profile-env", "machine facts resolved into ~/.config/token_kit/env.sh"),
     ("settings-keys", "the measured settings.json keys"),
     ("pretooluse-hook", "the PreToolUse hook (call cap + matrix routing)"),
+    ("sessionstart-menu", "the SessionStart row menu, generated from the table"),
+    ("respawn-reader", "the PostToolUse(Agent)+Stop lane respawn reader"),
+    ("supervisor", "token-kit-supervise, the rollover supervisor"),
+    ("codex-bin", "the codex-dispatch / codex-job shims"),
     ("agents", "the compressed personas and the codex wrapper agents"),
+    ("row-agents", "one generated agent file per matrix row candidate"),
     ("agent-trigger-matrix", "agent_trigger_matrix.toml, the routing table"),
 ]
+
+#: Executables linked into ~/.config/token_kit/bin. The name on the left is
+#: what the operator types and what settings.json points at.
+EXECUTABLES = [
+    ("respawn-reader", "src/token_kit/respawn/bin/respawn-reader"),
+    ("token-kit-supervise", "src/token_kit/supervisor/bin/token-kit-supervise"),
+    ("codex-dispatch", "src/token_kit/codex/bin/codex-dispatch"),
+    ("codex-job", "src/token_kit/codex/bin/codex-job"),
+]
+
+#: Where an adopted (pre-existing, real) agent file is moved to. It is MOVED,
+#: never deleted, and the uninstall puts it back.
+ADOPT_DIR = ".pre_token_kit"
 
 
 # --------------------------------------------------------------------------
@@ -116,10 +134,25 @@ def write_settings(path: Path, data: dict) -> None:
 # --------------------------------------------------------------------------
 # symlinking
 # --------------------------------------------------------------------------
-def link(rep: Report, man: Manifest, dest: Path, src: Path, label: str) -> None:
+def link(rep: Report, man: Manifest, dest: Path, src: Path, label: str,
+         adopt: bool = False) -> None:
     if not src.exists():
         rep.fail(f"{label}: source missing: {src}")
         return
+    if adopt and dest.exists() and not dest.is_symlink():
+        # --adopt-personas: the operator's own file is MOVED aside, never
+        # deleted, and the manifest remembers where so uninstall restores it.
+        aside = dest.parent / ADOPT_DIR / dest.name
+        if rep.dry:
+            rep.plan(f"adopt {label}: mv {dest} -> {aside}, then link")
+            return
+        aside.parent.mkdir(parents=True, exist_ok=True)
+        if aside.exists():
+            rep.conflict(f"{label}: {aside} already exists -- {dest} left untouched")
+            return
+        dest.rename(aside)
+        man.add("adopted", str(aside), str(dest))
+        rep.change(f"adopted {label}: your file is at {aside}")
     if dest.is_symlink():
         if Path(os.readlink(dest)) == src:
             rep.ok(label)
@@ -234,6 +267,12 @@ def cmd_install(args) -> int:
     shim_body = hook_shim_body(lay, uv or "uv", resolve_interpreter(uv))
     write_generated(rep, man, lay.hook_shim, shim_body, "hook shim", mode=0o755)
 
+    # -- executables --------------------------------------------------------
+    print(f"\nexecutables -> {lay.bin_dir}")
+    for name, rel in EXECUTABLES:
+        link(rep, man, lay.bin_dir / name, KIT_DIR / rel, name)
+    print(f"  {len(EXECUTABLES)} executable(s)")
+
     # -- agents + matrix ----------------------------------------------------
     print(f"\nagents -> {lay.agents_dir}")
     agent_files = sorted((KIT_DIR / "agents").glob("*.md"))
@@ -241,31 +280,69 @@ def cmd_install(args) -> int:
         rep.fail(f"no agent files in {KIT_DIR / 'agents'} "
                  f"-- run `census --import` first")
     for f in agent_files:
-        link(rep, man, lay.agents_dir / f.name, f, f.name)
+        link(rep, man, lay.agents_dir / f.name, f, f.name, adopt=args.adopt_personas)
     print(f"  {len(agent_files)} agent file(s)")
+
+    # One generated agent file per (matrix row, distinct claude candidate).
+    # The row's model, effort and header are frontmatter, so a spawn on one of
+    # these carries the row's economics without the router rewriting anything.
+    print("\ngenerated row agents")
+    gen_dir = KIT_DIR / "agents" / "generated"
+    generated = generate_row_agents(rep, gen_dir)
+    for f in generated:
+        if not rep.dry:
+            man.add("file", str(f))
+        link(rep, man, lay.agents_dir / f.name, f, f.name, adopt=args.adopt_personas)
+    print(f"  {len(generated)} generated agent file(s)")
 
     print("\nrouting table")
     link(rep, man, lay.conf_dir / "agent_trigger_matrix.toml",
          KIT_DIR / "agent_trigger_matrix.toml", "agent_trigger_matrix.toml")
+    for problem in validate_matrix():
+        rep.conflict(f"matrix: {problem}")
 
     # -- settings -----------------------------------------------------------
     print(f"\nsettings  {lay.settings}")
     current = load_settings(lay.settings)
     new, mrep = merge(current, prof.settings, str(lay.hook_shim), prof.hook_matcher)
+
+    # The other three events. The PreToolUse shim already dispatches on
+    # hook_event_name, so SessionStart reuses it; the respawn reader is its own
+    # executable because it must stay off the per-tool-call path.
+    # A Stop entry takes NO matcher -- there is nothing to match on.
+    reader = str(lay.bin_dir / "respawn-reader")
+    extra: list[tuple[str, str | None, str, object]] = []
+    if prof.session_start:
+        new, srep = merge(new, {}, str(lay.hook_shim), "*", event="SessionStart")
+        extra.append(("SessionStart", "*", str(lay.hook_shim), srep))
+    new, prep = merge(new, {}, reader, "Agent", event="PostToolUse")
+    extra.append(("PostToolUse", "Agent", reader, prep))
+    new, strep = merge(new, {}, reader, None, event="Stop")
+    extra.append(("Stop", None, reader, strep))
+
     for key in mrep.keys_same:
         rep.ok(f"key {key} already {json.dumps(current[key])}")
     for key, have, want in mrep.key_conflicts:
         rep.conflict(f"key {key} is {json.dumps(have)}, kit wants {json.dumps(want)} -- yours kept")
     if mrep.hook_present:
         rep.ok(f"hook already registered (matcher {prof.hook_matcher!r})")
+    for event, _matcher, cmd, r in extra:
+        if r.hook_present:
+            rep.ok(f"{event} hook already registered -> {cmd}")
 
-    if not mrep.changed:
+    anything = mrep.changed or any(r.hook_added for _e, _m, _c, r in extra)
+    if not anything:
         rep.ok("settings.json needs no change")
     elif rep.dry:
         if mrep.keys_added:
             rep.plan(f"add keys: {', '.join(mrep.keys_added)}")
         if mrep.hook_added:
             rep.plan(f"register PreToolUse hook (matcher {prof.hook_matcher!r}) -> {lay.hook_shim}")
+        for event, matcher, cmd, r in extra:
+            if r.hook_added:
+                rep.plan(f"register {event} hook "
+                         f"({'no matcher' if matcher is None else 'matcher ' + repr(matcher)})"
+                         f" -> {cmd}")
         rep.plan(f"back up {lay.settings} first")
     else:
         if lay.settings.is_file():
@@ -282,6 +359,10 @@ def cmd_install(args) -> int:
         if mrep.hook_added:
             man.add("hook", "PreToolUse", prof.hook_matcher, str(lay.hook_shim))
             rep.change(f"registered PreToolUse hook -> {lay.hook_shim}")
+        for event, matcher, cmd, r in extra:
+            if r.hook_added:
+                man.add("hook", event, matcher or "", cmd)
+                rep.change(f"registered {event} hook -> {cmd}")
 
     # -- verdict ------------------------------------------------------------
     print()
@@ -308,6 +389,48 @@ def cmd_install(args) -> int:
         return 0
     print(f"install = FAIL   failures={rep.failures} probe_rc={prc}")
     return 1
+
+
+def generate_row_agents(rep: Report, gen_dir: Path) -> list[Path]:
+    """Write <kit>/agents/generated/row-*.md from the routing table.
+
+    In a dry run it writes into a throwaway directory instead, so the count is
+    real (the generator runs) while the clone is untouched.
+    """
+    try:
+        from token_kit.router import gen_agents
+        from token_kit.router import matrix as matrix_mod
+    except ImportError as exc:
+        rep.fail(f"row agents: router package not importable ({exc})")
+        return []
+    try:
+        m = matrix_mod.load()
+    except Exception as exc:  # noqa: BLE001 -- a bad table is a install failure
+        rep.fail(f"row agents: {exc}")
+        return []
+    if rep.dry:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            made = gen_agents.generate(m, Path(tmp))
+            rep.plan(f"generate {len(made)} row agent file(s) into {gen_dir}")
+        return []
+    made = gen_agents.generate(m, gen_dir)
+    # A row that has gone away must not leave its agent file behind.
+    keep = {p.name for p in made}
+    for stale in gen_dir.glob("row-*.md"):
+        if stale.name not in keep:
+            stale.unlink()
+            rep.change(f"removed stale row agent {stale.name}")
+    return made
+
+
+def validate_matrix() -> list[str]:
+    """Every way the installed table is internally wrong, as one line each."""
+    try:
+        from token_kit.router import matrix as matrix_mod
+        return matrix_mod.validate(matrix_mod.load(KIT_DIR / "agent_trigger_matrix.toml"))
+    except Exception as exc:  # noqa: BLE001
+        return [str(exc)]
 
 
 def env_file_body(prof) -> str:
@@ -408,17 +531,47 @@ def cmd_uninstall(args) -> int:
                 p.unlink()
                 rep.change(f"removed {p}")
 
+    # An adopted file goes back exactly where it was, before anything else
+    # could claim the name. The symlink above is already gone by now.
+    for row in man.of_kind("adopted"):
+        aside, dest = Path(row[1]), Path(row[2])
+        if not aside.is_file():
+            rep.conflict(f"{aside} is gone -- cannot restore {dest}")
+            continue
+        if dest.exists():
+            rep.conflict(f"{dest} exists again -- your file stays at {aside}")
+            continue
+        if rep.dry:
+            rep.plan(f"restore {aside} -> {dest}")
+        else:
+            aside.rename(dest)
+            rep.change(f"restored your own {dest.name}")
+            try:
+                aside.parent.rmdir()
+            except OSError:
+                pass
+
     if lay.settings.is_file():
         current = load_settings(lay.settings)
-        new = unmerge(current, man.added_setting_keys(), man.hook_command())
+        new = current
+        keys = man.added_setting_keys()
+        # One unmerge PER EVENT: there are four hook rows now, and asking the
+        # manifest for "the" hook command would leave three dangling.
+        events = man.hook_rows() or [("PreToolUse", "", str(lay.hook_shim))]
+        for event, _matcher, cmd in events:
+            new = unmerge(new, keys, cmd, event=event)
+            keys = []
         if new == current:
             rep.ok("settings.json already carries nothing of ours")
         elif rep.dry:
-            rep.plan(f"rewrite {lay.settings} (drop hook + keys "
+            rep.plan(f"rewrite {lay.settings} (drop hooks "
+                     f"{sorted({e for e, _m, _c in events})} + keys "
                      f"{man.added_setting_keys()})")
         else:
             write_settings(lay.settings, new)
-            rep.change(f"settings.json: removed our hook and keys {man.added_setting_keys()}")
+            rep.change(f"settings.json: removed our hooks "
+                       f"{sorted({e for e, _m, _c in events})} and keys "
+                       f"{man.added_setting_keys()}")
 
     if not rep.dry:
         man.delete()
@@ -468,11 +621,25 @@ def probe(lay: Layout, live: bool = False) -> int:
           "subagentPromptCacheTtl UNSET (subagent cache writes stay 5m)")
 
     man = Manifest(lay.manifest)
-    hookcmd = man.hook_command() or str(lay.hook_shim)
+    hookcmd = man.hook_command("PreToolUse") or str(lay.hook_shim)
     registered = [h for e in settings.get("hooks", {}).get("PreToolUse", [])
                   for h in e.get("hooks", []) if h.get("command") == hookcmd]
     check(len(registered) == 1, f"PreToolUse hook registered exactly once ({len(registered)})")
     check(os.access(hookcmd, os.X_OK), f"hook is executable: {hookcmd}")
+
+    # every OTHER event the manifest says we registered, and its executable
+    for event, _matcher, cmd in man.hook_rows():
+        if event == "PreToolUse":
+            continue
+        n = len([h for e in settings.get("hooks", {}).get(event, [])
+                 for h in e.get("hooks", []) if h.get("command") == cmd])
+        check(n == 1, f"{event} hook registered exactly once ({n}) -> {cmd}")
+        check(os.access(cmd, os.X_OK), f"{event} hook is executable: {cmd}")
+
+    for name, _rel in EXECUTABLES:
+        p = lay.bin_dir / name
+        check(p.is_symlink() and os.access(p, os.X_OK),
+              f"executable linked and runnable: {p}")
 
     if os.access(hookcmd, os.X_OK):
         t0 = time.monotonic()
@@ -508,6 +675,17 @@ def probe(lay: Layout, live: bool = False) -> int:
     except Exception as exc:  # noqa: BLE001 -- any parse failure is a probe failure
         check(False, f"matrix does not parse: {matrix}: {exc}")
 
+    problems = validate_matrix()
+    check(not problems, f"matrix validates ({problems[:3] or 'no problems'})")
+
+    gen = [p for p in lay.agents_dir.glob("row-*.md") if p.is_symlink()]
+    check(bool(gen), f"{len(gen)} generated row agent(s) linked in {lay.agents_dir}")
+
+    violations = census_modules()
+    check(not violations,
+          f"installed modules carry no live cluster path/user/host "
+          f"({len(violations)} violation(s))")
+
     if live:
         canary = KIT_DIR / "reference_bash" / "instruction_canary" / "canary"
         if canary.is_file():
@@ -525,19 +703,16 @@ def probe(lay: Layout, live: bool = False) -> int:
 # --------------------------------------------------------------------------
 # census -- the sanitisation and portability worklist
 # --------------------------------------------------------------------------
-CENSUS_PATTERNS = [
-    ("oscar_path", r"/oscar[/A-Za-z0-9_.-]*"),
-    ("gpfs_path", r"/gpfs[/A-Za-z0-9_.-]*"),
-    ("home_path", r"/users/[A-Za-z0-9_-]+"),
-    ("login_host", r"login[0-9]{3}"),
-    ("node_name", r"(?:gpu|node)[0-9]{3,4}"),
-    ("email", r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"),
-    ("token_like", r"(?:sk-[A-Za-z0-9_-]{16}|ghp_[A-Za-z0-9]{16}|github_pat_[A-Za-z0-9_]{20}"
-                   r"|Bearer\s+[A-Za-z0-9._-]{16}|[Aa][Pp][Ii]_?[Kk][Ee][Yy]\s*[=:]\s*['\"]?[A-Za-z0-9])"),
-    ("job_id", r"(?:job(?:id)?|jid|sbatch)\D{0,12}[0-9]{6,8}"),
-    ("slurm_call", r"\b(?:squeue|sacct|sbatch|srun|scancel)\b"),
-    ("username", r"glvov"),
-]
+#: The detector lives in a data file beside this one, so that the census can
+#: scan cli.py itself without matching its own patterns. See the file's header.
+CENSUS_PATTERNS_FILE = Path(__file__).resolve().parent / "census_patterns.toml"
+
+
+def census_patterns() -> list[tuple[str, str]]:
+    import tomllib
+    with CENSUS_PATTERNS_FILE.open("rb") as fh:
+        table = tomllib.load(fh)
+    return [(str(p["kind"]), str(p["pattern"])) for p in table.get("pattern", [])]
 
 # Anything that looks like an auth file never enters the repo. This is a
 # refusal, not a warning.
@@ -555,13 +730,62 @@ REFERENCE_TOOLS = ["token_supervisor", "lane_recycler", "codex_native",
 AGENT_SOURCES = ["matrix_final/agents", "codex_native/agents"]
 
 
-def cmd_census(args) -> int:
+def module_files() -> list[Path]:
+    """Everything that is INSTALLED and therefore runs on someone's machine.
+
+    The frozen bash spec under reference_bash/ is not here: it is read, never
+    run, and its rows are the portability worklist. These files are the live
+    path, and their target is ZERO -- a cluster path, a username or a hostname
+    in one of them is a defect, because it belongs in a profile TOML that
+    `token_kit.profiles` reads.
+    """
+    out = [p for p in sorted((KIT_DIR / "src" / "token_kit").rglob("*.py"))
+           if "__pycache__" not in p.parts]
+    for sub in ("respawn", "supervisor", "codex"):
+        out += sorted((KIT_DIR / "src" / "token_kit" / sub / "bin").glob("*"))
+    out.append(KIT_DIR / "install.sh")
+    return [p for p in out if p.is_file() and p != CENSUS_PATTERNS_FILE]
+
+
+def scan(files, patterns) -> list[tuple[str, str, int, str]]:
+    """(kind, relative path, line number, line) for every match."""
     import re
+    compiled = [(kind, re.compile(pat)) for kind, pat in patterns]
+    rows = []
+    for f in files:
+        try:
+            text = f.read_text()
+        except (UnicodeDecodeError, OSError):
+            continue
+        try:
+            rel = str(f.relative_to(KIT_DIR))
+        except ValueError:
+            rel = str(f)
+        for lineno, line in enumerate(text.splitlines(), 1):
+            for kind, rx in compiled:
+                if rx.search(line):
+                    rows.append((kind, rel, lineno, line.replace("\t", " ").strip()[:200]))
+    return rows
+
+
+def census_modules() -> list[tuple[str, str, int, str]]:
+    """The live-path violations. The whole point is that this stays empty."""
+    return scan(module_files(), census_patterns())
+
+
+def cmd_census(args) -> int:
     import shutil
+
+    from token_kit import profiles as profiles_mod
 
     ref_dir = KIT_DIR / "reference_bash"
     if args.do_import:
-        src = Path(args.source)
+        # No literal path here: where the frozen bash spec is copied FROM is a
+        # profile key (`[paths] reference_source`), like every other machine
+        # fact in this kit.
+        source = args.source or str(
+            profiles_mod.load(KIT_DIR / "profiles", args.profile).reference_source)
+        src = Path(os.path.expanduser(source))
         if not (src / "tools").is_dir():
             print(f"census: no {src}/tools", file=sys.stderr)
             return 1
@@ -602,7 +826,7 @@ def cmd_census(args) -> int:
         if refused:
             return 1
 
-    compiled = [(kind, re.compile(pat)) for kind, pat in CENSUS_PATTERNS]
+    patterns = census_patterns()
     # The agent prompt files under reference_bash/*/agents are the same bytes
     # as the installed ones in agents/; censusing both would double every row.
     targets = sorted(p for p in ref_dir.rglob("*")
@@ -612,18 +836,16 @@ def cmd_census(args) -> int:
         targets.append(matrix)
     targets += sorted((KIT_DIR / "agents").glob("*.md"))
 
-    rows = []
-    for f in targets:
-        try:
-            text = f.read_text()
-        except (UnicodeDecodeError, OSError):
-            continue
-        rel = f.relative_to(KIT_DIR)
-        for lineno, line in enumerate(text.splitlines(), 1):
-            for kind, rx in compiled:
-                if rx.search(line):
-                    clean = line.replace("\t", " ").strip()
-                    rows.append((kind, str(rel), lineno, clean[:200]))
+    rows = scan(targets, patterns)
+
+    # THE NUMBER THAT MUST BE ZERO: the same patterns over the modules that
+    # actually get installed and run. reference_bash rows above are a
+    # worklist; these are a defect.
+    violations = census_modules()
+    print(f"census: live-path violations in installed modules = {len(violations)}"
+          f"  (target 0)")
+    for kind, rel, lineno, text in violations:
+        print(f"  VIOLATION {kind:<12} {rel}:{lineno}  {text[:100]}")
 
     out = KIT_DIR / "HARDCODED.tsv"
     with out.open("w") as fh:
@@ -642,7 +864,7 @@ def cmd_census(args) -> int:
     print("\nfiles with the most rows:")
     for k, c in sorted(by_file.items(), key=lambda kv: -kv[1])[:12]:
         print(f"  {k:<50} {c:5d}")
-    return 0
+    return 1 if violations else 0
 
 
 # --------------------------------------------------------------------------
@@ -678,6 +900,10 @@ def main(argv=None) -> int:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--profile", default=None)
     p.add_argument("--live", action="store_true", help="probe with the live canary (costs cents)")
+    p.add_argument("--adopt-personas", action="store_true",
+                   help="move a pre-existing real agent file aside into "
+                        f"~/.claude/agents/{ADOPT_DIR}/ and link the kit's one "
+                        "(nothing is ever deleted; uninstall puts it back)")
     p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("uninstall", help="remove exactly what install added")
@@ -692,7 +918,9 @@ def main(argv=None) -> int:
     p = sub.add_parser("census", help="the sanitisation / portability worklist")
     p.add_argument("--import", dest="do_import", action="store_true",
                    help="re-copy the reference bash tools first")
-    p.add_argument("--source", default="/oscar/data/stellex/glvov/agrescap/canonical")
+    p.add_argument("--source", default=None,
+                   help="where to import from (default: the profile's reference_source)")
+    p.add_argument("--profile", default=None)
     p.set_defaults(fn=cmd_census)
 
     p = sub.add_parser("hook", help="PreToolUse hook entry point (reads stdin)")

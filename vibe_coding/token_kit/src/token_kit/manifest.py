@@ -35,9 +35,19 @@ class Manifest:
     def added_setting_keys(self) -> list[str]:
         return [r[1] for r in self.of_kind("setting") if len(r) > 2 and r[2] == "ADDED"]
 
-    def hook_command(self) -> str | None:
-        rows = self.of_kind("hook")
-        return rows[-1][3] if rows and len(rows[-1]) > 3 else None
+    def hook_command(self, event: str = "PreToolUse") -> str | None:
+        """The command registered for ONE event.
+
+        There are several now (PreToolUse, SessionStart, PostToolUse, Stop),
+        so "the last hook row" is not an answer: an uninstall that asked for
+        it removed one event and left the others dangling.
+        """
+        rows = [r for r in self.of_kind("hook") if len(r) > 3 and r[1] == event]
+        return rows[-1][3] if rows else None
+
+    def hook_rows(self) -> list[tuple[str, str, str]]:
+        """(event, matcher, command) for every hook this install registered."""
+        return [(r[1], r[2], r[3]) for r in self.of_kind("hook") if len(r) > 3]
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

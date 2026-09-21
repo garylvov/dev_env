@@ -69,7 +69,7 @@ EXIT_USAGE = 2
 EXIT_CODEX_FAILED = 3
 EXIT_BUSY_OR_ABSENT = 42
 
-#: Measured on login009 with codex-cli 0.153.4: 1/2/4 -> silent empty exit,
+#: Measured on the cluster login node with codex-cli 0.153.4: 1/2/4 -> silent empty exit,
 #: 6/8/12 -> a normal `initialize` response.
 MIN_TOKIO_WORKER_THREADS = 6
 

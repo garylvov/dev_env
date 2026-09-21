@@ -32,7 +32,7 @@ class MergeReport:
         return bool(self.keys_added) or self.hook_added
 
 
-def merge(settings: dict, add_keys: dict, hook_command: str, matcher: str,
+def merge(settings: dict, add_keys: dict, hook_command: str, matcher: str | None,
           event: str = "PreToolUse") -> tuple[dict, MergeReport]:
     """Return (new settings, report). `settings` is not modified."""
     out = copy.deepcopy(settings)
@@ -62,8 +62,14 @@ def merge(settings: dict, add_keys: dict, hook_command: str, matcher: str,
                     {"type": "command", "command": hook_command})
                 break
         else:
-            entries.append({"matcher": matcher,
-                            "hooks": [{"type": "command", "command": hook_command}]})
+            # A Stop entry carries NO matcher key at all (the event has nothing
+            # to match on). `matcher=None` means "omit the key"; the search
+            # above already behaves, because an entry without the key reads
+            # back as None.
+            entry: dict = {"hooks": [{"type": "command", "command": hook_command}]}
+            if matcher is not None:
+                entry = {"matcher": matcher, **entry}
+            entries.append(entry)
         rep.hook_added = True
 
     return out, rep

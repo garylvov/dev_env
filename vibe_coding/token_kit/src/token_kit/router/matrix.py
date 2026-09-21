@@ -176,4 +176,26 @@ def menu_text(m: Matrix) -> str:
         "claude-plans-codex-executes = Claude judges, every mechanistic sub-step goes to codex;",
         "refuse = the spawn is denied and a shell substitute is given.",
     ]
+    lines += codex_menu_lines(m)
     return "\n".join(lines)
+
+
+def codex_menu_lines(m: Matrix) -> list[str]:
+    """The codex surface, as a POINTER rather than a paste.
+
+    The `[codex] usage_text` key names the file that documents the four job
+    commands. The menu rides on every session start, so it names the commands
+    and the file instead of inlining it -- a reader who needs the detail opens
+    one file, and the menu stays small enough to be free.
+    """
+    dispatch = str(m.codex.get("dispatch") or "").split()[0:1]
+    job = str(m.codex.get("job") or "")
+    usage = os.path.expandvars(os.path.expanduser(str(m.codex.get("usage_text") or "")))
+    if not job and not dispatch:
+        return []
+    out = [f"codex: `{dispatch[0] if dispatch else 'codex-dispatch'}` for one turn you read "
+           f"right away; `{job or 'codex-job'} start|send|wait|status` for a background turn "
+           "you can message (run `wait` as a BACKGROUND command)."]
+    if usage and Path(usage).is_file():
+        out.append(f"  the four commands in full: {usage}")
+    return out

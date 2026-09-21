@@ -5,10 +5,20 @@
 
 name = "oscar"
 
+[detect]
+# The evidence that says "this machine is oscar". It lives HERE, in the site's
+# own profile, and nowhere in any module -- that is what keeps the census at
+# zero. Highest matching priority wins; the lowest is the fallback.
+priority = 10
+requires_cmd = ["sbatch"]
+requires_dir = ["/oscar"]
+
 [paths]
 data_root = "/oscar/data/stellex/glvov"
 campaign_dir = "/oscar/data/stellex/glvov/agrescap/tasks/token_spend_20260918/campaign"
 evidence_dir = "/oscar/data/stellex/glvov/agrescap/evidence"
+# Where `census --import` re-copies the frozen bash behaviour spec from.
+reference_source = "/oscar/data/stellex/glvov/agrescap/canonical"
 
 [codex]
 # On demand, on the session's own host -- no serving job, no endpoint. The
@@ -23,6 +33,8 @@ slurm = true
 
 [hook]
 matcher = "*"
+# Also register the SessionStart row menu (the matrix menu, <=400 tokens).
+session_start = true
 
 [settings]
 subagentPromptCacheTtl = "1h"

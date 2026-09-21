@@ -59,9 +59,9 @@ If you want the same hooks, agents and settings on another machine, run this in 
 bash vibe_coding/token_kit/install.sh
 ```
 
-It is one command and it is safe to run twice: a second run changes nothing and says so. It picks a
-profile from `vibe_coding/token_kit/profiles/` by looking at the machine (Slurm plus `/oscar` means the
-cluster, anything else means a workstation); pass `--profile <name>` to choose. Add `--dry-run` to see
+It is one command and it is safe to run twice: a second run changes nothing and says so. Each profile
+in `vibe_coding/token_kit/profiles/` says what machine it is for, and the installer picks the one whose
+evidence this machine matches; pass `--profile <name>` to choose yourself. Add `--dry-run` to see
 exactly what it would do without it doing anything.
 
 What it installs:
@@ -69,9 +69,16 @@ What it installs:
 - the settings keys the measurements showed actually take effect, merged into `~/.claude/settings.json`
   (a dated backup is taken first, your existing keys keep their values and their order, and a key of
   yours that disagrees is reported, never overwritten);
-- a `PreToolUse` hook, registered once, that carries the per-agent call cap and the routing table;
+- four hook registrations, each exactly once: a `PreToolUse` hook carrying the per-agent call cap and
+  the routing table, a `SessionStart` hook that prints the row menu, and a `PostToolUse` (on a spawn
+  returning) plus a `Stop` hook sharing one reader, which is what notices that a background lane hit
+  its cap and needs a fresh agent on the same brief;
+- four commands in `~/.config/token_kit/bin/`: `respawn-reader` and `token-kit-supervise`, plus
+  `codex-dispatch` and `codex-job`;
 - the agents from `vibe_coding/token_kit/agents/` symlinked into `~/.claude/agents/` (a real file of
-  yours with the same name is reported as a conflict and left alone);
+  yours with the same name is reported as a conflict and left alone — see `--adopt-personas` below);
+- one generated agent file per row of the table and per model tier it names, so a spawn on one of
+  those carries that row's model, effort, budget and stop condition without anything rewriting it;
 - `agent_trigger_matrix.toml`, the table that decides which agent and model a spawn gets.
 
 Everything is a symlink back into the clone, so `git pull` updates the machine. Nothing is written
@@ -80,12 +87,57 @@ outside `~/.claude`, `~/.config/token_kit`, and the clone itself.
 It needs `uv` (it installs it if missing) and the `claude` CLI; `codex` is optional. The kit is Python
 on top of a small bash bootstrap, standard library only, so there is no environment to build.
 
+## Running codex from a session
+
+`codex-dispatch` runs one codex turn and prints the answer — use it for a question you will read
+right away. `codex-job` is the same turn in the background, and you can talk to it while it runs:
+
+```
+codex-job start --model <model> --effort <low|medium|high> --cwd <dir> --task-file <file> --name <short>
+codex-job send  <job> "<text>"      # joins the turn already in flight, or starts the next one
+codex-job wait  <job>               # run this one as a BACKGROUND command; it tells you when it ends
+codex-job status <job>              # also: list, stop
+```
+
+Exit code 42 from either means codex is unavailable here (absent, not signed in, busy, or out of
+quota) and the work should be done with a Claude model instead. The four commands are documented in
+full in `vibe_coding/token_kit/src/token_kit/codex/USAGE.md`.
+
+## Supervising a long session
+
+`token-kit-supervise launch` starts a detached session on the campaign directory the profile names,
+and watches how much context it has used. When it gets close to the ceiling it asks the session to
+bring its handoff document current, waits for it to go quiet, then stops it and starts a fresh one on
+that document — with no keystroke from you. `token-kit-supervise status` says what it is doing;
+`token-kit-supervise once --session-pid <pid>` does exactly one pass and exits, which is how you step
+it by hand.
+
+```
+~/.config/token_kit/bin/token-kit-supervise launch -- --model <model> --dangerously-skip-permissions
+```
+
+## If you already have agent files of your own
+
+By default the installer refuses to touch a real file: if `~/.claude/agents/architect.md` is yours, it
+says so and leaves it alone, and the kit's version is simply not installed. Pass `--adopt-personas`
+and it moves each one into `~/.claude/agents/.pre_token_kit/` first and links the kit's version in its
+place. Nothing is ever deleted, and `--uninstall` puts your files back where they were.
+
+## On a new machine
+
+Copy `profiles/workstation.toml` to `profiles/<yourmachine>.toml` and edit it: it holds every fact
+that is about your machine rather than about the kit — where your data and campaign directories are,
+what launches codex, whether Slurm is there, which settings keys to merge, and the evidence that
+identifies the machine so `install.sh` can pick the profile without being told. No path, username or
+hostname belongs anywhere else; `bash install.sh --census` fails if one appears in the code.
+
 To remove it:
 
 ```
 bash vibe_coding/token_kit/install.sh --uninstall
 ```
 
-That reads the manifest of what was added and removes exactly that.
+That reads the manifest of what was added and removes exactly that: every symlink, every generated
+file, all four hook registrations, and any agent file of yours that `--adopt-personas` moved aside.
 
 # Other People's Setups that I borrow:

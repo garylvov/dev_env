@@ -2,7 +2,8 @@
 # install.sh -- the ONE command. It is a bootstrap and nothing else: make sure
 # `uv` and a modern Python exist, then hand every decision to the Python CLI.
 #
-#   bash vibe_coding/token_kit/install.sh [--dry-run] [--uninstall] [--profile <name>]
+#   bash vibe_coding/token_kit/install.sh [--dry-run] [--uninstall]
+#                                         [--profile <name>] [--adopt-personas]
 #
 # Why uv: the system Python on some of these machines is 3.9, which has no
 # tomllib. uv supplies 3.11+ without touching the system Python and without

@@ -29,6 +29,7 @@ from pathlib import Path
 KIT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(KIT_DIR / "src"))
 
+from token_kit import cli  # noqa: E402
 from token_kit.settings_merge import merge, unmerge  # noqa: E402
 
 CLI = KIT_DIR / "src" / "token_kit" / "cli.py"
@@ -149,6 +150,34 @@ class TestPreservesExistingSettings(ScratchHome):
         self.assertEqual(self.read_settings(), self.before,
                          "settings.json was not restored to its pre-install state")
 
+    def test_7_every_event_is_registered_once_and_removed(self):
+        """The four events, and the symmetry: uninstall leaves none behind.
+
+        The defect this catches is specific: `manifest.hook_command()` used to
+        return the LAST hook row, so an uninstall removed one event and left
+        the other three pointing at a command that no longer exists.
+        """
+        self.install()
+        after = self.read_settings()
+        hooks = after["hooks"]
+        shim = str(self.home / ".config/token_kit/bin/token_kit_hook.sh")
+        reader = str(self.home / ".config/token_kit/bin/respawn-reader")
+        for event, command in (("PreToolUse", shim), ("SessionStart", shim),
+                               ("PostToolUse", reader), ("Stop", reader)):
+            found = [h for e in hooks.get(event, [])
+                     for h in e.get("hooks", []) if h["command"] == command]
+            self.assertEqual(len(found), 1,
+                             f"{event} -> {command}: registered {len(found)} time(s)")
+        # A Stop entry carries NO matcher key at all.
+        stop_entry = [e for e in hooks["Stop"] if any(
+            h["command"] == reader for h in e.get("hooks", []))][0]
+        self.assertNotIn("matcher", stop_entry,
+                         "a Stop entry must not carry a matcher key")
+
+        run_cli(self.home, "uninstall")
+        self.assertEqual(self.read_settings(), self.before,
+                         "an event was left behind by uninstall")
+
 
 class TestConflictFileUntouched(ScratchHome):
     def test_4_real_agent_file_is_never_overwritten(self):
@@ -159,6 +188,101 @@ class TestConflictFileUntouched(ScratchHome):
         self.assertIn("CONFLICT architect.md", p.stdout)
         # the conflict must not stop the rest of the install
         self.assertTrue((self.home / ".claude/agents/codex-log-read.md").is_symlink())
+
+
+class TestEveryComponentLands(ScratchHome):
+    """One assertion per component in cli.COMPONENTS: it is installed, it is
+    reachable, and uninstall takes it away again. A component with no check
+    here is a capability nobody reads."""
+
+    def test_8_executables_are_linked_and_answer_help(self):
+        self.install()
+        bin_dir = self.home / ".config/token_kit/bin"
+        for name, _rel in cli.EXECUTABLES:
+            p = bin_dir / name
+            self.assertTrue(p.is_symlink(), f"{name} is not a symlink")
+            self.assertTrue(p.resolve().is_file(), f"{name} does not resolve")
+            self.assertTrue(os.access(p, os.X_OK), f"{name} is not executable")
+
+    def test_8b_a_linked_shim_resolves_its_own_clone(self):
+        """A shim linked into bin/ must find the kit through its LINK TARGET.
+
+        `dirname $BASH_SOURCE/../../..` from the link's own directory points at
+        ~/.config, not at the clone, so the import fails with a message nobody
+        reads. The shims resolve themselves first; this is that guard.
+        """
+        self.install()
+        shim = self.home / ".config/token_kit/bin/respawn-reader"
+        p = subprocess.run([str(shim)], input="", capture_output=True, text=True,
+                           env={**os.environ, "HOME": str(self.home)})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("No module named", p.stderr)
+
+    def test_9_generated_row_agents_land_one_per_candidate(self):
+        self.install()
+        agents = self.home / ".claude/agents"
+        generated = sorted(p for p in agents.glob("row-*.md") if p.is_symlink())
+        self.assertTrue(generated, "no generated row agent was installed")
+        for p in generated:
+            head = p.read_text().splitlines()
+            self.assertEqual(head[0], "---")
+            self.assertTrue(any(l.startswith("effort: ") for l in head[:8]),
+                            f"{p.name} carries no effort: frontmatter key")
+            self.assertTrue(any(l.startswith("model: ") for l in head[:8]),
+                            f"{p.name} carries no model: frontmatter key")
+
+    def test_9b_uninstall_removes_the_generated_files_too(self):
+        self.install()
+        run_cli(self.home, "uninstall")
+        left = list((self.home / ".claude/agents").glob("row-*.md"))
+        self.assertEqual(left, [], "generated row agent links left behind")
+        self.assertEqual(sorted((cli.KIT_DIR / "agents" / "generated").glob("row-*.md")), [],
+                         "generated row agent files left in the clone")
+
+    def test_10_the_installed_matrix_validates(self):
+        p = self.install()
+        self.assertNotIn("CONFLICT matrix:", p.stdout,
+                         "the table the installer links is not internally sound")
+        self.assertTrue((self.home / ".config/token_kit/agent_trigger_matrix.toml").is_symlink())
+
+
+class TestAdoptPersonas(ScratchHome):
+    """--adopt-personas: a real file is MOVED aside, never deleted, and comes
+    back where it was on uninstall. Off by default."""
+
+    def setUp(self):
+        super().setUp()
+        self.mine = self.home / ".claude/agents/architect.md"
+        self.mine.write_text("MY OWN ARCHITECT PROMPT\n")
+        self.aside = self.home / ".claude/agents" / cli.ADOPT_DIR / "architect.md"
+
+    def test_11_off_by_default_the_file_is_a_conflict(self):
+        p = self.install()
+        self.assertIn("CONFLICT architect.md", p.stdout)
+        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n")
+        self.assertFalse(self.aside.exists(), "nothing may move without the flag")
+
+    def test_12_adopt_moves_aside_and_links(self):
+        p = self.install("--adopt-personas")
+        self.assertNotIn("CONFLICT architect.md", p.stdout)
+        self.assertTrue(self.aside.is_file(), "the operator's file was not preserved")
+        self.assertEqual(self.aside.read_text(), "MY OWN ARCHITECT PROMPT\n",
+                         "the operator's bytes changed")
+        self.assertTrue(self.mine.is_symlink(), "the kit's persona was not linked")
+        self.assertEqual(Path(os.readlink(self.mine)), cli.KIT_DIR / "agents" / "architect.md")
+
+    def test_13_uninstall_puts_it_back(self):
+        self.install("--adopt-personas")
+        run_cli(self.home, "uninstall")
+        self.assertFalse(self.mine.is_symlink())
+        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n",
+                         "the adopted file did not come back")
+
+    def test_14_dry_run_moves_nothing(self):
+        p = self.install("--adopt-personas", "--dry-run")
+        self.assertIn("would    adopt architect.md", p.stdout)
+        self.assertFalse(self.aside.exists())
+        self.assertEqual(self.mine.read_text(), "MY OWN ARCHITECT PROMPT\n")
 
 
 class TestMergeUnit(unittest.TestCase):

@@ -83,8 +83,33 @@ def cooldown_marker(codex: dict, session_state: Path) -> Path:
     return session_state / str(codex.get("cooldown_marker", "codex_quota_cooldown"))
 
 
+def dispatcher_cooldown_live(now: float | None = None) -> bool:
+    """Is the marker the DISPATCHER itself writes still live?
+
+    THE GAP THIS CLOSES. There were two cooldown markers and they never met.
+    `token_kit.codex.errors.board_quota()` writes a machine-wide JSON marker
+    the moment a real codex turn comes back "out of quota"; the router read a
+    different, per-session file that only the manual `router cooldown --arm`
+    verb ever wrote. So the one event that knows codex is out of quota -- the
+    refusal itself -- did not reach the one component that can route around
+    it, and every later spawn paid for the same refusal. A writer with no
+    reader and a reader with no writer, which is the same defect twice.
+
+    Both are read now. The per-session marker stays: an agent that hit a
+    refusal in a lane can still arm it explicitly, and a session-scoped
+    cooldown is the narrower claim of the two.
+    """
+    try:
+        from token_kit.codex import errors as codex_errors
+        return codex_errors.cooldown_active(now) > 0.0
+    except Exception:  # noqa: BLE001 -- availability must never raise on the hook path
+        return False
+
+
 def cooldown_live(codex: dict, session_state: Path, now: float | None = None) -> bool:
-    """A quota refusal armed the marker and it has not aged out yet."""
+    """A quota refusal armed a marker -- either one -- and it is still live."""
+    if dispatcher_cooldown_live(now):
+        return True
     marker = cooldown_marker(codex, session_state)
     try:
         age = (now or time.time()) - marker.stat().st_mtime

@@ -1,0 +1,50 @@
+# The census detector, as DATA rather than as code.
+#
+# WHY IT IS NOT IN cli.py ANY MORE. A scan whose pattern appears in the
+# scanning program matches itself: with these ten regexes written as Python
+# literals, cli.py censused its own detector and reported nine violations it
+# could never clear. Keeping them here lets the census scan EVERY module,
+# cli.py included, and skip exactly one file: this one, which is data.
+#
+# A row is `kind` + `pattern` (Python `re` syntax). Add a row and the next
+# census, the installer probe and tests/test_census.py all pick it up.
+
+[[pattern]]
+kind = "oscar_path"
+pattern = '/oscar[/A-Za-z0-9_.-]*'
+
+[[pattern]]
+kind = "gpfs_path"
+pattern = '/gpfs[/A-Za-z0-9_.-]*'
+
+[[pattern]]
+kind = "home_path"
+pattern = '/users/[A-Za-z0-9_-]+'
+
+[[pattern]]
+kind = "login_host"
+pattern = 'login[0-9]{3}'
+
+[[pattern]]
+kind = "node_name"
+pattern = '(?:gpu|node)[0-9]{3,4}'
+
+[[pattern]]
+kind = "email"
+pattern = '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+
+[[pattern]]
+kind = "token_like"
+pattern = '''(?:sk-[A-Za-z0-9_-]{16}|ghp_[A-Za-z0-9]{16}|github_pat_[A-Za-z0-9_]{20}|Bearer\s+[A-Za-z0-9._-]{16}|[Aa][Pp][Ii]_?[Kk][Ee][Yy]\s*[=:]\s*['"]?[A-Za-z0-9])'''
+
+[[pattern]]
+kind = "job_id"
+pattern = '(?:job(?:id)?|jid|sbatch)\D{0,12}[0-9]{6,8}'
+
+[[pattern]]
+kind = "slurm_call"
+pattern = '\b(?:squeue|sacct|sbatch|srun|scancel)\b'
+
+[[pattern]]
+kind = "username"
+pattern = 'glvov'

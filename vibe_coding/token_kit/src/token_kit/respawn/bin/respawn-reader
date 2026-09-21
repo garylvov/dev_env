@@ -8,7 +8,11 @@
 # turn end, so the resolution is done ONCE and cached; the cache is validated by
 # executing it, and a miss falls back to uv and re-writes the cache.
 set -euo pipefail
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # .../token_kit/src
+# This shim is LINKED into ~/.config/token_kit/bin, so its own path must be
+# resolved before anything is computed relative to it: dirname of the SYMLINK
+# points at the bin dir, not at the clone, and the import would fail there.
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SRC="$(cd "$(dirname "$SELF")/../../.." && pwd)"   # .../token_kit/src
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/token_kit/python"
 if [ ! -x "$CACHE" ]; then
   mkdir -p "$(dirname "$CACHE")"

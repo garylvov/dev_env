@@ -112,6 +112,30 @@ class TestAvailability(unittest.TestCase):
         os.utime(marker, (old, old))
         self.assertIsNone(ladder.codex_unavailable_reason(m.codex, state))
 
+    def test_the_dispatchers_own_quota_marker_reaches_the_router(self):
+        """The marker `codex.errors.board_quota()` writes must be READ here.
+
+        These were two different files: the dispatcher boarded a real
+        out-of-quota refusal into a machine-wide marker, and the router only
+        ever looked at a per-session one that nothing but a manual verb wrote.
+        Every spawn after a real refusal therefore paid for it again.
+        """
+        from token_kit.codex import errors as codex_errors
+
+        m = load_fixture(self.tmp, (r"^binary = .*", 'binary = "sh"'))
+        state = self.tmp / "sess-no-marker-of-its-own"
+        os.environ["TOKEN_KIT_CODEX_COOLDOWN_MARKER"] = str(self.tmp / "cooldown.json")
+        self.assertIsNone(ladder.codex_unavailable_reason(m.codex, state))
+
+        codex_errors.board_quota("usageLimitExceeded", retry_after_s=900.0)
+        self.assertEqual(ladder.codex_unavailable_reason(m.codex, state), "quota_cooldown")
+
+        # and it lets go when the boarded window passes
+        self.assertEqual(
+            0.0, codex_errors.cooldown_active(now=time.time() + 1000))
+        self.assertIsNone(
+            ladder.codex_unavailable_reason(m.codex, state, now=time.time() + 1000))
+
     def test_zero_concurrency_takes_a_tier_out_of_service(self):
         m = load_fixture(self.tmp, (r"^fable = .*", "fable = 0"))
         self.assertEqual(ladder.claude_unavailable_reason("fable", m.concurrency),
