@@ -17,6 +17,8 @@ Work:
   checkpoint, resume      Commit state or inspect recovery information
   launch                  Start a fresh client session (--engine claude|codex)
   send, status            Queue messages or inspect tasks and runs
+  ledger                  Show reported token usage by agent, run and model
+  hooks                   Open Codex's lifecycle-hook review (no task launch)
   done, reopen, retitle    Update task status or display title
   close-run               Reconcile an interrupted execution
   migrate                 Import an old task folder without changing the original

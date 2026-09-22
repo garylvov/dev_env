@@ -1,9 +1,9 @@
 """Fresh Codex sessions using portable task state supplied by the core.
 
-Strict compaction prevention is deliberately unsupported until verified. The
-installed codex-cli 0.153.4 exposes a token threshold, not a documented disable
-switch. Raising that threshold cannot guarantee compaction never occurs.
-See https://developers.openai.com/codex/config-sample/ .
+Standalone strict launches are unsupported. Managed rollover installs the
+documented PreCompact veto and requires a lifecycle-hook startup handshake.
+See https://learn.chatgpt.com/docs/hooks#precompact . No runtime certification
+is implied; a disabled/bypassed hook cannot provide a compaction guarantee.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def prepare_launch(
     through ``environ``. Existing authentication and permission settings remain
     the client's responsibility. No native thread history is resumed.
     """
-    if request.strict_no_compaction:
+    if request.strict_no_compaction and not request.managed_hooks:
         raise AdapterError(
             "Strict no-compaction is not verified for Codex; refusing to launch. "
             "Codex 0.153.4 exposes an automatic-compaction token threshold, "
@@ -53,11 +53,16 @@ def prepare_launch(
     effort = default_effort(request.model)
     argv.extend(("-c", f'model_reasoning_effort="{effort}"',
                  "-c", f'plan_mode_reasoning_effort="{effort}"'))
+    if request.managed_hooks:
+        from ..runtime import codex_config
+        argv.extend(codex_config())
+    if request.worker_task is not None:
+        argv.extend(("--add-dir", request.worker_task))
     argv.extend(("--", request.prompt))
     return LaunchPlan(
         engine="codex",
         argv=tuple(argv),
         cwd=workspace,
         env=dict(os.environ if environ is None else environ),
-        strict_no_compaction=False,
+        strict_no_compaction=request.strict_no_compaction,
     )

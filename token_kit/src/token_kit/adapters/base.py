@@ -23,6 +23,7 @@ class LaunchRequest:
     model: str | None = None
     yolo: bool = False
     worker_task: str | None = None
+    managed_hooks: bool = False
 
 
 @dataclass(frozen=True)

@@ -50,9 +50,13 @@ def prepare_launch(
         settings["env"] = {"DISABLE_COMPACT": "1"}
     if request.worker_task is not None:
         from ..worker_policy import hook_command
+        argv.extend(("--add-dir", request.worker_task))
         settings["hooks"] = {"PreToolUse": [{"matcher": "^(Agent|Task)$", "hooks": [
             {"type": "command", "command": hook_command(request.worker_task), "timeout": 5}
         ]}]}
+    if request.managed_hooks:
+        from ..runtime import hooks
+        settings.setdefault("hooks", {}).update(hooks())
     if settings:
         argv.extend(("--settings", json.dumps(settings)))
     if request.model is not None:

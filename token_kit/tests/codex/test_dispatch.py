@@ -56,6 +56,9 @@ class DispatchCase(unittest.TestCase):
     def run_cli(self, *extra: str, scenario: str = "ok", answer: str | None = None,
                 launcher: str | None = None, env_extra: dict[str, str] | None = None):
         env = dict(os.environ)
+        # Fake usage must never enter the invoking real session's token ledger.
+        for name in ("TOKEN_KIT_TASK", "TOKEN_KIT_AGENT", "TOKEN_KIT_RUN"):
+            env.pop(name, None)
         env.update({
             "FAKE_CODEX_RECORD": str(self.record),
             "FAKE_CODEX_SCENARIO": scenario,
@@ -91,12 +94,15 @@ class DispatchCase(unittest.TestCase):
 
     def test_managed_session_adds_worker_policy_to_wire(self):
         from token_kit.worker_policy import POLICY
-        proc, _ = self.run_cli(env_extra={"TOKEN_KIT_TASK": "/task", "TOKEN_KIT_AGENT": "parent-secret"})
+        from token_kit.core.store import Store
+        store = Store.create(self.tmp / "tasks", "test", self.tmp)
+        proc, _ = self.run_cli(env_extra={"TOKEN_KIT_TASK": str(store.path), "TOKEN_KIT_AGENT": "parent-secret"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         prompt = self.sent("turn/start")["input"][0]["text"]
         self.assertIn(POLICY, prompt)
         self.assertTrue(prompt.endswith(self.task.read_text()))
         self.assertNotIn("parent-secret", prompt)
+        self.assertIn("codex-worker", (store.path / "TOKEN_LEDGER.md").read_text())
 
     def test_model_and_effort_reach_the_wire(self):
         proc, _ = self.run_cli()

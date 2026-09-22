@@ -59,6 +59,9 @@ class JobCase(unittest.TestCase):
 
     def env(self, scenario: str = "ok", **extra: str) -> dict[str, str]:
         env = dict(os.environ)
+        # Explicit test-local overrides below are the only managed contexts.
+        for name in ("TOKEN_KIT_TASK", "TOKEN_KIT_AGENT", "TOKEN_KIT_RUN"):
+            env.pop(name, None)
         env.update({
             "FAKE_CODEX_RECORD": str(self.record),
             "FAKE_CODEX_SCENARIO": scenario,
@@ -113,15 +116,18 @@ class JobCase(unittest.TestCase):
 
     def test_managed_job_persists_policy_context_and_sends_compact_brief(self):
         from token_kit.worker_policy import POLICY
-        job_id = self.start(linger="0", TOKEN_KIT_TASK="/task", TOKEN_KIT_AGENT="parent-secret")
+        from token_kit.core.store import Store
+        store = Store.create(self.tmp / "tasks", "test", self.tmp)
+        job_id = self.start(linger="0", TOKEN_KIT_TASK=str(store.path), TOKEN_KIT_AGENT="parent-secret")
         result = self.cli("wait", job_id, "--timeout-s", "15")
         self.assertEqual(result.returncode, 0, result.stderr)
         meta = json.loads((self.job(job_id).root / "meta.json").read_text())
-        self.assertEqual(meta["token_kit_task"], "/task")
+        self.assertEqual(meta["token_kit_task"], str(store.path))
         prompt = self.sent("turn/start")[0]["input"][0]["text"]
         self.assertIn(POLICY, prompt)
         self.assertTrue(prompt.endswith(self.task.read_text()))
         self.assertNotIn("parent-secret", prompt)
+        self.assertIn("codex-worker", (store.path / "TOKEN_LEDGER.md").read_text())
 
     def test_start_returns_before_the_turn_ends_and_wait_reports_it(self):
         started = time.monotonic()

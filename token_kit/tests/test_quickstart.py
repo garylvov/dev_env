@@ -41,7 +41,7 @@ class QuickstartTests(unittest.TestCase):
         self.assertEqual(list(self.workspace.iterdir()), [])
         self.assertIn("Guidance: session-only", error)
         self.assertIn(str(store.path), error)
-        self.assertIn("automatic rollover: not implemented", error)
+        self.assertIn("automatic rollover: disabled", error)
         self.assertIn("--model opus --yolo", error)
 
     def test_default_root_uses_config_directory(self):
@@ -54,7 +54,7 @@ class QuickstartTests(unittest.TestCase):
         with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(self.root / "config")}), \
              patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
              patch.object(workflow, "launch", return_value=0) as launch:
-            rc, _, error = self.call("Finish retread", "--workspace", self.workspace)
+            rc, _, error = self.call("Fix parser", "--workspace", self.workspace)
         self.assertEqual(rc, 0, error)
         self.assertEqual(launch.call_args.args[0].path.parent, self.root / "config/token_kit")
 

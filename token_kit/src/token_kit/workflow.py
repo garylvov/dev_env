@@ -1,7 +1,8 @@
 """Token Kit shared task lifecycle and explicit fresh-session launches.
 
-The runtime does not yet supervise context, intercept tools, or automatically
-fail over providers. Strict Codex launch is unavailable until its control is verified.
+Opt-in rollover uses lifecycle hooks and fresh checkpoints, never a summarizer.
+Provider failover is not implemented. Hook policy requests are not certification
+of live client behavior or a hard context cap.
 """
 from __future__ import annotations
 
@@ -13,10 +14,13 @@ import shlex
 import shutil
 import subprocess
 import sys
+import termios
 from pathlib import Path
 
 from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
+from . import runtime
+from .core import ledger
 
 
 def default_root() -> Path:
@@ -65,9 +69,14 @@ def run(args) -> int:
     # Reject unsupported clients and missing binaries before creating anything.
     adapter = importlib.import_module(f"token_kit.adapters.{args.engine}")
     plan = adapter.prepare_launch(LaunchRequest(workspace, "Continue the task", True,
-                                               args.model, yolo=args.yolo))
+                                               args.model, yolo=args.yolo,
+                                               managed_hooks=bool(args.rollover_tokens)))
     if not args.dry_run and shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
+    if args.max_rollovers < 0:
+        raise ValueError("--max-rollovers must be nonnegative")
+    if args.engine == "codex" and args.rollover_tokens and not args.dry_run:
+        runtime.verify_codex(plan.argv[0], workspace)
     if store:
         store.resume_bundle("coordinator")  # validate recovery before changing project files
     changes = configure(workspace, engine="both", codegraph=args.codegraph, dry_run=True) if args.install_project else []
@@ -76,7 +85,9 @@ def run(args) -> int:
                           "task": str(store.path) if store else None, "title": title,
                           "root": str(args.root or default_root()), "project_changes": changes,
                           "yolo": args.yolo, "install_project": args.install_project,
-                          "automatic_rollover": False}, indent=2))
+                          "automatic_rollover": bool(args.rollover_tokens),
+                          "rollover_tokens": args.rollover_tokens,
+                          "max_rollovers": args.max_rollovers}, indent=2))
         return 0
     if args.install_project:
         configure(workspace, engine="both", codegraph=args.codegraph)
@@ -84,15 +95,41 @@ def run(args) -> int:
     print(f"Token Kit | {args.engine} | task: {store.path}", file=sys.stderr)
     print("Guidance: session-only; existing project settings are preserved" if not args.install_project
           else "Guidance: installed in project", file=sys.stderr)
-    print("Checkpoints: agent-maintained | automatic rollover: not implemented", file=sys.stderr)
+    print("Checkpoints: agent-maintained | automatic rollover: " +
+          (f"{args.rollover_tokens:,} context tokens (turn boundaries)" if args.rollover_tokens else "disabled"), file=sys.stderr)
+    print(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}", file=sys.stderr)
     print(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
           f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
-          + (" --yolo" if args.yolo else ""), file=sys.stderr)
-    return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo)
+          + (" --yolo" if args.yolo else "")
+          + (f" --rollover-tokens {args.rollover_tokens} --max-rollovers {args.max_rollovers}"
+             if args.rollover_tokens else ""), file=sys.stderr)
+    return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo,
+                  rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers)
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
-           dry_run: bool = False, yolo: bool = False) -> int:
+           dry_run: bool = False, yolo: bool = False, rollover_tokens: int | None = None,
+           max_rollovers: int = 10) -> int:
+    if max_rollovers < 0 or (rollover_tokens is not None and rollover_tokens <= 0):
+        raise ValueError("Invalid rollover limits")
+    if engine == "codex" and rollover_tokens and not dry_run:
+        runtime.verify_codex(workspace=store.workspace)
+    for segment in range(max_rollovers + 1):
+        rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens)
+        if control.get("phase") != "ready":
+            return rc
+        if segment == max_rollovers:
+            print("Token Kit: rollover limit reached; checkpoint saved. Resume manually.", file=sys.stderr)
+            return 75
+        observed_model = (control.get("sample") or {}).get("current_model")
+        if observed_model and observed_model != "unknown":
+            model = observed_model
+        print(f"Token Kit: checkpoint saved; restarting {engine} ({segment + 1}/{max_rollovers}).", file=sys.stderr)
+    return 75
+
+
+def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
+                    dry_run: bool, yolo: bool, rollover_tokens: int | None) -> tuple[int, dict]:
     bundle = store.resume_bundle(agent)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
     checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
@@ -116,38 +153,58 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         prompt = brief(prompt, str(store.path), agent)
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
     plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
-                                               worker_task=str(store.path)))
+                                               worker_task=str(store.path),
+                                               managed_hooks=engine == "claude" or bool(rollover_tokens)))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
-                          "strict_no_compaction_requested": True, "yolo": yolo, "resume": bundle}, indent=2))
-        return 0
+                          "strict_no_compaction_requested": True, "yolo": yolo, "resume": bundle,
+                          "rollover_tokens": rollover_tokens}, indent=2))
+        return 0, {}
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
     run = store.claim_run(agent, engine, True)
-    store.update_run(agent, run.name, yolo=yolo)
+    store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens)
+    runtime.initialize(store, agent, run, engine, rollover_tokens)
     write_json(run / "resume.json", bundle)
     atomic_text(run / "prompt.md", prompt + "\n")
     child = None
+    terminal = None
     try:
+        if sys.stdin.isatty():
+            try:
+                terminal = (sys.stdin.fileno(), termios.tcgetattr(sys.stdin.fileno()))
+            except (OSError, termios.error):
+                pass
         environment = dict(plan.env)
         environment["TOKEN_KIT_TASK"] = str(store.path)
         environment["TOKEN_KIT_AGENT"] = agent
+        environment["TOKEN_KIT_RUN"] = run.name
         bin_directory = str(Path(__file__).resolve().parent / "bin")
         environment["PATH"] = bin_directory + os.pathsep + environment.get("PATH", os.defpath)
         child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=environment)
         store.update_run(agent, run.name, status="running", child_pid=child.pid,
                          child_identity=process_identity(child.pid))
-        rc = child.wait()
+        if rollover_tokens:
+            rc, control = runtime.wait_segment(child, store, agent, run, stop_child)
+        else:
+            rc, control = child.wait(), {}
+        if control.get("phase") == "halted":
+            store.update_run(agent, run.name, status="interrupted", ended_at=now(),
+                             rollover_error=control.get("reason"))
+            print(f"Token Kit: {control.get('reason')}", file=sys.stderr)
+            return 75, control
+        ready = control.get("phase") == "ready"
         # An exited process does not prove that its external jobs finished.
-        store.update_run(agent, run.name, status="exited" if rc == 0 else "interrupted",
-                         exit_code=rc, ended_at=now())
-        return rc if rc >= 0 else 128 - rc
+        store.update_run(agent, run.name, status="exited" if rc == 0 or ready else "interrupted",
+                         exit_code=rc, ended_at=now(), rollover_checkpoint=control.get("checkpoint"))
+        ledger.refresh(store)
+        return (0 if ready else rc if rc >= 0 else 128 - rc), control
     except KeyboardInterrupt:
         if child is not None:
             stop_child(child)
         store.update_run(agent, run.name, status="interrupted", ended_at=now())
-        return 130
+        return 130, {}
     except (OSError, ValueError):
         if child is not None:
             stop_child(child)
@@ -156,11 +213,19 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         except OSError:
             pass  # The original starting/running record still blocks another run.
         raise
+    finally:
+        if terminal is not None:
+            try:
+                termios.tcsetattr(terminal[0], termios.TCSANOW, terminal[1])
+            except (OSError, termios.error):
+                pass
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="token-kit", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    review = commands.add_parser("hooks", help="open Codex to review session-local lifecycle hooks (no task/model prompt)")
+    review.add_argument("--engine", choices=("codex",), default="codex")
     start = commands.add_parser("run", help="create or resume a task and launch with session-only guidance")
     start.add_argument("title", nargs="?")
     start.add_argument("--task", type=Path, help="continue an existing task instead of creating one")
@@ -172,6 +237,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
     start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
     start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
+    start.add_argument("--rollover-tokens", type=runtime.token_limit, help="restart from a checkpoint at a turn boundary (e.g. 500k)")
+    start.add_argument("--max-rollovers", type=int, default=10, help="maximum automatic restarts (default: 10)")
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
     new.add_argument("--root", type=Path, default=default_root())
@@ -213,6 +280,8 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--yolo", action="store_true",
                                  help="bypass client permission checks (Codex also disables sandboxing)")
+            command.add_argument("--rollover-tokens", type=runtime.token_limit)
+            command.add_argument("--max-rollovers", type=int, default=10)
         elif name == "send":
             command.add_argument("text", help="literal text, or - to read stdin")
         elif name == "close-run":
@@ -220,12 +289,16 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--note", required=True)
     status = commands.add_parser("status", help="show agents and their runs without loading transcripts")
     status.add_argument("task", type=Path)
+    report = commands.add_parser("ledger", help="show reported token accounting without loading transcripts")
+    report.add_argument("task", type=Path)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "hooks":
+            return runtime.review_hooks()
         if args.command == "run":
             return run(args)
         if args.command == "new":
@@ -262,7 +335,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "close-run":
             store.close_run(args.agent, args.run_id, args.note)
         elif args.command == "launch":
-            return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo)
+            return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo,
+                          args.rollover_tokens, args.max_rollovers)
+        elif args.command == "ledger":
+            print(ledger.refresh(store))
         elif args.command == "status":
             agents = []
             for path in sorted((store.path / "agents").iterdir()):

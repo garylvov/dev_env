@@ -601,6 +601,9 @@ def owner_main(job: Job, resume: bool) -> int:
             return _finish(job, EXIT_CODEX_FAILED, "codex returned no thread id")
         (job.root / "thread").write_text(thread_id + "\n", encoding="utf-8")
         job.row("thread", thread_id)
+        if meta.get("token_kit_task"):
+            from token_kit.core.ledger import record_wire
+            record_wire(thread_id, model, {}, task=meta["token_kit_task"], agent=meta.get("token_kit_agent"))
 
         # -- the serving loop ---------------------------------------------
         active_turn = ""            # the id `turn/steer` must match
@@ -636,7 +639,7 @@ def owner_main(job: Job, resume: bool) -> int:
                     pending.append(message)
 
             # (b) idle with work -> the message becomes the next turn
-            if not active_turn and pending and not stopping:
+            if not active_turn and turn_req_id is None and pending and not stopping:
                 inputs = [{"type": "text", "text": m.text} for m in pending]
                 turn_req_id = client.request("turn/start", {
                     "threadId": thread_id, "input": inputs,
@@ -656,7 +659,7 @@ def owner_main(job: Job, resume: bool) -> int:
                     retire(job, message)
 
             # (c) exit? only with an EMPTY inbox, so nothing can be lost
-            if not active_turn and not pending:
+            if not active_turn and turn_req_id is None and not pending:
                 expired = time.monotonic() >= idle_until
                 if stopping or expired:
                     if inbox_pending(job) == 0:
@@ -690,10 +693,14 @@ def owner_main(job: Job, resume: bool) -> int:
                 if client.proc.poll() is not None:
                     return _finish(job, EXIT_BUSY_OR_ABSENT,
                                    f"reason=protocol codex exited rc={client.proc.poll()}")
-                if active_turn and time.monotonic() > turn_deadline:
-                    client.request("turn/interrupt", {"threadId": thread_id,
-                                                      "turnId": active_turn})
+                if turn_req_id is not None and time.monotonic() > turn_deadline:
+                    if active_turn:
+                        client.request("turn/interrupt", {"threadId": thread_id,
+                                                          "turnId": active_turn})
+                    else:
+                        return _finish(job, EXIT_CODEX_FAILED, "turn/start acknowledgement timed out")
                     active_turn = ""
+                    turn_req_id = None
                     last_rc = EXIT_CODEX_FAILED
                     job.row("failed", f"turn {turns} timed out after {turn_timeout_s:g}s")
                 continue
@@ -724,6 +731,12 @@ def owner_main(job: Job, resume: bool) -> int:
             if method == "turn/started":
                 active_turn = ((params.get("turn") or {}).get("id")) or active_turn
                 job.row(STATE_RUNNING, f"turn {turns} id={active_turn}")
+                continue
+            if method == "thread/tokenUsage/updated":
+                from token_kit.core.ledger import record_wire
+                if meta.get("token_kit_task"):
+                    record_wire(job.thread_id(), meta["model"], params.get("tokenUsage") or {},
+                                task=meta["token_kit_task"], agent=meta.get("token_kit_agent"))
                 continue
             if method == "item/completed":
                 item = params.get("item") or {}
@@ -758,6 +771,7 @@ def owner_main(job: Job, resume: bool) -> int:
                         return _finish(job, EXIT_BUSY_OR_ABSENT, f"reason=quota {detail}")
                     last_rc = EXIT_CODEX_FAILED
                     active_turn = ""
+                    turn_req_id = None
                     job.row("failed", f"turn/start error: {detail}")
                     for message in turn_msgs:
                         job.delivery(message.message_id, "failed(turn/start)", detail[:120])
@@ -839,6 +853,7 @@ def cmd_start(args) -> int:
         "effort": args.effort, "cwd": args.cwd, "sandbox": args.sandbox,
         "task_file": str(task_file), "launcher": args.launcher or "",
         "token_kit_task": os.environ.get("TOKEN_KIT_TASK"),
+        "token_kit_agent": os.environ.get("TOKEN_KIT_AGENT"),
         "linger_s": args.linger_s, "turn_timeout_s": args.turn_timeout_s,
         # The job dir is shared by every node; the owner, its pid and the
         # codex thread's rollout file are not. The host is part of the record.

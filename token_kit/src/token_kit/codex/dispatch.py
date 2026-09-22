@@ -472,6 +472,8 @@ def dispatch(
             raise CodexTurnFailed("codex returned no thread id")
 
         # -- the turn ----------------------------------------------------
+        from token_kit.core.ledger import record_wire
+        record_wire(thread_id, model, {})
         turn_req = client.request(
             "turn/start",
             {
@@ -503,6 +505,8 @@ def dispatch(
                 texts.extend(_agent_texts([params.get("item") or {}]))
             elif method == "thread/tokenUsage/updated":
                 usage = params.get("tokenUsage") or usage
+                from token_kit.core.ledger import record_wire
+                record_wire(thread_id, model, usage)
             elif method is not None and "id" in msg:
                 # A server->client REQUEST we do not implement: answer it, or
                 # the turn stalls forever waiting on us.
