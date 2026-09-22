@@ -13,7 +13,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-from .base import AdapterError, LaunchPlan, LaunchRequest
+from .base import AdapterError, LaunchPlan, LaunchRequest, default_effort
 
 
 def prepare_launch(
@@ -40,7 +40,7 @@ def prepare_launch(
         raise AdapterError("Model must be a nonempty model name, not an option")
 
     env = dict(os.environ if environ is None else environ)
-    argv = [executable]
+    argv = [executable, "--effort", default_effort(request.model)]
     if request.yolo:
         argv.append("--dangerously-skip-permissions")
     if request.strict_no_compaction:

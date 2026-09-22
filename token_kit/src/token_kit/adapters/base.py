@@ -3,6 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
+
+
+def default_effort(model: str | None) -> str:
+    """Launch policy for a selected model; unspecified models use medium."""
+    return "high" if re.search(r"(?:^|-)luna(?:$|-)", (model or "").lower()) else "medium"
 
 
 class AdapterError(ValueError):

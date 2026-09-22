@@ -70,6 +70,9 @@ record that the override ended and return to Codex defaults; do not silently
 substitute Fable. If scope is unclear, ask before broadening it. These records are
 maintained by agents, not an automatic quota detector or override scheduler.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace("Astra (high)", "Astra (medium)")
+INSTRUCTIONS += "Default to medium effort for every model; always run Luna at high effort.\n"
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

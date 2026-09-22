@@ -1,7 +1,8 @@
 # Agent trigger matrix
 
 A soft guide for the thread that delegates: what kind of work goes to which engine, model and
-effort, and why. It decides nothing for you. Put a line `KIND: <name>` in a spawn's prompt and the
+effort, and why. Default effort is medium for every model except Luna, which always uses high.
+It decides nothing for you. Put a line `KIND: <name>` in a spawn's prompt and the
 hook resolves that kind's ladder and writes the header; name nothing and the spawn goes through
 untouched.
 
@@ -28,13 +29,13 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 
 | kind | use when | who does it | prefer | done when |
 | --- | --- | --- | --- | --- |
-| lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:low` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
-| summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:low` | the decisive lines are quoted with their context, or the file is named and shown absent |
+| lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
+| summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
 | mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every edit named in the brief is applied and the diff is shown |
-| implement | write code to a written spec, together with the test that guards it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
-| debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
-| design | compare two or three approaches and recommend one before any code is written | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
-| design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
+| implement | write code to a written spec, together with the test that guards it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
+| debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
+| design | compare two or three approaches and recommend one before any code is written | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
+| design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
 | batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
 | write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
 
@@ -81,7 +82,7 @@ main thread      talks to the user, writes briefs and STATE.md, reads out.md fil
     codex step   a short mechanical job through codex-dispatch / codex-job
 ```
 
-Prefer Astra (high) for planning and detailed debugging; use Fable (medium) only
+Prefer Astra (medium) for planning and detailed debugging; use Fable (medium) only
 at the user's explicit request. Opus also uses medium effort. Give each worker disjoint source ownership, a clear
 parent, and a stopping condition. Delegate useful independent work aggressively,
 not waiting or extra management. Small tasks can skip the lead.

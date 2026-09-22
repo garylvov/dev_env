@@ -68,7 +68,7 @@ def runner_body(codex: dict, budget: tuple[int, int, int]) -> str:
         f"name: {runner_name(codex)}",
         f"description: {DESC_PREFIX} codex dispatch - runs one step through codex and reports it",
         "model: sonnet",
-        "effort: low",
+        "effort: medium",
         "---",
         "",
         "You do not do this step yourself: you dispatch it to codex and report what came back.",

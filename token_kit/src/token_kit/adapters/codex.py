@@ -11,7 +11,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from .base import AdapterError, LaunchPlan, LaunchRequest
+from .base import AdapterError, LaunchPlan, LaunchRequest, default_effort
 
 
 def prepare_launch(
@@ -50,6 +50,9 @@ def prepare_launch(
         argv.extend(("--model", request.model))
     # The separator prevents a checkpoint starting with '-' from becoming an
     # option. Passing one argv element preserves newlines and shell metacharacters.
+    effort = default_effort(request.model)
+    argv.extend(("-c", f'model_reasoning_effort="{effort}"',
+                 "-c", f'plan_mode_reasoning_effort="{effort}"'))
     argv.extend(("--", request.prompt))
     return LaunchPlan(
         engine="codex",

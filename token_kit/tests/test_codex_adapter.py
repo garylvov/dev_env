@@ -36,7 +36,8 @@ class CodexAdapterTests(unittest.TestCase):
         prompt = '--resume "thread"\n$(touch /nope); `echo nope`'
         plan = prepare_launch(self.request(prompt=prompt), environ={})
         self.assertEqual(
-            ("codex", "--cd", str(self.workspace.resolve()), "--", prompt), plan.argv,
+            ("codex", "--cd", str(self.workspace.resolve()), "-c", 'model_reasoning_effort="medium"',
+             "-c", 'plan_mode_reasoning_effort="medium"', "--", prompt), plan.argv,
         )
         self.assertEqual("codex", plan.engine)
         self.assertFalse(plan.strict_no_compaction)

@@ -18,6 +18,18 @@ from token_kit.core.store import Store, read_json
 
 
 class WorkflowLaunchTests(unittest.TestCase):
+    def test_model_effort_policy_reaches_both_clients(self):
+        from token_kit.adapters import claude, codex
+        from token_kit.adapters.base import LaunchRequest
+        for model in (None, "gpt-6-astra", "opus", "fable", "sonnet", "luna", "gpt-5.6-luna"):
+            expected = "high" if model and "luna" in model else "medium"
+            request = LaunchRequest(self.root, "continue", False, model=model)
+            claude_plan = claude.prepare_launch(request, environ={})
+            self.assertEqual(claude_plan.argv[claude_plan.argv.index("--effort") + 1], expected)
+            codex_plan = codex.prepare_launch(request, environ={})
+            self.assertIn(f'model_reasoning_effort="{expected}"', codex_plan.argv)
+            self.assertIn(f'plan_mode_reasoning_effort="{expected}"', codex_plan.argv)
+
     def test_yolo_adapter_mapping_is_opt_in(self):
         from token_kit.adapters import claude, codex
         from token_kit.adapters.base import LaunchRequest
