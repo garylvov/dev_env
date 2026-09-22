@@ -138,6 +138,9 @@ class Store:
             raise ValueError("Task status must be open or done")
         with self.locked():
             if fields.get("status") == "done":
+                for path in (self.path / "agents").glob("*/lifecycle.json"):
+                    if read_json(self.safe(path))["phase"] != "completed":
+                        raise ValueError("Reconcile/complete worker lifecycle attempts before closing the task")
                 for path in (self.path / "agents").glob("*/runs/*/run.json"):
                     record = read_json(self.safe(path))
                     if record.get("status") in ("starting", "running", "interrupted"):
@@ -163,18 +166,24 @@ class Store:
             raise ValueError("Agent directories must not be symlinks")
         return path
 
-    def add_agent(self, agent: str, assignment: str) -> Path:
+    def add_agent(self, agent: str, assignment: str, parent: str | None = None) -> Path:
         from ..worker_policy import brief
         component(agent)
         if not assignment.strip():
             raise ValueError("Assignment cannot be empty")
+        parent = parent or (None if agent == "coordinator" else "coordinator")
+        if parent == agent or (agent == "coordinator" and parent is not None):
+            raise ValueError("Invalid parent agent")
         with self.locked():
+            if parent:
+                self.agent_path(parent)
             path = self.safe(self.path / "agents" / agent)
             path.mkdir(parents=True, exist_ok=False)
             sync_directory(path.parent)
             for name in ("assignments", "checkpoints", "messages", "runs", "artifacts"):
                 (path / name).mkdir()
             write_json(path / "agent.json", {"schema_version": SCHEMA, "agent_id": agent,
+                       "parent_agent": parent,
                        "assignment_revision": 1, "created_at": now(), "latest_checkpoint": None})
             saved = brief(assignment, str(self.path), agent)
             atomic_text(path / "assignments" / "0001.md", saved + "\n")
@@ -266,7 +275,9 @@ class Store:
 
     def resume_bundle(self, agent: str) -> dict:
         with self.locked():
+            from .lifecycle import children_locked
             path = self.agent_path(agent)
+            children = children_locked(self, agent)
             snapshot = self.latest(agent)
             if snapshot is None:
                 raise ValueError("No committed checkpoint")
@@ -277,6 +288,7 @@ class Store:
             changed = [e["path"] for e in manifest["evidence"]
                        if not Path(e["path"]).is_file() or fingerprint(Path(e["path"])) != e["sha256"]]
             return {"agent_id": agent, "workspace": str(self.workspace), "checkpoint": str(snapshot),
+                    "children": children,
                     "assignment": str(path / "assignments" / f'{manifest["assignment_revision"]:04d}.md'),
                     "pending_messages": messages, "changed_evidence": changed,
                     "head_changed": workspace_head(self.workspace) != manifest["head"],
@@ -288,6 +300,10 @@ class Store:
             raise ValueError("Unsupported engine")
         with self.locked():
             path = self.agent_path(agent)
+            from .lifecycle import read_locked
+            worker = read_locked(self, agent)
+            if worker and worker["phase"] not in ("stopped", "completed"):
+                raise ValueError("Reconcile the native worker attempt before a managed launch")
             for previous in (path / "runs").glob("*/run.json"):
                 record = read_json(self.safe(previous))
                 if record["status"] in ("starting", "running", "interrupted"):

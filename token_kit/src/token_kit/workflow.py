@@ -20,7 +20,7 @@ from pathlib import Path
 from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
 from . import runtime
-from .core import ledger
+from .core import ledger, lifecycle
 
 
 def default_root() -> Path:
@@ -138,7 +138,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         f"Read assignment {bundle['assignment']} and committed state "
         f"{bundle['checkpoint']}/STATE.md. The workspace is {store.workspace}. "
         f"Treat checkpoint claims as evidence to verify. Run {resume_command} to see pending "
-        "messages, changed evidence, and prior run records. Before changing files, reconcile any changes or "
+        "messages, unresolved children, changed evidence, and prior run records. Before changing files, reconcile any changes or "
         "unfinished operations since the checkpoint. Do not blindly repeat an interrupted command. "
         "Do not compact or use a transcript summarizer. Maintain the agent's STATE.md with "
         "Objective, Completed, Evidence, Unresolved, and Next sections, and commit checkpoints "
@@ -263,6 +263,27 @@ def build_parser() -> argparse.ArgumentParser:
     agent.add_argument("task", type=Path)
     agent.add_argument("name")
     agent.add_argument("--assignment-file", required=True, type=Path)
+    agent.add_argument("--parent", default="coordinator", help="logical parent (default: coordinator)")
+    worker = commands.add_parser("worker", help="durable worker attempts: prepare, bind, request, reconcile")
+    actions = worker.add_subparsers(dest="worker_action", required=True)
+    for action in ("prepare", "bind", "request-rollover", "stopped", "complete", "status"):
+        command = actions.add_parser(action)
+        command.add_argument("task", type=Path)
+        command.add_argument("--agent", required=True)
+        if action in ("bind", "request-rollover", "stopped", "complete"):
+            command.add_argument("--ticket", required=True)
+        if action == "prepare":
+            command.add_argument("--engine", choices=("claude", "codex"))
+            command.add_argument("--model")
+            command.add_argument("--rollover-tokens", type=runtime.token_limit)
+            command.add_argument("--owner-agent", default=os.environ.get("TOKEN_KIT_AGENT"))
+            command.add_argument("--owner-run", default=os.environ.get("TOKEN_KIT_RUN"))
+        elif action == "bind":
+            command.add_argument("--native-id", required=True)
+        elif action == "request-rollover":
+            command.add_argument("--reason", required=True)
+        elif action == "stopped":
+            command.add_argument("--note", required=True, help="confirm native closure and reconcile external operations; does not kill anything")
     for name, help_text in (("checkpoint", "commit the working STATE.md"),
                             ("resume", "export engine-independent recovery information"),
                             ("launch", "launch a fresh native session with strict compaction controls"),
@@ -325,7 +346,29 @@ def main(argv: list[str] | None = None) -> int:
                 fields["summary"] = args.summary
             store.update_task(**fields)
         elif args.command == "agent":
-            print(store.add_agent(args.name, args.assignment_file.read_text(encoding="utf-8")))
+            print(store.add_agent(args.name, args.assignment_file.read_text(encoding="utf-8"), args.parent))
+        elif args.command == "worker":
+            action = args.worker_action
+            if action == "prepare":
+                result = lifecycle.prepare(store, args.agent, engine=args.engine, model=args.model,
+                                           threshold=args.rollover_tokens, owner_agent=args.owner_agent,
+                                           owner_run=args.owner_run)
+            elif action == "bind":
+                result = lifecycle.bind(store, args.agent, args.ticket, args.native_id)
+            elif action == "request-rollover":
+                result = lifecycle.request(store, args.agent, args.ticket, args.reason)
+            elif action == "complete":
+                result = lifecycle.request(store, args.agent, args.ticket, "Assignment complete", complete=True)
+            elif action == "stopped":
+                result = lifecycle.stopped(store, args.agent, args.ticket, args.note)
+            else:
+                result = lifecycle.inspect(store, args.agent)
+            # Keep historical events on disk, not in every coordinator prompt.
+            if result and "worker" in result:
+                result["worker"] = {key: value for key, value in result["worker"].items() if key not in ("events", "history")}
+            elif result:
+                result = {key: value for key, value in result.items() if key not in ("events", "history")}
+            print(json.dumps(result, indent=2))
         elif args.command == "checkpoint":
             print(store.checkpoint(args.agent, args.evidence, args.incorporated))
         elif args.command == "resume":

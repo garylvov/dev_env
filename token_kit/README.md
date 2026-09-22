@@ -4,8 +4,6 @@ Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticate
 
 ## Run
 
-From your project:
-
 ```bash
 export PATH="/path/to/dev_env/token_kit/src/token_kit/bin:$PATH"
 # "Finish retread": session name. Sessions: ~/.config/token_kit.
@@ -13,7 +11,7 @@ token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
 
 Use `--engine codex` for Codex.
-Session-only; project files untouched.
+Session-only.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
@@ -21,12 +19,11 @@ add `--codegraph` for installed CodeGraph.
 
 ## Delegation
 
-Coordinator -> leads -> workers, each resumable.
+Coordinator -> leads -> workers; durable attempt tickets.
 Plan/implement: Opus -> Astra. Scout: Luna xhigh -> Sonnet.
 Loops: Luna -> Sonnet -> Terra -> Sol. Docs: Sol -> Luna -> Sonnet.
 Your instructions override defaults; "use Codex" excludes Claude.
 Effort: medium; Luna high except scouting xhigh. Fable is explicit-request-only.
-Checkpoint overrides; skip unavailable candidates.
 
 ## Resume files
 
@@ -38,13 +35,14 @@ Checkpoint overrides; skip unavailable candidates.
     in.md                 # assignment
     STATE.md              # working progress
     out.md                # result
+    lifecycle.json        # attempts, parent notifications
     checkpoints/          # committed recovery state
     assignments/          # assignment revisions
     messages/, artifacts/, runs/
 ```
 
-Resume reads committed checkpoints, not transcripts. Workers have independent state.
-Compact worker briefs.
+Resume reads committed checkpoints, not transcripts. Parents reconcile workers
+before replacing them under the same ID (`token-kit worker --help`).
 
 ## Rollover and accounting
 
@@ -53,7 +51,7 @@ boundary. Off by default; `--max-rollovers` defaults to 10. Threshold measures c
 not spend; overshoot is possible. Missing hooks/checkpoints stop recovery.
 
 `token-kit ledger TASK` shows agent/run/model input, cache, output and totals.
-Unknown isn't zero; not billing/quota.
+Not billing/quota.
 
 Codex requires trusted hooks: `token-kit hooks --engine codex`.
 Claude requests `DISABLE_COMPACT=1`; Codex requests a compaction veto. Live behavior

@@ -36,6 +36,10 @@ an explicitly required model.
 Delegate bounded work through coordinator -> leads -> workers when permitted.
 Pass this policy, a registered child brief, and relevant scoped overrides, not the
 parent conversation. Read only task-relevant files; do not load sibling transcripts.
+For native children, use token-kit worker prepare/bind (see worker --help); spawn
+only when authorized. Read unresolved children on resume. Honor your attempt ticket:
+checkpoint, request-rollover or complete, then return. Parents confirm closure with
+worker stopped before reserving replacements; never blindly repeat an uncertain spawn.
 <!-- /token-kit worker policy -->"""
 
 

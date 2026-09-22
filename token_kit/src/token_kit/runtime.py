@@ -20,7 +20,7 @@ import time
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from token_kit.core import ledger
+from token_kit.core import ledger, lifecycle
 from token_kit.core.store import Store, read_json, write_json
 
 EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "Stop",
@@ -129,6 +129,24 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
         fcntl.flock(lock, fcntl.LOCK_EX)
         control = read_json(store.safe(run / "runtime.json"))
         result = _handle(store, agent, run, payload, control)
+        event = payload.get("hook_event_name")
+        native = payload.get("agent_id") or (payload.get("session_id")
+                 if payload.get("session_id") != control["session_id"] else None)
+        # Parent notices survive message acknowledgement and coordinator restarts.
+        # Never override a safety stop or the coordinator's own checkpoint request.
+        recipient = agent if not native else None
+        worker = lifecycle.native_worker(store, agent, run.name, str(native)) if native else None
+        if worker and worker["phase"] in ("launching", "running"):
+            recipient = worker["agent_id"]
+        if recipient and not result and control["phase"] == "running" and event in (
+                "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SubagentStop"):
+            notice = lifecycle.notice(store, recipient)
+            stopping = event in ("Stop", "SubagentStop")
+            key = ("worker_stop_notice:" if stopping else "worker_notice:") + recipient
+            if notice and control.get(key) != notice[0]:
+                control[key] = notice[0]
+                result = ({"decision": "block", "reason": notice[1]} if stopping else
+                          {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
         write_json(store.safe(run / "runtime.json"), control)
         return result
 
@@ -151,11 +169,17 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
                       {"status": "unavailable", "models": {}}, native or "unknown")
         return {}
     if event == "PreCompact":
+        if native:
+            lifecycle.observe_native(store, agent, run.name, native, "precompact")
+            return {"continue": False, "stopReason": "Token Kit: child compaction vetoed; parent reconciliation required"}
         return halt(control, "Compaction requested; stopping rather than compacting. Inspect state and use a lower rollover threshold.")
-    transcript = payload.get("agent_transcript_path") if event == "SubagentStop" else payload.get("transcript_path")
+    transcript = (payload.get("agent_transcript_path") if native else payload.get("transcript_path"))
+    if native and session and session != control["session_id"]:
+        transcript = transcript or payload.get("transcript_path")
     # Parent transcript fields in child hooks must not be billed to the child.
-    if native and event != "SubagentStop":
+    if native and event != "SubagentStop" and not transcript:
         return {}
+    sample = {}
     if transcript:
         try:
             key = hashlib.sha256((str(transcript) + "\0" + native).encode()).hexdigest()
@@ -166,10 +190,22 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
         ledger.record(store, agent, run.name, control["engine"], sample, native)
         if not native:
             control["sample"] = sample
+    if native:
+        worker = lifecycle.native_worker(store, agent, run.name, native)
+        if worker and event in ("PostToolUse", "SubagentStop", "Stop"):
+            nudge = lifecycle.budget_nudge(store, worker["agent_id"], worker["ticket"],
+                                           sample.get("context_tokens"), sample.get("context_window"))
+            if nudge:
+                if event == "PostToolUse":
+                    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": nudge}}
+                return {"decision": "block", "reason": nudge}
     if event == "SubagentStop":
         # The native thread is stopping, not necessarily closed. Require the
         # coordinator's checkpoint to reconcile any later continuation/jobs.
         control["active_children"] = [item for item in control["active_children"] if item != native]
+        lifecycle.observe_native(store, agent, run.name, native, "stop")
+        return {}
+    if native:
         return {}
     if event == "Stop" and not transcript:
         control["sample"] = {"status": "unavailable", "models": {}}

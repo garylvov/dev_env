@@ -14,6 +14,7 @@ Work:
   run                     One command: new/resumed task and session-only launch
   new, list, find          Create and locate tasks
   agent                   Add a logical agent with an assignment
+  worker                  Reserve, bind, hand off and reconcile durable worker attempts
   checkpoint, resume      Commit state or inspect recovery information
   launch                  Start a fresh client session (--engine claude|codex)
   send, status            Queue messages or inspect tasks and runs

@@ -148,6 +148,26 @@ relevant scoped user overrides in the child prompt, not your conversation. Worke
 briefs carry compact Token Kit policy; preserve it for nested delegation. An inherited
 TOKEN_KIT_AGENT names the launching agent, not a native child's identity.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """
+Durable native workers: register with token-kit agent TASK ID --parent PARENT
+--assignment-file FILE. Reserve with token-kit worker prepare TASK --agent ID
+--engine ENGINE (optionally --model MODEL --rollover-tokens N). Spawn ONLY if
+spawn_authorized is true, using the returned spawn_prompt. Bind the returned
+native ID with token-kit worker bind TASK --agent ID --ticket T --native-id N.
+A lost spawn response is uncertain: reconcile it, never blindly repeat spawning.
+Each worker checkpoints then requests rollover or completion using its ticket.
+Read children in every resume bundle, even if their messages were acknowledged.
+Allow checkpoint_requested workers to finish their handoff. On rollover/completion
+or unexpected stop, inspect state, close the native worker using the client's
+tools, and reconcile external operations. Only then record token-kit worker
+stopped TASK --agent ID --ticket T --note NOTE. This is your declaration, not a
+process kill. For rollover, prepare/bind a fresh attempt under the SAME logical ID;
+completed workers are not respawned. A Stop hook alone is not proof of closure.
+Nested leads follow the same protocol; --parent records their logical hierarchy.
+The inherited TOKEN_KIT_AGENT/RUN identify the native owner, not the child itself.
+Use token-kit worker --help for commands. Never infer permission for extra work.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 
