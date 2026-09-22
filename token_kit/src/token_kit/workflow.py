@@ -237,7 +237,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
     start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
     start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
-    start.add_argument("--rollover-tokens", type=runtime.token_limit, help="restart from a checkpoint at a turn boundary (e.g. 500k)")
+    start.add_argument("--rollover-tokens", type=runtime.token_limit, help="context-token rollover target (e.g. 500k); default: unlimited, no token-triggered rollover")
     start.add_argument("--max-rollovers", type=int, default=10, help="maximum automatic restarts (default: 10)")
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")

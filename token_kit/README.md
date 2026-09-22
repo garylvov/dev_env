@@ -44,8 +44,9 @@ before replacing them under the same ID (`token-kit worker --help`).
 
 ## Rollover and accounting
 
-`--rollover-tokens` enables same-engine restarts after a fresh checkpoint at a turn
-boundary. Off by default; `--max-rollovers` defaults to 10. Threshold measures context,
+Default token limit: unlimited (no token-triggered rollover). `--rollover-tokens 500k`
+opts into checkpoint-gated, same-engine restarts at turn boundaries.
+`--max-rollovers` defaults to 10. Threshold measures context,
 not spend; overshoot is possible. Missing hooks/checkpoints stop recovery.
 
 `token-kit ledger TASK` shows agent/run/model input, cache, output and totals.
