@@ -44,15 +44,18 @@ class TestParser(unittest.TestCase):
             if name in ("implement", "mechanical-edit", "design"):
                 self.assertEqual(candidates, ["claude:opus:medium", "codex:gpt-6-astra:medium"])
             elif name in ("lookup", "summarise"):
-                self.assertEqual(candidates, ["claude:sonnet:medium", "codex:gpt-5.6-luna:high"])
+                self.assertEqual(candidates, ["codex:gpt-5.6-luna:xhigh", "claude:sonnet:medium"])
             elif name == "debug-stuck":
                 self.assertEqual(candidates[0], "codex:gpt-6-astra:medium")
-            elif name in ("batch-run", "write-doc"):
+            elif name == "batch-run":
+                self.assertEqual(candidates, ["codex:gpt-5.6-luna:high", "claude:sonnet:medium", "codex:gpt-5.6-terra:medium", "codex:gpt-5.6-sol:medium"])
+            elif name == "write-doc":
                 self.assertEqual(candidates, ["codex:gpt-5.6-sol:medium", "codex:gpt-5.6-luna:high", "claude:sonnet:medium"])
             else:
                 self.assertTrue(candidates[0].startswith("codex:"), name)
             for candidate in candidates:
-                self.assertEqual(candidate.rsplit(":", 1)[1], "high" if "luna" in candidate else "medium")
+                expected = ("xhigh" if name in ("lookup", "summarise") else "high") if "luna" in candidate else "medium"
+                self.assertEqual(candidate.rsplit(":", 1)[1], expected)
                 self.assertFalse(candidate.startswith("claude:fable:"), candidate)
                 if candidate.startswith(("claude:fable:", "claude:opus:")):
                     self.assertTrue(candidate.endswith(":medium"), candidate)

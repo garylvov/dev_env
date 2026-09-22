@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 #: `prefer` grammar.  One grammar for every engine.
-CANDIDATE_RE = re.compile(r"^(codex|claude):([A-Za-z0-9][A-Za-z0-9._-]*):(low|medium|high)$")
+CANDIDATE_RE = re.compile(r"^(codex|claude):([A-Za-z0-9][A-Za-z0-9._-]*):(low|medium|high|xhigh)$")
 
 #: The closed set of work shapes, written in the chart the way a person says
 #: them.  The value is the name the hook and the tests use.

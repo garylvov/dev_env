@@ -25,9 +25,9 @@ class ProjectInstallTests(unittest.TestCase):
             self.assertIn(phrase, text)
         self.assertIn("@AGENTS.md", (self.project / "CLAUDE.md").read_text())
         self.assertIn("Opus medium -> Astra medium", text)
-        self.assertIn("Sonnet medium -> Luna high", text)
+        self.assertIn("Luna xhigh -> Sonnet medium", text)
         self.assertIn("excludes every Claude candidate", text)
-        self.assertIn("Routine execution loops/job coordination/docs: Sol medium -> Luna high -> Sonnet medium", text)
+        self.assertIn("Routine execution loops/job coordination: Luna high -> Sonnet medium -> Terra medium -> Sol medium", text)
         self.assertIn("Choose the\ntier by the actual assignment, not hierarchy depth", text)
         self.assertNotIn("Prefer Astra (medium) for planning", text)
 

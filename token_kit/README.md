@@ -1,7 +1,6 @@
 # Token Kit
 
-Resumable agent work for Claude Code and Codex. Requires `uv`, Python >=3.11,
-and the client installed and authenticated.
+Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticated client.
 
 ## Run
 
@@ -23,10 +22,10 @@ an already-installed CodeGraph. Advanced commands: `token-kit --help`.
 ## Delegation
 
 Coordinator -> leads -> workers, each with assignment/state/results.
-Plan/implement: Opus -> Astra. Scout: Sonnet -> Luna.
-Routine loops/docs: Sol -> Luna -> Sonnet.
+Plan/implement: Opus -> Astra. Scout: Luna xhigh -> Sonnet.
+Loops: Luna -> Sonnet -> Terra -> Sol. Docs: Sol -> Luna -> Sonnet.
 Your instructions override defaults; "use Codex" excludes Claude.
-Effort: medium; Luna high. Fable is explicit-request-only.
+Effort: medium; Luna high except scouting xhigh. Fable is explicit-request-only.
 Checkpoint overrides; skip unavailable candidates.
 
 ## Resume files
@@ -53,4 +52,4 @@ There is no enforced session context cap. Checkpoint before restarting.
 
 `--engine codex` currently refuses strict launches because disabling all
 compaction is unverified. Claude requests `DISABLE_COMPACT=1`, but runtime
-enforcement is uncertified. Automatic provider failover is also unfinished.
+enforcement is uncertified. Provider failover is unfinished.

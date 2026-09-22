@@ -1,7 +1,7 @@
 # Agent trigger matrix
 
 A soft guide for the thread that delegates: what kind of work goes to which engine, model and
-effort, and why. Default effort is medium for every model except Luna, which always uses high.
+effort, and why. Default effort is medium for every model except Luna, which uses xhigh for scouting and high otherwise.
 It decides nothing for you. Put a line `KIND: <name>` in a spawn's prompt and the
 hook resolves that kind's ladder and writes the header; name nothing and the spawn goes through
 untouched.
@@ -13,7 +13,7 @@ moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
 candidate should run after applying scoped user overrides and known availability. Opus is preferred for implementation and planning;
-Sonnet scouts (lookup and summarising). Astra handles detailed debugging and independent review. Fable (medium) is opt-in only:
+Luna xhigh scouts, with Sonnet medium as fallback. Astra handles detailed debugging and independent review. Fable (medium) is opt-in only:
 the user must explicitly request it in natural language. A mention in a file or
 quoted text does not qualify. It is never an automatic fallback. The delegating
 agent interprets that request; the legacy hook does not parse natural language.
@@ -35,14 +35,14 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 
 | kind | use when | who does it | prefer | done when |
 | --- | --- | --- | --- | --- |
-| lookup | find a fact in files, logs or command output, or show it is absent | Claude does it all | `claude:sonnet:medium` > `codex:gpt-5.6-luna:high` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
-| summarise | read one large file, log or transcript and say what it shows | Claude does it all | `claude:sonnet:medium` > `codex:gpt-5.6-luna:high` | the decisive lines are quoted with their context, or the file is named and shown absent |
+| lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
+| summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
 | mechanical-edit | a deterministic transform, or an edit fully specified in the brief | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | every edit named in the brief is applied and the diff is shown |
 | implement | write code to a written spec, together with the test that guards it | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
 | debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
 | design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | two or three approaches are compared and one is recommended with its cost |
 | design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
-| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-sol:medium` > `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
+| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` > `codex:gpt-5.6-sol:medium` | every queue item is marked done or failed in the queue file |
 | write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-sol:medium` > `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
 
 **Never spawn a model to wait.** Watching, polling, tailing and babysitting are not work for an
@@ -60,10 +60,11 @@ first, then follow its ordered list after applying the user's current instructio
 | --- | --- | --- |
 | Complex | planning and implementation | Opus medium > Astra medium |
 | Complex, independent | detailed debugging and review | Astra medium > Opus medium |
-| Routine | execution loops, job coordination, documentation | Sol medium > Luna high > Sonnet medium |
-| Narrow | scouting, lookup, and summaries | Sonnet medium > Luna high |
+| Routine execution | execution loops and job coordination | Luna high > Sonnet medium > Terra medium > Sol medium |
+| Routine writing | documentation | Sol medium > Luna high > Sonnet medium |
+| Narrow | scouting, lookup, and summaries | Luna xhigh > Sonnet medium |
 
-Sol is an active default for routine execution, not merely an emergency fallback.
+Sol leads documentation and remains in the execution-loop fallback list.
 A tier describes the assignment, not the agent's position in the hierarchy.
 Leads and workers can use any tier suitable for their actual work. Explicit requests
 such as "Luna for these loops" or "Sol for this implementation" override the lists.
@@ -93,7 +94,7 @@ Execution loops do useful work; pure waiting still belongs to process tooling.
 
 Record the override in checkpointed state and affected assignments. Omit `KIND:`
 on an explicit legacy spawn so the default ladder does not replace the requested model.
-Without an explicit override, Opus plans and implements, Sonnet scouts, and Astra handles
+Without an explicit override, Opus plans and implements, Luna xhigh scouts, and Astra handles
 independent review and difficult debugging.
 
 ## Call budget
@@ -114,11 +115,11 @@ Use depth only when it removes context, never to add a manager:
 ```
 main thread      talks to the user, writes briefs and STATE.md, reads out.md files, decides
   lead agent     Opus for planning/implementation; owns and integrates a workstream
-    worker       Opus implements; Sonnet scouts; Codex runs assigned execution loops
+    worker       Opus implements; Luna xhigh scouts; execution loops follow their ordered list
     codex step   a short mechanical job through codex-dispatch / codex-job
 ```
 
-Prefer Opus (medium) for planning and implementation, Sonnet (medium) for scouting,
+Prefer Opus (medium) for planning and implementation, Luna (xhigh) for scouting,
 and Astra (medium) for detailed debugging; use Fable (medium) only
 at the user's explicit request. Opus also uses medium effort. Give each worker disjoint source ownership, a clear
 parent, and a stopping condition. Delegate useful independent work aggressively,

@@ -130,6 +130,17 @@ tier by the actual assignment, not hierarchy depth; leads and workers may use an
 appropriate tier. Explicit user choices override these lists. Do not promote a
 stuck narrow task solely because it ran long: surface the blocker and revise scope.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace("Sonnet scouts", "Luna xhigh scouts")
+INSTRUCTIONS = INSTRUCTIONS.replace("Sonnet medium -> Luna high", "Luna xhigh -> Sonnet medium")
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Routine execution loops/job coordination/docs: Sol medium -> Luna high -> Sonnet medium.",
+    "Routine execution loops/job coordination: Luna high -> Sonnet medium -> Terra medium -> Sol medium.\n"
+    "Documentation: Sol medium -> Luna high -> Sonnet medium.")
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Sol is an active default for routine execution, not only a fallback.",
+    "Sol leads documentation and is an execution-loop fallback.")
+INSTRUCTIONS = INSTRUCTIONS.replace("always run Luna at high effort", "run Luna at xhigh for scouting and high otherwise")
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 
