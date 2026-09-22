@@ -141,6 +141,13 @@ INSTRUCTIONS = INSTRUCTIONS.replace(
     "Sol is an active default for routine execution, not only a fallback.",
     "Sol leads documentation and is an execution-loop fallback.")
 INSTRUCTIONS = INSTRUCTIONS.replace("always run Luna at high effort", "run Luna at xhigh for scouting and high otherwise")
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """
+Register each child with token-kit agent before spawning. Pass its saved in.md and
+relevant scoped user overrides in the child prompt, not your conversation. Worker
+briefs carry compact Token Kit policy; preserve it for nested delegation. An inherited
+TOKEN_KIT_AGENT names the launching agent, not a native child's identity.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

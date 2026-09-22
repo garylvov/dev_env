@@ -89,6 +89,15 @@ class DispatchCase(unittest.TestCase):
 
     # -- the guards ------------------------------------------------------
 
+    def test_managed_session_adds_worker_policy_to_wire(self):
+        from token_kit.worker_policy import POLICY
+        proc, _ = self.run_cli(env_extra={"TOKEN_KIT_TASK": "/task", "TOKEN_KIT_AGENT": "parent-secret"})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        prompt = self.sent("turn/start")["input"][0]["text"]
+        self.assertIn(POLICY, prompt)
+        self.assertTrue(prompt.endswith(self.task.read_text()))
+        self.assertNotIn("parent-secret", prompt)
+
     def test_model_and_effort_reach_the_wire(self):
         proc, _ = self.run_cli()
         self.assertEqual(proc.returncode, 0, proc.stderr)

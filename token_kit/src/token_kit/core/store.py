@@ -164,6 +164,7 @@ class Store:
         return path
 
     def add_agent(self, agent: str, assignment: str) -> Path:
+        from ..worker_policy import brief
         component(agent)
         if not assignment.strip():
             raise ValueError("Assignment cannot be empty")
@@ -175,8 +176,9 @@ class Store:
                 (path / name).mkdir()
             write_json(path / "agent.json", {"schema_version": SCHEMA, "agent_id": agent,
                        "assignment_revision": 1, "created_at": now(), "latest_checkpoint": None})
-            atomic_text(path / "assignments" / "0001.md", assignment + "\n")
-            atomic_text(path / "in.md", assignment + "\n")
+            saved = brief(assignment, str(self.path), agent)
+            atomic_text(path / "assignments" / "0001.md", saved + "\n")
+            atomic_text(path / "in.md", saved + "\n")
             atomic_text(path / "STATE.md", "# Agent state\n\n## Objective\n" + assignment +
                         "\n\n## Completed\nNone yet.\n\n## Evidence\nNone yet.\n\n"
                         "## Unresolved\nVerify the assignment and workspace.\n\n"

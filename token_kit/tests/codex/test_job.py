@@ -111,6 +111,18 @@ class JobCase(unittest.TestCase):
 
     # -- the guards ------------------------------------------------------
 
+    def test_managed_job_persists_policy_context_and_sends_compact_brief(self):
+        from token_kit.worker_policy import POLICY
+        job_id = self.start(linger="0", TOKEN_KIT_TASK="/task", TOKEN_KIT_AGENT="parent-secret")
+        result = self.cli("wait", job_id, "--timeout-s", "15")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        meta = json.loads((self.job(job_id).root / "meta.json").read_text())
+        self.assertEqual(meta["token_kit_task"], "/task")
+        prompt = self.sent("turn/start")[0]["input"][0]["text"]
+        self.assertIn(POLICY, prompt)
+        self.assertTrue(prompt.endswith(self.task.read_text()))
+        self.assertNotIn("parent-secret", prompt)
+
     def test_start_returns_before_the_turn_ends_and_wait_reports_it(self):
         started = time.monotonic()
         job_id = self.start(scenario="slow", linger="3")

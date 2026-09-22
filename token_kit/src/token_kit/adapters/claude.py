@@ -9,6 +9,7 @@ configuration, not certification of an installed client's behavior.
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -43,9 +44,17 @@ def prepare_launch(
     argv = [executable, "--effort", default_effort(request.model)]
     if request.yolo:
         argv.append("--dangerously-skip-permissions")
+    settings = {}
     if request.strict_no_compaction:
         env["DISABLE_COMPACT"] = "1"
-        argv.extend(("--settings", '{"env":{"DISABLE_COMPACT":"1"}}'))
+        settings["env"] = {"DISABLE_COMPACT": "1"}
+    if request.worker_task is not None:
+        from ..worker_policy import hook_command
+        settings["hooks"] = {"PreToolUse": [{"matcher": "^(Agent|Task)$", "hooks": [
+            {"type": "command", "command": hook_command(request.worker_task), "timeout": 5}
+        ]}]}
+    if settings:
+        argv.extend(("--settings", json.dumps(settings)))
     if request.model is not None:
         argv.extend(("--model", request.model))
     # The separator also keeps a prompt beginning with '-' from becoming flags.

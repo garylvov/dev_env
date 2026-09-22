@@ -22,6 +22,7 @@ class LaunchRequest:
     strict_no_compaction: bool = True
     model: str | None = None
     yolo: bool = False
+    worker_task: str | None = None
 
 
 @dataclass(frozen=True)

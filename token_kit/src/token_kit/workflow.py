@@ -109,9 +109,14 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         "for each message ID addressed. Write out.md when the assignment is complete."
     )
     from .project_install import INSTRUCTIONS
-    prompt += "\n\nToken Kit guidance for this session:\n" + INSTRUCTIONS.rstrip()
+    from .worker_policy import brief
+    if agent == "coordinator":
+        prompt += "\n\nToken Kit guidance for this session:\n" + INSTRUCTIONS.rstrip()
+    else:
+        prompt = brief(prompt, str(store.path), agent)
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
-    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo))
+    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
+                                               worker_task=str(store.path)))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),

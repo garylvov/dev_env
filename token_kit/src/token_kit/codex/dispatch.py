@@ -384,6 +384,9 @@ def dispatch(
     if not model or not effort:
         raise ValueError("model and effort are required; there is no default")
 
+    from token_kit.worker_policy import managed_brief
+    prompt = managed_brief(prompt)
+
     from token_kit.codex import launcher as launcher_mod
 
     # The profile decides HOW codex is reached; a missing launcher, a missing

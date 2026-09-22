@@ -42,8 +42,9 @@ Checkpoint overrides; skip unavailable candidates.
     messages/, artifacts/, runs/
 ```
 
-Resume reads committed checkpoints, not transcripts. Workers have independent state;
-briefs and file handoffs limit context sharing. Savings are unmeasured.
+Resume reads committed checkpoints, not transcripts. Workers have independent state.
+Saved briefs, managed Claude spawns and Codex jobs/dispatch carry compact policy.
+Client hook restrictions still apply. Savings are unmeasured.
 
 ## Not finished yet
 

@@ -534,6 +534,9 @@ def owner_main(job: Job, resume: bool) -> int:
         except OSError as exc:
             client.close()
             return _finish(job, EXIT_USAGE, f"task-file unreadable: {exc}")
+        from token_kit.worker_policy import brief
+        if meta.get("token_kit_task"):
+            prompt = brief(prompt, meta["token_kit_task"])
         pending.append(Message(job.root / "task", prompt, "task"))
 
     try:
@@ -835,6 +838,7 @@ def cmd_start(args) -> int:
         "job_id": job.job_id, "name": args.name or "", "model": args.model,
         "effort": args.effort, "cwd": args.cwd, "sandbox": args.sandbox,
         "task_file": str(task_file), "launcher": args.launcher or "",
+        "token_kit_task": os.environ.get("TOKEN_KIT_TASK"),
         "linger_s": args.linger_s, "turn_timeout_s": args.turn_timeout_s,
         # The job dir is shared by every node; the owner, its pid and the
         # codex thread's rollout file are not. The host is part of the record.
