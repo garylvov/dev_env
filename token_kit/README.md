@@ -7,7 +7,7 @@ Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticate
 From `dev_env` (setup once/computer):
 
 ```bash
-source token_kit/add_to_bashrc.bash
+source token_kit/add_to_bashrc.bash # Install Token Kit on your Bash PATH
 # "Finish retread": session name. Sessions: ~/.config/token_kit.
 token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
@@ -20,11 +20,8 @@ add `--codegraph` for installed CodeGraph.
 
 ## Delegation
 
-Coordinator -> leads -> workers; durable attempt tickets.
-Plan/implement: Opus -> Astra. Scout: Luna xhigh -> Sonnet.
-Loops: Luna -> Sonnet -> Terra -> Sol. Docs: Sol -> Luna -> Sonnet.
-Your instructions override defaults; "use Codex" excludes Claude.
-Effort: medium; Luna high except scouting xhigh. Fable is explicit-request-only.
+See the [agent trigger matrix](agent_trigger_matrix.md) for model preferences,
+effort, and user overrides.
 
 ## Resume files
 
