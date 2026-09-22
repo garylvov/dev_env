@@ -16,6 +16,12 @@ including Astra for planning and detailed debugging. Fable (medium) is opt-in on
 the user must explicitly request it in natural language. A mention in a file or
 quoted text does not qualify. It is never an automatic fallback. The delegating
 agent interprets that request; the legacy hook does not parse natural language.
+Fable may red-team only on explicit request; generic red-teaming prefers Astra.
+Record temporary overrides such as "Opus while we have it" in coordinator state
+and worker assignments, including exact wording, medium effort, scope, and expiry.
+Checkpoint shared task state before switching sessions. When access/quota ends,
+record expiry and return to Codex defaults; this requires agent action, not an
+automatic detector. An explicit override must omit `KIND:` to avoid legacy rerouting.
 Claude fallbacks require availability too. Claude tiers, cheapest first: **sonnet > opus > fable**.
 A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
 that falls through stays cheap. Worked examples are at the end, under **Examples**.

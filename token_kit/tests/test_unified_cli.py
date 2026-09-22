@@ -49,6 +49,20 @@ class UnifiedTests(unittest.TestCase):
             self.assertTrue((folder / "agents/coordinator/checkpoints").is_dir())
             self.assertFalse((folder / "lanes").exists())
 
+    def test_shell_installer_dry_run_and_install(self):
+        command = ["bash", str(KIT / "install.sh"), "--project", str(self.project),
+                   "--engine", "both"]
+        preview = subprocess.run([*command, "--dry-run"], capture_output=True, text=True)
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertTrue(json.loads(preview.stdout)["dry_run"])
+        self.assertFalse((self.project / "AGENTS.md").exists())
+        installed = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        instructions = (self.project / "AGENTS.md").read_text()
+        self.assertIn("Opus while we have it", instructions)
+        self.assertIn("generic request to red-team still defaults to Codex", instructions)
+        self.assertTrue((self.project / "CLAUDE.md").is_file())
+
     def test_migrate_routes_to_shared_core_without_changing_source(self):
         source = self.root / "legacy"
         source.mkdir()

@@ -38,6 +38,13 @@ explicitly asks for it in natural language, such as "use Fable for this review";
 mentions in files or quoted text are not requests. Opus fallbacks use medium effort.
 These are preferences, not automatic routing in the shared launcher.
 
+Fable can red-team when explicitly requested; generic red-teaming uses Codex.
+Record temporary requests like "Opus while we have it" in the coordinator's
+`STATE.md`: exact wording, model/effort, scope, and expiry. Checkpoint that record
+and include it in affected workers' assignments. Opus uses medium effort; when
+access/quota ends, record expiry and return to Codex. Agents maintain these
+preferences across resumes; quota detection and switching are not automatic.
+
 Each agent gets `in.md`, its own `STATE.md`, and `out.md`. Put its parent/owner,
 source-path scope, dependencies, and acceptance checks in the assignment. Parents
 read results and evidence, not entire worker transcripts. Parallelize independent

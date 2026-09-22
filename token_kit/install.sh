@@ -65,5 +65,5 @@ uv python find "$PY_REQ" >/dev/null 2>&1 || uv python install 3.11 || {
 
 # 3. hand over.
 if [ -z "$SUB" ]; then exec uv run --python "$PY_REQ" --no-project "$CLI" --help; fi
-if [ "$LEGACY" = 1 ]; then exec uv run --python "$PY_REQ" --no-project "$CLI" legacy "$SUB" "${ARGS[@]+"${ARGS[@]}"}; fi
+if [ "$LEGACY" = 1 ]; then exec uv run --python "$PY_REQ" --no-project "$CLI" legacy "$SUB" "${ARGS[@]+"${ARGS[@]}"}"; fi
 exec uv run --python "$PY_REQ" --no-project "$CLI" "$SUB" "${ARGS[@]+"${ARGS[@]}"}"

@@ -57,6 +57,19 @@ INSTRUCTIONS = INSTRUCTIONS.replace(
     "Prefer Astra (high) for planning and detailed debugging too. Use Fable (medium)\n"
     "only when the user explicitly requests it in natural language, not merely\n"
     "when its name appears in files, examples, or quoted text. Never auto-fallback to Fable.")
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Fable (medium) may red-team a design only when the user explicitly asks for it;
+a generic request to red-team still defaults to Codex. Record user model overrides
+such as 'Opus while we have it' in the coordinator's STATE.md and checkpoint them.
+Include the user's exact wording, model/effort, affected tasks or roles, and expiry
+condition; copy the effective override into affected workers' in.md assignments.
+Opus defaults to medium effort. 'While we have it' means a temporary preference
+while access/quota is available, not a permanent default or permission to buy access.
+On resume, read these overrides before delegating. If access becomes unavailable,
+record that the override ended and return to Codex defaults; do not silently
+substitute Fable. If scope is unclear, ask before broadening it. These records are
+maintained by agents, not an automatic quota detector or override scheduler.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 
