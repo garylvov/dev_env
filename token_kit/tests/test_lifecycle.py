@@ -114,6 +114,20 @@ class LifecycleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.add_agent("bad", "Bad", "missing")
 
+    def test_status_exposes_nested_parent_and_attempt_without_event_history(self):
+        self.store.add_agent("nested", "Nested work", "parser")
+        state = lifecycle.prepare(self.store, "nested", engine="codex")["worker"]
+        lifecycle.bind(self.store, "nested", state["ticket"], "native-nested")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(workflow.main(["status", str(self.store.path)]), 0)
+        agents = {row["agent"]["agent_id"]: row for row in json.loads(output.getvalue())["agents"]}
+        self.assertEqual(agents["nested"]["agent"]["parent_agent"], "parser")
+        self.assertEqual(agents["nested"]["worker"]["native_id"], "native-nested")
+        self.assertEqual(agents["nested"]["worker"]["ticket"], state["ticket"])
+        self.assertNotIn("events", agents["nested"]["worker"])
+        self.assertNotIn("history", agents["nested"]["worker"])
+        self.assertIsNone(agents["coordinator"]["worker"])
+
     def setup_hooks(self):
         self.run = self.store.claim_run("coordinator", "claude", True)
         runtime.initialize(self.store, "coordinator", self.run, "claude", None)

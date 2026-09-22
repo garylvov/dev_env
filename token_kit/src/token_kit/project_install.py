@@ -168,6 +168,16 @@ Nested leads follow the same protocol; --parent records their logical hierarchy.
 The inherited TOKEN_KIT_AGENT/RUN identify the native owner, not the child itself.
 Use token-kit worker --help for commands. Never infer permission for extra work.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Prefer the current client's native delegation for same-engine work,
+including nested workers when permitted. If nesting is unsupported, ask the
+coordinator to spawn; do not substitute raw CLI calls or silently change providers.
+Use --parent for the logical hierarchy, worker prepare/bind for native attempts,
+resume TASK --agent PARENT for direct children/notices, and status TASK for all
+agents and attempts. Hooks do not automatically register every native spawn.
+Cross-client token accounting requires instrumented transports; raw CLI calls
+are not automatically metered. Missing usage is unknown, not zero.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

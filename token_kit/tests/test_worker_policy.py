@@ -17,6 +17,15 @@ from token_kit.core.store import Store
 
 
 class WorkerPolicyTests(unittest.TestCase):
+    def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
+        from token_kit.project_install import INSTRUCTIONS
+        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        for text in (policy.POLICY, INSTRUCTIONS, matrix):
+            self.assertIn("native", text)
+            self.assertIn("--parent", text)
+            self.assertIn("status TASK", text)
+        self.assertIn("not implemented", matrix)
+
     def test_brief_is_compact_idempotent_and_preserves_assignment(self):
         text = 'Only src/parser.py. Use Codex. $(echo nope)\n"quoted"'
         result = policy.brief(text, "/tasks/one", "parser")

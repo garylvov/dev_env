@@ -2,9 +2,9 @@
 
 A soft guide for the thread that delegates: what kind of work goes to which engine, model and
 effort, and why. Default effort is medium for every model except Luna, which uses xhigh for scouting and high otherwise.
-It decides nothing for you. Put a line `KIND: <name>` in a spawn's prompt and the
-hook resolves that kind's ladder and writes the header; name nothing and the spawn goes through
-untouched.
+It decides nothing for you. Shared Token Kit sessions apply these preferences through
+agent instructions. Only the legacy router resolves a `KIND: <name>` line and writes
+a routing header; that hook is not required for native delegation below.
 
 The one cost fact behind every row: an agent re-pays for its whole standing context on **every call
 it makes**, so a long agent costs far more than a long prompt. Two levers follow and nothing else
@@ -99,6 +99,8 @@ independent review and difficult debugging.
 
 ## Call budget
 
+Legacy-router limits only; shared native-worker sessions do not enforce this table.
+
 One band for every kind, and the kit's one hard mechanism. Change a number here and the hook changes.
 
 | threshold | calls | what happens |
@@ -109,14 +111,17 @@ One band for every kind, and the kit's one hard mechanism. Change a number here 
 
 ## Hierarchy: delegationmaxxing
 
-A subagent CAN spawn its own agents, and a `KIND:` line in a nested spawn is resolved the same way.
+Prefer the current client's native delegation tools for same-engine work, including
+nested delegation where the client and repository policy permit it. Do not use raw
+CLI subprocesses as a substitute for available native children. If nesting is not
+supported, ask the coordinator to spawn the worker; do not invent a native tool.
 Use depth only when it removes context, never to add a manager:
 
 ```
 main thread      talks to the user, writes briefs and STATE.md, reads out.md files, decides
   lead agent     Opus for planning/implementation; owns and integrates a workstream
     worker       Opus implements; Luna xhigh scouts; execution loops follow their ordered list
-    codex step   a short mechanical job through codex-dispatch / codex-job
+    child        native delegation in the selected client; track its logical parent
 ```
 
 Prefer Opus (medium) for planning and implementation, Luna (xhigh) for scouting,
@@ -125,10 +130,39 @@ at the user's explicit request. Opus also uses medium effort. Give each worker d
 parent, and a stopping condition. Delegate useful independent work aggressively,
 not waiting or extra management. Small tasks can skip the lead.
 
-A lead earns its cost when the task has several independent pieces whose raw output the main thread
-should never see. Two levels is the ceiling: a third re-pays three contexts to move one fact. A
-nested agent gets a lane folder under its parent's (`lanes/<lead>/v0/lanes/<worker>/v0/`), and only
-the lead reads it. Every level is bounded by the same call budget.
+A lead earns its cost when it integrates independent pieces the main thread need
+not read in full. Prefer at most two delegation levels. Shared records live at
+`TASK/agents/ID/`; `parent_agent` records the hierarchy, not nested lane directories.
+
+### Native delegation and parent tracking
+
+1. Register the child: `token-kit agent TASK CHILD --parent PARENT --assignment-file BRIEF`.
+2. Reserve: `token-kit worker prepare TASK --agent CHILD --engine ENGINE`.
+   Spawn with the native tool only when `spawn_authorized` is true, passing its
+   `spawn_prompt` and scoped model preferences. Bind the returned native ID with
+   `token-kit worker bind TASK --agent CHILD --ticket TICKET --native-id NATIVE_ID`.
+3. Use native messaging/completion tools for live interaction. For durable messages,
+   use `token-kit send TASK --agent CHILD "message"`; queueing does not mean live delivery.
+4. Parent recovery: `token-kit resume TASK --agent PARENT` includes direct children
+   and pending notices. `token-kit status TASK` lists all agents, parent links, and
+   native attempts, including grandchildren. No transcript scanning is needed.
+5. The child checkpoints and requests rollover/completion using its ticket. The
+   parent confirms native closure and reconciles external jobs before `worker stopped`.
+   Reserve a replacement under the same logical ID, never blindly repeat a spawn.
+
+Every nested lead follows this protocol. Hooks can notify an active parent; an idle
+parent sees durable notices on resume. Registration/binding remain agent actions,
+not automatic interception of every native spawn. Lifecycle visibility and token
+accounting are separate: missing client usage is unknown, not zero.
+
+For cross-engine work, respect the user's model/provider choice rather than silently
+substituting a same-engine child. Instrumented `codex-dispatch` / `codex-job` report
+Codex usage inside managed sessions; raw CLI calls do not. A corresponding one-shot
+Claude wrapper and unified `token-kit exec` are not implemented. Do not claim that
+cross-engine jobs automatically share native attempt tracking.
+
+The call-budget hooks, lane layout, supervisor, and examples below describe legacy
+compatibility, not the shared native-worker lifecycle above.
 
 ## Working folder
 

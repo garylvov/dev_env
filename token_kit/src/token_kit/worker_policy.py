@@ -33,11 +33,11 @@ except Luna high (scouting xhigh). Fable requires an explicit request. "Use Code
 overrides and their scope/expiry in state. Do not infer availability or silently switch
 an explicitly required model.
 
-Delegate bounded work through coordinator -> leads -> workers when permitted.
-Pass this policy, a registered child brief, and relevant scoped overrides, not the
-parent conversation. Read only task-relevant files; do not load sibling transcripts.
-For native children, use token-kit worker prepare/bind (see worker --help); spawn
-only when authorized. Read unresolved children on resume. Honor your attempt ticket:
+Prefer native same-engine delegation, including nesting when permitted. Register
+each child with --parent YOUR_ID. Pass this policy and scoped overrides, not transcripts.
+Use token-kit worker prepare/bind; spawn only when authorized. Track direct children
+with token-kit resume TASK --agent YOUR_ID; status TASK shows all attempts/parents.
+Honor your attempt ticket:
 checkpoint, request-rollover or complete, then return. Parents confirm closure with
 worker stopped before reserving replacements; never blindly repeat an uncertain spawn.
 <!-- /token-kit worker policy -->"""

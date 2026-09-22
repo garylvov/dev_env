@@ -386,7 +386,10 @@ def main(argv: list[str] | None = None) -> int:
             agents = []
             for path in sorted((store.path / "agents").iterdir()):
                 if (path / "agent.json").is_file():
+                    worker = lifecycle.inspect(store, path.name)
                     agents.append({"agent": read_json(path / "agent.json"),
+                                   "worker": {key: value for key, value in worker.items()
+                                              if key not in ("events", "history")} if worker else None,
                                    "runs": [read_json(p) for p in sorted((path / "runs").glob("*/run.json"))]})
             print(json.dumps({"task": read_json(store.path / "task.json"), "agents": agents}, indent=2))
         return 0
