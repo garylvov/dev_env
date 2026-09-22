@@ -4,16 +4,17 @@ Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticate
 
 ## Run
 
-From your source project, replace `/path/to/dev_env` with your clone:
+From your project:
 
 ```bash
 export PATH="/path/to/dev_env/token_kit/src/token_kit/bin:$PATH"
-token-kit run "Fix the parser" --yolo
+# "Finish retread": session name. Sessions: ~/.config/token_kit.
+token-kit run "Finish retread" --root ~/.config/token_kit --engine claude --yolo
 ```
 
-Starts Claude with session-only guidance and prints the resume command.
-Task records persist; project files stay untouched. Plain `claude`/`codex` skips
-Token Kit unless prior project/global installations remain.
+Starts Claude with session-only guidance; prints the resume command.
+Records persist; project files stay untouched. Plain clients skip Token Kit
+unless previously installed.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
