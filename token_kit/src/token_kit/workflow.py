@@ -20,7 +20,7 @@ from .core.store import Store, atomic_text, now, process_identity, read_json, wr
 
 
 def default_root() -> Path:
-    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "token_kit/work"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "token_kit"
 
 
 def task_rows(root: Path, words: list[str] | None = None, only_open: bool = False) -> list[dict]:
@@ -165,7 +165,7 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("title", nargs="?")
     start.add_argument("--task", type=Path, help="continue an existing task instead of creating one")
     start.add_argument("--workspace", type=Path, help="source directory (default: current directory)")
-    start.add_argument("--root", type=Path, help="task storage root for new tasks")
+    start.add_argument("--root", type=Path, help="session root (default: ~/.config/token_kit; honors XDG_CONFIG_HOME)")
     start.add_argument("--engine", choices=("claude", "codex"), default="claude")
     start.add_argument("--model")
     start.add_argument("--install-project", action="store_true", help="persist shared project instructions (opt-in)")

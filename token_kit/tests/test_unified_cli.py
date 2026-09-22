@@ -80,10 +80,11 @@ class UnifiedTests(unittest.TestCase):
 
     def test_neutral_default_root_is_independent_of_claude_config(self):
         with patch.dict(os.environ, {"XDG_STATE_HOME": str(self.root / "state"),
+                                     "XDG_CONFIG_HOME": str(self.root / "config"),
                                      "CLAUDE_CONFIG_DIR": str(self.root / "claude")}):
             rc, out, err = self.call("new", "default", "--workspace", self.project)
         self.assertEqual(rc, 0, err)
-        self.assertEqual(Path(out.strip()).parent, self.root / "state/token_kit/work")
+        self.assertEqual(Path(out.strip()).parent, self.root / "config/token_kit")
         self.assertFalse((self.project / "tasks").exists())
 
     def test_project_install_is_default_and_no_global_hooks_are_created(self):

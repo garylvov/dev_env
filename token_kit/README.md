@@ -9,7 +9,7 @@ From your project:
 ```bash
 export PATH="/path/to/dev_env/token_kit/src/token_kit/bin:$PATH"
 # "Finish retread": session name. Sessions: ~/.config/token_kit.
-token-kit run "Finish retread" --root ~/.config/token_kit --engine claude --yolo
+token-kit run "Finish retread" --engine claude --yolo
 ```
 
 Starts Claude with session-only guidance; prints the resume command.
