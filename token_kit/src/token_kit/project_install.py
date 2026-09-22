@@ -88,6 +88,19 @@ ask before substituting, unless the user already authorized a fallback or expiry
 Run loops mean useful execution, diagnosis and iteration; pure waiting should use
 process tooling, not repeated model calls. Clarify genuinely ambiguous scope.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Prefer Codex for bounded delegated work when delegation is authorized.",
+    "Delegate bounded work when authorized: Opus implements/plans; Sonnet scouts.")
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Prefer Codex: Luna for narrow work, Astra for difficult work, including reviews.",
+    "Prefer Opus for all implementation (including mechanical edits) and planning.\n"
+    "Prefer Sonnet for scouting: lookup, exploration, and summarising findings.\n"
+    "Keep Codex for execution loops and independent review unless explicitly overridden.")
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Prefer Astra (medium) for planning and detailed debugging too.",
+    "Prefer Astra (medium) for detailed debugging and independent review.")
+INSTRUCTIONS = INSTRUCTIONS.replace("return to Codex defaults", "return to the role defaults")
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

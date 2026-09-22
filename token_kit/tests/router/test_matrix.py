@@ -41,7 +41,11 @@ class TestParser(unittest.TestCase):
         matrix = matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md")
         for name in matrix.names():
             candidates = matrix.row(name)["prefer"]
-            if name in ("design", "debug-stuck"):
+            if name in ("implement", "mechanical-edit", "design"):
+                self.assertEqual(candidates[0], "claude:opus:medium")
+            elif name in ("lookup", "summarise"):
+                self.assertEqual(candidates[0], "claude:sonnet:medium")
+            elif name == "debug-stuck":
                 self.assertEqual(candidates[0], "codex:gpt-6-astra:medium")
             else:
                 self.assertTrue(candidates[0].startswith("codex:"), name)

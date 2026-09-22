@@ -23,7 +23,7 @@ an already-installed CodeGraph. Advanced commands: `token-kit --help`.
 ## Delegation
 
 Coordinator -> leads -> bounded workers, each with its own assignment, state,
-and results. Prefer Codex; Astra for difficult work, Luna for narrow work.
+and results. Opus plans/implements; Sonnet scouts; Codex runs loops/reviews.
 Fable requires an explicit request. Effort: medium; Luna always high.
 Explicit role/model requests override defaults; checkpoint those choices.
 
