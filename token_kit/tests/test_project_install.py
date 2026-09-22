@@ -27,6 +27,8 @@ class ProjectInstallTests(unittest.TestCase):
         self.assertIn("Opus medium -> Astra medium", text)
         self.assertIn("Sonnet medium -> Luna high", text)
         self.assertIn("excludes every Claude candidate", text)
+        self.assertIn("Routine execution loops/job coordination/docs: Sol medium -> Luna high -> Sonnet medium", text)
+        self.assertIn("Choose the\ntier by the actual assignment, not hierarchy depth", text)
         self.assertNotIn("Prefer Astra (medium) for planning", text)
 
     def setUp(self):

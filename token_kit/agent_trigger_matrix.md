@@ -42,14 +42,34 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 | debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
 | design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | two or three approaches are compared and one is recommended with its cost |
 | design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
-| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
-| write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
+| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-sol:medium` > `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
+| write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-sol:medium` > `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
 
 **Never spawn a model to wait.** Watching, polling, tailing and babysitting are not work for an
 agent: an agent that waits re-pays its whole context for every sample it takes, and the longest
 agents ever measured were all watchers. Write a shell loop that appends one line per sample to a
 status file, start it detached, and read that file once when you next need it. A model may read the
 status file; a model may not be the loop.
+
+## Model pyramid
+
+This is our task-allocation policy, not a benchmark ranking. Choose the work tier
+first, then follow its ordered list after applying the user's current instructions.
+
+| Work tier | Role | Ordered preference |
+| --- | --- | --- |
+| Complex | planning and implementation | Opus medium > Astra medium |
+| Complex, independent | detailed debugging and review | Astra medium > Opus medium |
+| Routine | execution loops, job coordination, documentation | Sol medium > Luna high > Sonnet medium |
+| Narrow | scouting, lookup, and summaries | Sonnet medium > Luna high |
+
+Sol is an active default for routine execution, not merely an emergency fallback.
+A tier describes the assignment, not the agent's position in the hierarchy.
+Leads and workers can use any tier suitable for their actual work. Explicit requests
+such as "Luna for these loops" or "Sol for this implementation" override the lists.
+"Use Codex" filters out Claude without changing the remaining order. Do not
+automatically escalate a narrow task to a complex-tier model just because it ran long;
+surface the blocker and revise the assignment if needed. Fable stays opt-in only.
 
 ## Explicit user overrides
 

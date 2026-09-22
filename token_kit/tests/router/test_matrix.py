@@ -47,6 +47,8 @@ class TestParser(unittest.TestCase):
                 self.assertEqual(candidates, ["claude:sonnet:medium", "codex:gpt-5.6-luna:high"])
             elif name == "debug-stuck":
                 self.assertEqual(candidates[0], "codex:gpt-6-astra:medium")
+            elif name in ("batch-run", "write-doc"):
+                self.assertEqual(candidates, ["codex:gpt-5.6-sol:medium", "codex:gpt-5.6-luna:high", "claude:sonnet:medium"])
             else:
                 self.assertTrue(candidates[0].startswith("codex:"), name)
             for candidate in candidates:

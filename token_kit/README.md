@@ -13,7 +13,7 @@ token-kit run "Fix the parser" --yolo
 ```
 
 This sets up shared project instructions, creates a task, and launches Claude.
-It prints the task path and the exact command to continue later.
+It prints the task path and command to continue later.
 Omit `--yolo` to retain client permission settings; with it, Claude skips
 permission checks and Codex disables approvals and sandboxing.
 
@@ -22,10 +22,12 @@ an already-installed CodeGraph. Advanced commands: `token-kit --help`.
 
 ## Delegation
 
-Coordinator -> leads -> bounded workers, each with its own assignment, state,
-and results. Plan/implement: Opus -> Astra. Scout: Sonnet -> Luna.
-Fable requires an explicit request. Effort: medium; Luna always high.
-"Use Codex" excludes Claude. Checkpoint scoped overrides; skip unavailable candidates.
+Coordinator -> leads -> workers, each with assignment/state/results.
+Plan/implement: Opus -> Astra. Scout: Sonnet -> Luna.
+Routine loops/docs: Sol -> Luna -> Sonnet.
+Your instructions override defaults; "use Codex" excludes Claude.
+Effort: medium; Luna high. Fable is explicit-request-only.
+Checkpoint overrides; skip unavailable candidates.
 
 ## Resume files
 

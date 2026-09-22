@@ -119,6 +119,17 @@ worker assignments; retain it on resume. If no permitted candidate remains, ask
 instead of silently spending Claude usage. A later explicit user change can lift
 the restriction. Availability handling is agent-driven, not automatic quota detection.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Model pyramid (task-allocation policy, not benchmark rankings):
+Complex planning/implementation: Opus medium -> Astra medium.
+Complex independent review/debugging: Astra medium -> Opus medium.
+Routine execution loops/job coordination/docs: Sol medium -> Luna high -> Sonnet medium.
+Narrow scouting/lookup/summaries: Sonnet medium -> Luna high.
+Sol is an active default for routine execution, not only a fallback. Choose the
+tier by the actual assignment, not hierarchy depth; leads and workers may use any
+appropriate tier. Explicit user choices override these lists. Do not promote a
+stuck narrow task solely because it ran long: surface the blocker and revise scope.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 
