@@ -254,10 +254,7 @@ def validate(m: Matrix) -> list[str]:
         for cand in prefer:
             if not CANDIDATE_RE.match(cand):
                 problems.append(f"{name}: prefer entry {cand!r} is not <engine>:<model>:<effort>")
-        if not prefer[-1].startswith("claude:"):
-            problems.append(
-                f"{name}: prefer ladder does not END in a claude candidate "
-                f"(last is {prefer[-1]!r}) -- the kind could be blocked by codex being full")
+        # Provider-neutral ladders may end in Codex, including Codex-only policies.
         problems.extend(climb_problems(name, prefer))
 
     for key in ("warn", "floor", "hard"):

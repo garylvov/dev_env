@@ -64,13 +64,12 @@ class TestGrammar(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             self.assertEqual(matrix_mod.validate(load_fixture(Path(t))), [])
 
-    def test_validate_catches_a_codex_only_ladder(self):
+    def test_validate_accepts_a_codex_only_ladder(self):
         with tempfile.TemporaryDirectory() as t:
             m = load_fixture(Path(t), (r"`codex:gpt-5\.6-luna:high` > `claude:sonnet:low`",
                                        "`codex:gpt-5.6-luna:high`"))
             problems = matrix_mod.validate(m)
-            self.assertTrue(any("does not END in a claude candidate" in p for p in problems),
-                            problems)
+            self.assertEqual(problems, [])
 
 
 class TestSettings(unittest.TestCase):

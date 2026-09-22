@@ -101,6 +101,24 @@ INSTRUCTIONS = INSTRUCTIONS.replace(
     "Prefer Astra (medium) for planning and detailed debugging too.",
     "Prefer Astra (medium) for detailed debugging and independent review.")
 INSTRUCTIONS = INSTRUCTIONS.replace("return to Codex defaults", "return to the role defaults")
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Prefer Opus for all implementation (including mechanical edits) and planning.",
+    "Implementation/planning (including mechanical edits): Opus medium -> Astra medium.")
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Prefer Sonnet for scouting: lookup, exploration, and summarising findings.",
+    "Scouting (lookup, exploration, summaries): Sonnet medium -> Luna high.")
+INSTRUCTIONS += """Preferences are ordered fallback lists, not exclusive provider assignments.
+After applying explicit scoped model requests, skip candidates known to be
+unavailable (including exhausted Claude usage) and try the next permitted entry.
+The default lists authorize their fallbacks; report each switch and checkpoint it.
+'Use Codex' or 'conserve Claude' excludes every Claude candidate, including
+fallbacks, for the requested scope. Keep the remaining Codex entries in order.
+Record this provider restriction and its scope/expiry in checkpointed state and
+worker assignments; retain it on resume. If no permitted candidate remains, ask
+instead of silently spending Claude usage. A later explicit user change can lift
+the restriction. Availability handling is agent-driven, not automatic quota detection.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

@@ -12,7 +12,7 @@ comes close: run the cheapest engine and model that is safe for the work, and en
 moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
-candidate runs and every skip is logged with its reason. Opus is preferred for implementation and planning;
+candidate should run after applying scoped user overrides and known availability. Opus is preferred for implementation and planning;
 Sonnet scouts (lookup and summarising). Astra handles detailed debugging and independent review. Fable (medium) is opt-in only:
 the user must explicitly request it in natural language. A mention in a file or
 quoted text does not qualify. It is never an automatic fallback. The delegating
@@ -23,18 +23,24 @@ and worker assignments, including exact wording, medium effort, scope, and expir
 Checkpoint shared task state before switching sessions. When access/quota ends,
 record expiry and return to the role defaults; this requires agent action, not an
 automatic detector. An explicit override must omit `KIND:` to avoid legacy rerouting.
-Claude fallbacks require availability too. Claude tiers, cheapest first: **sonnet > opus > fable**.
+Claude fallbacks require availability too. These are ordered preferences, not provider locks.
+When Claude usage is exhausted, skip Claude entries and use the next Codex candidate.
+"Use Codex" or "conserve Claude" excludes ALL Claude entries for the requested scope,
+including fallbacks; preserve the order of the remaining Codex candidates. Record this
+mode in state across resumes, until the user changes it or its stated expiry occurs.
+Do not silently restore Claude when Codex is unavailable. The shared agent applies
+this policy; automatic Claude quota detection is not implemented by the legacy hook. Claude tiers, cheapest first: **sonnet > opus > fable**.
 A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
 that falls through stays cheap. Worked examples are at the end, under **Examples**.
 
 | kind | use when | who does it | prefer | done when |
 | --- | --- | --- | --- | --- |
-| lookup | find a fact in files, logs or command output, or show it is absent | Claude does it all | `claude:sonnet:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
-| summarise | read one large file, log or transcript and say what it shows | Claude does it all | `claude:sonnet:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
-| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | Claude does it all | `claude:opus:medium` | every edit named in the brief is applied and the diff is shown |
-| implement | write code to a written spec, together with the test that guards it | Claude does it all | `claude:opus:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
+| lookup | find a fact in files, logs or command output, or show it is absent | Claude does it all | `claude:sonnet:medium` > `codex:gpt-5.6-luna:high` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
+| summarise | read one large file, log or transcript and say what it shows | Claude does it all | `claude:sonnet:medium` > `codex:gpt-5.6-luna:high` | the decisive lines are quoted with their context, or the file is named and shown absent |
+| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | every edit named in the brief is applied and the diff is shown |
+| implement | write code to a written spec, together with the test that guards it | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
 | debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
-| design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
+| design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | two or three approaches are compared and one is recommended with its cost |
 | design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
 | batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
 | write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |

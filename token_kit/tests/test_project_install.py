@@ -24,8 +24,9 @@ class ProjectInstallTests(unittest.TestCase):
                        "Keep simultaneous role choices separate", "ask before substituting"):
             self.assertIn(phrase, text)
         self.assertIn("@AGENTS.md", (self.project / "CLAUDE.md").read_text())
-        self.assertIn("Prefer Opus for all implementation", text)
-        self.assertIn("Prefer Sonnet for scouting", text)
+        self.assertIn("Opus medium -> Astra medium", text)
+        self.assertIn("Sonnet medium -> Luna high", text)
+        self.assertIn("excludes every Claude candidate", text)
         self.assertNotIn("Prefer Astra (medium) for planning", text)
 
     def setUp(self):

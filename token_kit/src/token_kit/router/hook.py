@@ -175,6 +175,8 @@ def _spawn(payload: dict) -> int:
         events.row("candidate", f"{name}/{chosen.text}")
     else:
         events.row("no_candidate", name)
+        return deny(f"No available candidate in the preference list for {name}. "
+                    "Do not substitute a model outside the list; report the blocker.")
 
     claude_cands = [c for c in ladder.candidates(row) if not c.is_codex]
     fallback = claude_cands[0] if claude_cands else None

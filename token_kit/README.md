@@ -23,9 +23,9 @@ an already-installed CodeGraph. Advanced commands: `token-kit --help`.
 ## Delegation
 
 Coordinator -> leads -> bounded workers, each with its own assignment, state,
-and results. Opus plans/implements; Sonnet scouts; Codex runs loops/reviews.
+and results. Plan/implement: Opus -> Astra. Scout: Sonnet -> Luna.
 Fable requires an explicit request. Effort: medium; Luna always high.
-Explicit role/model requests override defaults; checkpoint those choices.
+"Use Codex" excludes Claude. Checkpoint scoped overrides; skip unavailable candidates.
 
 ## Resume files
 

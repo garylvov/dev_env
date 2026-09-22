@@ -39,8 +39,8 @@ class TestRouterCases(unittest.TestCase):
         denies = [c for c in cases if c.get("expected", {}).get("decision") == "deny"]
         self.assertTrue(denies, "the call cap's denials are the ones that must stay")
         for c in denies:
-            self.assertIn("cap-", c["name"],
-                          f"{c['name']}: the only denials in this kit are the call cap's")
+                self.assertTrue("cap-" in c["name"] or c["name"] == "codex-only-list-never-invents-claude-fallback",
+                                f"{c['name']}: denials require a call cap or an exhausted preference list")
 
     def test_the_case_file_is_one_json_object_per_line(self):
         for i, line in enumerate(CASES.read_text(encoding="utf-8").splitlines(), 1):

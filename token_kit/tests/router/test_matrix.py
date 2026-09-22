@@ -42,9 +42,9 @@ class TestParser(unittest.TestCase):
         for name in matrix.names():
             candidates = matrix.row(name)["prefer"]
             if name in ("implement", "mechanical-edit", "design"):
-                self.assertEqual(candidates[0], "claude:opus:medium")
+                self.assertEqual(candidates, ["claude:opus:medium", "codex:gpt-6-astra:medium"])
             elif name in ("lookup", "summarise"):
-                self.assertEqual(candidates[0], "claude:sonnet:medium")
+                self.assertEqual(candidates, ["claude:sonnet:medium", "codex:gpt-5.6-luna:high"])
             elif name == "debug-stuck":
                 self.assertEqual(candidates[0], "codex:gpt-6-astra:medium")
             else:
@@ -152,9 +152,9 @@ class TestValidation(unittest.TestCase):
         self.assertTrue(any("is not <engine>:<model>:<effort>" in p
                             for p in self.problems("`opus`")), self.problems("`opus`"))
 
-    def test_a_ladder_that_does_not_end_in_claude_is_named(self):
-        self.assertTrue(any("does not END in a claude candidate" in p
-                            for p in self.problems("`codex:x:high`")))
+    def test_codex_only_and_codex_ending_ladders_are_valid(self):
+        self.assertEqual(self.problems("`codex:x:medium`"), [])
+        self.assertEqual(self.problems("`claude:opus:medium` > `codex:x:medium`"), [])
 
     def test_the_no_pointless_climb_rule(self):
         """A dearer model at the same effort is a FLOOR, never an upgrade.
