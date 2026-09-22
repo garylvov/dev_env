@@ -28,7 +28,7 @@ class QuickstartTests(unittest.TestCase):
             rc = workflow.main(["run", *map(str, args)])
         return rc, output.getvalue(), error.getvalue()
 
-    def test_setup_and_launch_are_one_command(self):
+    def test_default_launch_is_session_only(self):
         with patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
              patch.object(workflow, "launch", return_value=0) as launch:
             rc, _, error = self.call("Fix parser", "--workspace", self.workspace,
@@ -38,8 +38,8 @@ class QuickstartTests(unittest.TestCase):
         self.assertEqual(store.workspace, self.workspace)
         self.assertEqual(launch.call_args.args[1:], ("coordinator", "claude", "opus"))
         self.assertTrue(launch.call_args.kwargs["yolo"])
-        self.assertTrue((self.workspace / "AGENTS.md").is_file())
-        self.assertTrue((self.workspace / "CLAUDE.md").is_file())
+        self.assertEqual(list(self.workspace.iterdir()), [])
+        self.assertIn("Guidance: session-only", error)
         self.assertIn(str(store.path), error)
         self.assertIn("automatic rollover: not implemented", error)
         self.assertIn("--model opus --yolo", error)
@@ -48,7 +48,7 @@ class QuickstartTests(unittest.TestCase):
         rc, output, error = self.call("Fix parser", "--workspace", self.workspace,
                                      "--root", self.tasks, "--dry-run")
         self.assertEqual(rc, 0, error)
-        self.assertIn("AGENTS.md", json.loads(output)["project_changes"])
+        self.assertEqual(json.loads(output)["project_changes"], [])
         self.assertEqual(list(self.workspace.iterdir()), [])
         self.assertFalse(self.tasks.exists())
 
@@ -85,7 +85,36 @@ class QuickstartTests(unittest.TestCase):
     def test_setup_conflict_does_not_create_task(self):
         (self.workspace / "AGENTS.md").symlink_to(self.root / "elsewhere")
         with patch.object(workflow.shutil, "which", return_value="/bin/claude"):
-            rc, _, error = self.call("--workspace", self.workspace, "--root", self.tasks)
+            rc, _, error = self.call("--workspace", self.workspace, "--root", self.tasks, "--install-project")
         self.assertEqual(rc, 2)
         self.assertIn("symlink", error)
         self.assertFalse(self.tasks.exists())
+
+    def test_project_install_is_explicit(self):
+        rc, out, error = self.call("--workspace", self.workspace, "--install-project", "--dry-run")
+        self.assertEqual(rc, 0, error)
+        self.assertIn("AGENTS.md", json.loads(out)["project_changes"])
+        self.assertEqual(list(self.workspace.iterdir()), [])
+        with patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
+             patch.object(workflow, "launch", return_value=0):
+            rc, _, error = self.call("--workspace", self.workspace, "--root", self.tasks, "--install-project")
+        self.assertEqual(rc, 0, error)
+        self.assertTrue((self.workspace / "AGENTS.md").is_file())
+        self.assertTrue((self.workspace / "CLAUDE.md").is_file())
+
+    def test_session_only_preserves_existing_project_files(self):
+        for name in ("AGENTS.md", "CLAUDE.md"):
+            (self.workspace / name).write_text("User instructions\n")
+        with patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
+             patch.object(workflow, "launch", return_value=0):
+            rc, _, error = self.call("--workspace", self.workspace, "--root", self.tasks)
+        self.assertEqual(rc, 0, error)
+        for name in ("AGENTS.md", "CLAUDE.md"):
+            self.assertEqual((self.workspace / name).read_text(), "User instructions\n")
+        self.assertFalse((self.workspace / ".token-kit").exists())
+
+    def test_codegraph_requires_explicit_project_install(self):
+        rc, _, error = self.call("--workspace", self.workspace, "--codegraph")
+        self.assertEqual(rc, 2)
+        self.assertIn("--install-project", error)
+        self.assertEqual(list(self.workspace.iterdir()), [])

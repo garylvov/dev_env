@@ -11,7 +11,7 @@ Project setup:
   install, uninstall       Project instructions and optional CodeGraph configuration
 
 Work:
-  run                     One command: project setup, new/resumed task, and launch
+  run                     One command: new/resumed task and session-only launch
   new, list, find          Create and locate tasks
   agent                   Add a logical agent with an assignment
   checkpoint, resume      Commit state or inspect recovery information

@@ -11,13 +11,13 @@ export PATH="/path/to/dev_env/token_kit/src/token_kit/bin:$PATH"
 token-kit run "Fix the parser" --yolo
 ```
 
-This sets up shared project instructions, creates a task, and launches Claude.
-It prints the task path and command to continue later.
-Omit `--yolo` to retain client permission settings; with it, Claude skips
-permission checks and Codex disables approvals and sandboxing.
+Starts Claude with session-only guidance and prints the resume command.
+Task records persist; project files stay untouched. Plain `claude`/`codex` skips
+Token Kit unless prior project/global installations remain.
+`--yolo` bypasses permission checks; Codex also disables sandboxing.
 
-Use `--task PATH` to continue, `--dry-run` to preview, or `--codegraph` to wire
-an already-installed CodeGraph. Advanced commands: `token-kit --help`.
+`--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
+add `--codegraph` for installed CodeGraph. More: `token-kit --help`.
 
 ## Delegation
 

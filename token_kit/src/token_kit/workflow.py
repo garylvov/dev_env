@@ -52,11 +52,13 @@ def stop_child(child) -> None:
 
 
 def run(args) -> int:
-    """Configure the project, create or recover a task, and launch one client."""
+    """Create or recover a task and launch; project installation is opt-in."""
     from .project_install import configure
 
     if args.task and (args.title or args.workspace or args.root):
         raise ValueError("--task cannot be combined with a new title, --workspace, or --root")
+    if args.codegraph and not args.install_project:
+        raise ValueError("--codegraph writes project settings; add --install-project to opt in")
     store = Store(args.task) if args.task else None
     workspace = store.workspace if store else (args.workspace or Path.cwd()).resolve()
     title = args.title or workspace.name
@@ -68,16 +70,20 @@ def run(args) -> int:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
     if store:
         store.resume_bundle("coordinator")  # validate recovery before changing project files
-    changes = configure(workspace, engine="both", codegraph=args.codegraph, dry_run=True)
+    changes = configure(workspace, engine="both", codegraph=args.codegraph, dry_run=True) if args.install_project else []
     if args.dry_run:
         print(json.dumps({"dry_run": True, "engine": args.engine, "workspace": str(workspace),
                           "task": str(store.path) if store else None, "title": title,
                           "root": str(args.root or default_root()), "project_changes": changes,
-                          "yolo": args.yolo, "automatic_rollover": False}, indent=2))
+                          "yolo": args.yolo, "install_project": args.install_project,
+                          "automatic_rollover": False}, indent=2))
         return 0
-    configure(workspace, engine="both", codegraph=args.codegraph)
+    if args.install_project:
+        configure(workspace, engine="both", codegraph=args.codegraph)
     store = store or Store.create(args.root or default_root(), title, workspace)
     print(f"Token Kit | {args.engine} | task: {store.path}", file=sys.stderr)
+    print("Guidance: session-only; existing project settings are preserved" if not args.install_project
+          else "Guidance: installed in project", file=sys.stderr)
     print("Checkpoints: agent-maintained | automatic rollover: not implemented", file=sys.stderr)
     print(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
           f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
@@ -102,6 +108,8 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         f"with {checkpoint_command}; add --evidence for relevant changed files and --incorporated "
         "for each message ID addressed. Write out.md when the assignment is complete."
     )
+    from .project_install import INSTRUCTIONS
+    prompt += "\n\nToken Kit guidance for this session:\n" + INSTRUCTIONS.rstrip()
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
     plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo))
     if dry_run:
@@ -148,13 +156,14 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="token-kit", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    start = commands.add_parser("run", help="set up the project, create or resume a task, and launch")
+    start = commands.add_parser("run", help="create or resume a task and launch with session-only guidance")
     start.add_argument("title", nargs="?")
     start.add_argument("--task", type=Path, help="continue an existing task instead of creating one")
     start.add_argument("--workspace", type=Path, help="source directory (default: current directory)")
     start.add_argument("--root", type=Path, help="task storage root for new tasks")
     start.add_argument("--engine", choices=("claude", "codex"), default="claude")
     start.add_argument("--model")
+    start.add_argument("--install-project", action="store_true", help="persist shared project instructions (opt-in)")
     start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
     start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
     start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
