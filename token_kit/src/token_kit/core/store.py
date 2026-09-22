@@ -124,10 +124,28 @@ class Store:
         path.mkdir(parents=True)
         sync_directory(path.parent)
         write_json(path / "task.json", {"schema_version": SCHEMA, "task_id": task_id,
-                   "title": title, "workspace": str(workspace), "created_at": now()})
+                   "title": title, "status": "open", "workspace": str(workspace), "created_at": now()})
         store = cls(path)
         store.add_agent("coordinator", title)
         return store
+
+    def update_task(self, **fields) -> None:
+        if set(fields) - {"title", "summary", "status"}:
+            raise ValueError("Only display title, summary and task status can be changed")
+        if "title" in fields and not fields["title"].strip():
+            raise ValueError("Task title cannot be empty")
+        if "status" in fields and fields["status"] not in ("open", "done"):
+            raise ValueError("Task status must be open or done")
+        with self.locked():
+            if fields.get("status") == "done":
+                for path in (self.path / "agents").glob("*/runs/*/run.json"):
+                    record = read_json(self.safe(path))
+                    if record.get("status") in ("starting", "running", "interrupted"):
+                        raise ValueError("Reconcile active or interrupted runs before closing the task")
+            path = self.safe(self.path / "task.json")
+            value = read_json(path)
+            value.update(fields, updated_at=now())
+            write_json(path, value)
 
     @contextlib.contextmanager
     def locked(self):

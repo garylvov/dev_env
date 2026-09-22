@@ -1,4 +1,4 @@
-"""Guard for token-kit-task: the working folder that titles itself.
+"""Regression guard for legacy task folders, available through token-kit legacy task.
 
     uv run --python '>=3.11' --no-project -m unittest discover -s tests -t .
 
@@ -64,7 +64,7 @@ class Base(unittest.TestCase):
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             with contextlib.redirect_stderr(io.StringIO()):
-                rc = T.main([str(a) for a in argv])
+                rc = T.legacy_main([str(a) for a in argv])
         return rc, buf.getvalue()
 
     def new(self, title="migrate the date parsing", **kw):

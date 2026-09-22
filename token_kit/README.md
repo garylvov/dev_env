@@ -1,97 +1,216 @@
-# token_kit
+# Token Kit
 
-An additive **portable-workflow preview** now supplies a shared task/checkpoint
-core, Claude and Codex launch adapters, and project-local configuration for both
-clients with optional CodeGraph. See [Portable workflows](docs/portable-workflows.md).
-The existing commands documented below retain their legacy behavior. The preview
-does not yet implement automatic rollover, failover, or combined budget enforcement.
-Strict Codex launches are refused until compaction prevention is verified.
+Token Kit keeps assignments, agent state, checkpoints, messages, and run records in
+one shared format for Claude Code and Codex. Agents retain their identities across
+sessions and clients. Source workspaces and task records can live separately.
 
-Cuts Claude Code spend. The cost of a session is calls × the context each call re-reads, so the
-kit does three things: sends each subagent to the cheapest model that can do the job, caps how
-long any one agent runs, and restarts a session before its context gets expensive.
+The core handles persistence and recovery; adapters prepare client launches.
+Project integrations install shared instructions and optional CodeGraph settings.
 
-**It avoids compaction.** Built-in auto-compact fires only when the window is nearly full. By then
-every call has been re-reading a huge context for hours, and it then replaces the conversation with a
-lossy summary. Start your session with `token-kit-supervise launch` instead: it restarts the
-session early (235k tokens by default) from a `STATE.md` you keep current, plus `PROMPTS.md`, your
-exact words. Nothing is summarised, so nothing drifts, and the session never gets big enough to
-compact. A session started any other way is not watched and will still compact.
+**Current limit:** portable recovery works with either client's file tools, but
+strict Codex launches are blocked until a disable-all-compaction control is
+verified. Claude launches request `DISABLE_COMPACT=1`; runtime enforcement has not
+been certified, and managed policy can override the setting. Automatic rollover,
+quota-triggered failover, and combined token-budget enforcement are not implemented.
 
-Standard-library Python (run through `uv`, needs ≥3.11). Bash only as thin shims.
+## Setup
 
-## Install
+Requires `uv`, Python >=3.11, and a client. From this repository's `token_kit` directory:
 
-```
-bash token_kit/install.sh --dry-run   # show what would change
-bash token_kit/install.sh             # do it (backs up settings.json first)
-bash token_kit/install.sh --uninstall # removes exactly what it added, nothing else
-bash token_kit/install.sh --config    # what this machine detected, and why
+```bash
+export PATH="$PWD/src/token_kit/bin:$PATH"
+token-kit --help
+token-kit install --project /path/to/source --engine both --dry-run
+token-kit install --project /path/to/source --engine both
 ```
 
-Nothing to edit on a new machine: every machine fact is detected at run time (whether your home
-is on a network filesystem, where tmp is, where codex is). `~/.config/token_kit/config.toml` may
-override any of it (tables `[codex]`, `[supervisor]`, `[router]`) and is never required.
+Choose `--engine claude`, `codex`, or `both`. Installation adds shared `AGENTS.md`
+guidance and a `CLAUDE.md` import when needed, preserving unrelated content. It
+records ownership under `.token-kit` and rejects conflicting edits. It does not
+install client binaries, change global settings, launch agents, or permanently
+add commands to your shell's PATH.
 
-It writes only to `~/.claude` (hooks in `settings.json`, links in `agents/`) and `~/.config/token_kit`.
-It installs no agent prompts of its own and never touches yours.
+Use `token-kit uninstall --project /path/to/source --engine both --dry-run` to
+inspect removal, then omit `--dry-run`. Uninstall removes owned content and
+preserves unrelated settings; empty files and directories can remain. Interrupted
+multi-file installs report ownership conflicts rather than assuming ownership of
+unrecorded edits.
 
-## Working folder
+## Start a task and delegate work
 
-Agents talk through files, not long replies.
-
-`token-kit-task` names the folder and puts it under `~/.claude/token_kit/work/`, so no project tree
-grows a folder it did not ask for (`--root DIR` puts one elsewhere). Which project a task belongs to
-is its `Cwd:` line, and `resume` starts the session there:
-
-```
-token-kit-task new "migrate the date parsing"      # -> ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing
-token-kit-task retitle <task-dir> "replace the date helper" --summary "one line"
-token-kit-task find date parsing --all             # then: token-kit-task resume <words-or-path>
+```bash
+token-kit new "Fix parser" --workspace /path/to/source
+token-kit new "Fix parser" --workspace /path/to/source --root /path/to/tasks
 ```
 
+Each command creates a separate task and prints its path. The default root is
+`$XDG_STATE_HOME/token_kit/work`, or `~/.local/state/token_kit/work` when unset.
+Use that path below. Assignment files specify objectives, allowed source paths,
+and completion criteria:
+
+```bash
+token-kit agent /path/to/task parser --assignment-file /path/to/brief.md
+token-kit status /path/to/task
+token-kit resume /path/to/task --agent parser
 ```
-~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing/
-  STATE.md               # "# <title>", then Started: / Status: / Cwd: / Summary:, then your own text
-  PROMPTS.md             # what you typed, verbatim; extracted by token-kit-prompts, refreshed at rollover
-  lanes/<name>/v0/       # one agent, one attempt; a retry is v1, never an overwrite
-    in.md                # the brief, written before the spawn
-    out.md               # line 1 = RESULT; then evidence, what is unproven, how a fresh agent resumes
-    RESPAWN_REQUEST.md   # written by an agent that ran out of calls; the main thread is told once
+
+Omit `--agent` to address the task's `coordinator`. `resume` prints recovery JSON;
+it does not launch a client or acknowledge messages. Either client can read the
+referenced assignment, checkpoint, evidence, and pending messages to continue.
+Opening a client directly does not enforce Token Kit's compaction policy.
+
+Manage tasks without changing their identities:
+
+```bash
+token-kit list --open
+token-kit find parser
+token-kit retitle /path/to/task "Fix date parser" --summary "Handle timezone offsets"
+token-kit done /path/to/task
+token-kit reopen /path/to/task
 ```
 
-The date and time stay in the folder name through a `retitle`, so `ls` sorts by age and the old name
-is left as a symlink to the new one; every task also lands in an append-only index under the XDG
-state dir, which is what `list --all`, `find` and `resume` read.
+Use `--root /path/to/tasks` with `list` and `find` for a custom task root.
+`done` refuses tasks with running or unreconciled agent runs.
 
-Only the main thread writes `STATE.md`. It reads `out.md` files, never an agent's transcript. A
-nested agent's folder goes under its parent's (`token-kit-task lane <task> <name> --under <lane>`).
-How current is `STATE.md`? Two things watch it, and neither is a guarantee: the Stop hook nudges the
-main thread once in a while to bring it up to date, and a rollover that finds it unwritten since the
-soft request puts a dated staleness warning at the top of the new session's seed. More in
-`agent_trigger_matrix.md`.
-
-## What you get
-
-| Part | What it does |
-|---|---|
-| `agent_trigger_matrix.md` | A markdown chart you edit by hand: kind of task → model, effort, and a `prefer` list like `codex:gpt-5.6-luna:high, claude:opus:medium`. First available entry wins; every list ends in Claude, so a maxed-out Codex never blocks a spawn. The chart and its worked examples live in that one file. |
-| router hook | Reads the chart on every subagent spawn and rewrites model / agent / prompt. Also caps tool calls per subagent (warn → write your result → stop). |
-| kind agents | Generated from the chart at install time, one per ladder candidate, with `model` and `effort` in the frontmatter. Nothing checked in is installed as an agent. |
-| `codex-dispatch` | One Codex turn, on demand, over `codex app-server` stdio. No daemon, no port. Exit 42 = Codex unavailable (absent, auth, busy, quota). |
-| `codex-job` | Codex jobs you can talk to: `start`, `send` (steers a running turn, or continues the thread after it), `wait` (run in the background to be told when it ends), `status`, `list`, `stop`. No message is ever dropped silently. |
-| `codex-run` | The kit's own Codex launcher, used by both commands above and usable by hand. When your home is on a network filesystem it keeps `CODEX_HOME` on node-local `/tmp` (Codex's SQLite breaks on network filesystems), seeds it once per machine, syncs `auth.json` newer-wins with atomic writes, caps threads, and runs Codex with approvals bypassed. |
-| `token-kit-supervise` | `launch [--state-file FILE] [--cwd DIR]`: runs a session in tmux, watches its context size, and rolls it over to a fresh session that resumes from that handoff file (default `./STATE.md`). Ceiling is a cost choice (defaults 180k soft / 235k hard), not a window limit. Its bookkeeping goes under the XDG state dir keyed by a hash of the file's path, so two projects never collide. |
-| `respawn-reader` | Tells the main thread, once, when a background agent asked to be restarted. |
-| `token-kit-prompts` | `--cwd DIR --out FILE [--since YYYY-MM-DD] [--session ID] [--stdout]`: writes what you actually typed, verbatim, from this directory's session transcripts into one markdown file (default `./PROMPTS.md`, mode 0600). Tool output, subagent transcripts, compaction summaries and harness notices are excluded; re-running rewrites the same bytes. A rollover refreshes it beside the handoff file. |
-| `token-kit-task` | `new "<title>"` makes a titled, sortable working folder; `retitle` renames it once the work is understood, keeping the date stamp and leaving a symlink at the old name; `lane`, `list [--all]`, `find`, `resume`, `done`, `reopen`. Every task is in a machine-wide append-only index, so discovery does not depend on where you are standing. |
-| `canary` | Proves mechanically whether an instruction file is really in a model's context: LOADED / NOT_LOADED / PROBE_BROKEN, never collapsed. |
-
-Details for the Codex commands: `src/token_kit/codex/USAGE.md`.
-
-## Test
-
+```text
+<task>/
+  task.json
+  STATE.md                    # copy of the coordinator's committed state
+  agents/<stable-agent-id>/
+    in.md                     # assignment working copy
+    assignments/0001.md       # committed assignment revision
+    STATE.md                  # editable progress and next steps
+    out.md                    # result written by the agent when finished
+    checkpoints/<id>/         # committed state and integrity manifest
+    messages/<id>.json        # durable incoming messages
+    artifacts/                # detailed evidence and outputs
+    runs/<id>/                # run metadata, resume bundle, launch prompt
 ```
+
+## Checkpoint and resume
+
+Every agent maintains its own `STATE.md` with nonempty `Objective`, `Completed`,
+`Evidence`, `Unresolved`, and `Next` sections. Commit it after meaningful milestones:
+
+```bash
+token-kit checkpoint /path/to/task --agent parser --evidence src/parser.py
+token-kit send /path/to/task --agent parser "Also update the regression test"
+token-kit checkpoint /path/to/task --agent parser --incorporated MESSAGE_ID
+```
+
+`send` returns the message ID. Messages remain pending until a checkpoint records
+them as incorporated; queueing does not imply delivery to a running model. Use
+`send /path/to/task --agent parser -` to read a message from standard input.
+
+Evidence paths are relative to the source workspace, or absolute inside the
+workspace/task. Later checkpoints retain previous evidence paths unless a new
+`--evidence` list replaces them. State is limited to 32KB; put detailed output in
+`artifacts/`. Checkpoints publish their pointer only after writing the snapshot,
+and recovery validates state/assignment hashes and checkpoint identity.
+
+Checkpoints record agent-declared progress. The runtime does not intercept every
+tool operation, capture transcripts, extract `PROMPTS.md`, or reattach native
+children. Recovery detects declared evidence changes and Git HEAD changes; inspect
+other dirty/untracked files and unfinished jobs before continuing. Reasoning that
+was never recorded cannot be recovered.
+
+## Launch and reconcile
+
+```bash
+token-kit launch /path/to/task --agent parser --engine claude --dry-run
+token-kit launch /path/to/task --agent parser --engine claude
+token-kit launch /path/to/task --agent parser --engine codex --dry-run
+```
+
+The last command currently fails with an explicit unsupported-compaction error.
+There is no CLI opt-out from strict compaction policy. Claude's plan sets
+`DISABLE_COMPACT=1` in both its environment and inline session settings. Dry runs
+print the plan without inherited environment secrets and do not create a run.
+Launches are fresh interactive sessions; no native-resume or permission-bypass
+flags are added. `--model NAME` selects a model when preparing the launch.
+
+A run with an uncertain outcome blocks another run of that agent. Once its
+supervisor and child have stopped, inspect the workspace and external jobs, then:
+
+```bash
+token-kit close-run /path/to/task --agent parser RUN_ID --note "Verified command outcomes and inspected the workspace"
+```
+
+This records your reconciliation, not proof that external operations stopped. It
+does not kill processes. Live or remote processes cannot be cleared this way.
+Successful client exit also does not prove every external job finished. Different
+workers do not receive enforced source-path ownership or isolated worktrees; avoid
+concurrent writers with overlapping source ownership.
+
+## CodeGraph
+
+```bash
+token-kit install --project /path/to/source --engine both --codegraph --dry-run
+token-kit install --project /path/to/source --engine both --codegraph
+```
+
+Install [CodeGraph](https://github.com/colbymchenry/codegraph) separately first. Token
+Kit adds `.mcp.json` and/or `.codex/config.toml` entries for `codegraph serve --mcp`.
+It does not download CodeGraph, build an index, or start its server. Client trust
+and MCP approvals remain under each client's control. Both clients use the source
+checkout, while task checkpoints retain progress independently of CodeGraph.
+
+## Existing task folders
+
+```bash
+token-kit migrate /path/to/legacy-task --root /path/to/tasks
+```
+
+Migration creates a new shared-format task without changing the legacy folder.
+Review its imported assignments and state before launching. `token-kit-task` and
+`token-kit-workflow` are aliases for the same task commands; old layouts require
+explicit migration, rather than silently retaining a second workflow.
+
+## Advanced compatibility commands
+
+The older global hook/matrix installer is available only through
+`token-kit legacy install ...`; use `token-kit legacy --help` for its command
+surface. Its router, supervisor, and Codex transport remain separate compatibility
+tools. They do not share the new task accounting or provide its recovery guarantees.
+Previously installed router and recovery hooks stay silent inside projects with
+shared Token Kit installation records and during shared managed launches, so the
+trigger matrix is not injected into the main workflow.
+
+Scripts remain under `src/token_kit/codex/bin/`; jobs have a detached owner:
+
+```bash
+codex-job start --model MODEL --effort high --cwd /path/to/source --task-file /path/to/in.md --name parser
+codex-job send JOB_ID "Update the regression test too"
+codex-job wait JOB_ID
+codex-job status JOB_ID
+codex-job list
+codex-job stop JOB_ID
+```
+
+Model and effort are required. `send` steers a running turn; after completion it
+continues the same native thread, using its owner during `--linger-s` (default 120)
+or resuming later. Delivery rows distinguish steered, queued, resumed, and failed
+messages. `wait` blocks and prints the answer and delivery rows; background it when
+your harness supports completion notifications. `status` and `list` only read files.
+Use `codex-dispatch` for a single immediate turn instead of a continuing job.
+
+Exit codes are 0 for answered, 2 for usage, 3 for turn failure, and 42 for unavailable
+(`absent`, `auth`, `busy`, `protocol`, or `quota`). Quota creates a cooldown marker;
+`--ignore-cooldown` overrides it. This is not automatic provider failover.
+
+With shared job directories, live remote owners accept queued messages and stop
+requests. An exited owner on another host cannot be resumed; messages are retained
+in `undelivered/`. `codex-run`, `codex-run --reseed`, and `codex-run update` use the
+legacy launcher, including optional node-local `CODEX_HOME` and auth synchronization.
+That launcher uses bypassed approvals; it is not the new strict launch adapter.
+
+## Tests
+
+```bash
 cd token_kit
 uv run --python '>=3.11' --no-project -m unittest discover -s tests -t .
 ```
+
+Offline tests cover checkpoints, messages, evidence, run ownership, launches,
+environment privacy, strict Codex refusal, and installer conflicts. They do not
+certify live client compaction behavior.

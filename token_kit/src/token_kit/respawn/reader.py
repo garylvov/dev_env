@@ -230,6 +230,9 @@ def nudge(cfg: Config, event_json: dict) -> str:
     rollovers. The supervisor only ASKS at the soft ceiling, which is hours of
     work later and may be the first time anyone looked.
     """
+    from token_kit.core.context import shared_workflow
+    if shared_workflow(event_json.get("cwd")):
+        return ""
     if event_json.get("stop_hook_active"):
         return ""                              # honour the CLI's loop guard
     cwd = str(event_json.get("cwd") or "")
@@ -364,6 +367,9 @@ def report_lane(cfg: Config, event: str, session: str, lane: str) -> str:
 
 def handle(cfg: Config, event_json: dict) -> str:
     """The whole decision. Returns the additionalContext text, or "" for silence."""
+    from token_kit.core.context import shared_workflow
+    if shared_workflow(event_json.get("cwd")):
+        return ""
     event = event_json.get("hook_event_name") or ""
     if not event:
         return ""

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""token_kit -- put the whole token-spend kit on a machine with one command.
+"""Token Kit compatibility utilities and the former global hook installer.
 
-Subcommands: install, uninstall, probe, census, config, hook, prompts.
+The default CLI dispatches to the shared interface. Global hook installation is
+available only through `token-kit legacy install`; it is not the default setup.
 
 Reached through `install.sh`, which is a thin bootstrap: it makes sure `uv` is
 present and then runs this file with a modern Python. Nothing here imports a
@@ -73,6 +74,7 @@ COMPONENTS = [
 #: Executables linked into ~/.config/token_kit/bin. The name on the left is
 #: what the operator types and what settings.json points at.
 EXECUTABLES = [
+    ("token-kit", "src/token_kit/bin/token-kit"),
     ("respawn-reader", "src/token_kit/respawn/bin/respawn-reader"),
     ("token-kit-supervise", "src/token_kit/supervisor/bin/token-kit-supervise"),
     ("codex-dispatch", "src/token_kit/codex/bin/codex-dispatch"),
@@ -878,7 +880,7 @@ def cmd_task(args) -> int:
     shim, so either spelling does the same thing."""
     from token_kit import task as task_mod
 
-    return task_mod.main(args.rest)
+    return task_mod.legacy_main(args.rest)
 
 
 def cmd_workflow(args) -> int:
@@ -911,7 +913,7 @@ def cmd_hook(args) -> int:
 
 
 # --------------------------------------------------------------------------
-def main(argv=None) -> int:
+def legacy_main(argv=None) -> int:
     import argparse
 
     from token_kit import prompts as prompts_mod
@@ -959,6 +961,11 @@ def main(argv=None) -> int:
 
     args = ap.parse_args(argv)
     return args.fn(args)
+
+
+def main(argv=None) -> int:
+    from token_kit.__main__ import main as unified_main
+    return unified_main(argv)
 
 
 if __name__ == "__main__":

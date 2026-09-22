@@ -665,9 +665,15 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def main(argv=None) -> int:
+def legacy_main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     return args.fn(args)
+
+
+def main(argv=None) -> int:
+    """The historical executable now uses the shared task core."""
+    from token_kit.__main__ import main as unified_main
+    return unified_main(argv)
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-"""Portable task checkpoints and explicit fresh-session launches.
+"""Token Kit shared task lifecycle and explicit fresh-session launches.
 
-This first milestone does not supervise context, intercept tools, or automatically
+The runtime does not yet supervise context, intercept tools, or automatically
 fail over providers. Strict Codex launch is unavailable until its control is verified.
 """
 from __future__ import annotations
@@ -19,6 +19,29 @@ from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
 
 
+def default_root() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "token_kit/work"
+
+
+def task_rows(root: Path, words: list[str] | None = None, only_open: bool = False) -> list[dict]:
+    """Inspect only immediate task folders under the explicit task root."""
+    result = []
+    if not root.is_dir():
+        return result
+    for path in sorted(root.iterdir()):
+        if path.is_symlink() or not (path / "task.json").is_file():
+            continue
+        store = Store(path)
+        metadata = read_json(store.safe(store.path / "task.json"))
+        if only_open and metadata.get("status", "open") != "open":
+            continue
+        text = " ".join(str(metadata.get(key, "")) for key in ("title", "summary", "task_id", "workspace")).lower()
+        if words and not all(word.lower() in text for word in words):
+            continue
+        result.append({**metadata, "status": metadata.get("status", "open"), "path": str(store.path)})
+    return result
+
+
 def stop_child(child) -> None:
     child.terminate()
     try:
@@ -31,8 +54,8 @@ def stop_child(child) -> None:
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False) -> int:
     bundle = store.resume_bundle(agent)
-    resume_command = shlex.join(["token-kit-workflow", "resume", str(store.path), "--agent", agent])
-    checkpoint_command = shlex.join(["token-kit-workflow", "checkpoint", str(store.path), "--agent", agent])
+    resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
+    checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
     prompt = (
         f"Continue logical agent {agent} in task {store.path}. "
         f"Read assignment {bundle['assignment']} and committed state "
@@ -60,6 +83,8 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
     child = None
     try:
         environment = dict(plan.env)
+        environment["TOKEN_KIT_TASK"] = str(store.path)
+        environment["TOKEN_KIT_AGENT"] = agent
         bin_directory = str(Path(__file__).resolve().parent / "bin")
         environment["PATH"] = bin_directory + os.pathsep + environment.get("PATH", os.defpath)
         child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=environment)
@@ -86,12 +111,28 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="token-kit-workflow", description=__doc__)
+    parser = argparse.ArgumentParser(prog="token-kit", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    new = commands.add_parser("new", help="create a portable task and coordinator checkpoint")
+    new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
-    new.add_argument("--root", type=Path, default=Path("tasks"))
+    new.add_argument("--root", type=Path, default=default_root())
     new.add_argument("--workspace", type=Path, default=Path.cwd())
+    new.add_argument("--summary", default="")
+    for name in ("list", "find"):
+        command = commands.add_parser(name, help="locate tasks under a shared root")
+        command.add_argument("--root", type=Path, default=default_root())
+        command.add_argument("--open", action="store_true")
+        if name == "find":
+            command.add_argument("words", nargs="+")
+    migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
+    migrate.add_argument("source", type=Path)
+    migrate.add_argument("--root", type=Path, default=default_root())
+    for name in ("done", "reopen", "retitle"):
+        command = commands.add_parser(name, help="update task metadata without changing its identity")
+        command.add_argument("task", type=Path)
+        if name == "retitle":
+            command.add_argument("title")
+            command.add_argument("--summary")
     agent = commands.add_parser("agent", help="create a stable logical worker")
     agent.add_argument("task", type=Path)
     agent.add_argument("name")
@@ -125,10 +166,29 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "new":
-            print(Store.create(args.root, args.title, args.workspace).path)
+            store = Store.create(args.root, args.title, args.workspace)
+            if args.summary:
+                store.update_task(summary=args.summary)
+            print(store.path)
             return 0
+        if args.command in ("list", "find"):
+            print(json.dumps(task_rows(args.root, getattr(args, "words", None), args.open), indent=2))
+            return 0
+        if args.command == "migrate":
+            from .core.migrate import migrate_task
+            print(migrate_task(args.source, args.root).path)
+            return 0
+        if not (args.task / "task.json").exists() and (args.task / "STATE.md").is_file():
+            raise ValueError(f"Legacy task folder: first run token-kit migrate {shlex.quote(str(args.task))}; the original will be preserved")
         store = Store(args.task)
-        if args.command == "agent":
+        if args.command in ("done", "reopen"):
+            store.update_task(status="done" if args.command == "done" else "open")
+        elif args.command == "retitle":
+            fields = {"title": args.title}
+            if args.summary is not None:
+                fields["summary"] = args.summary
+            store.update_task(**fields)
+        elif args.command == "agent":
             print(store.add_agent(args.name, args.assignment_file.read_text(encoding="utf-8")))
         elif args.command == "checkpoint":
             print(store.checkpoint(args.agent, args.evidence, args.incorporated))
@@ -149,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"task": read_json(store.path / "task.json"), "agents": agents}, indent=2))
         return 0
     except (OSError, ValueError, KeyError) as exc:
-        print(f"token-kit-workflow: {exc}", file=sys.stderr)
+        print(f"token-kit: {exc}", file=sys.stderr)
         return 2
 
 

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-# install.sh -- the ONE command. It is a bootstrap and nothing else: make sure
+# install.sh -- bootstrap the shared project installer: make sure
 # `uv` and a modern Python exist, then hand every decision to the Python CLI.
 #
-#   bash token_kit/install.sh [--dry-run] [--uninstall] [--probe] [--census]
+#   bash token_kit/install.sh --project DIR [--engine both] [--codegraph] [--dry-run]
+#   bash token_kit/install.sh --project DIR --uninstall
+#   bash token_kit/install.sh --legacy [--dry-run]  # old global hook installer
+#   Compatibility utilities: [--probe] [--census]
 #                             [--config] [--prompts [--out FILE] [--since D]]
 #                             [--task new "<title>" | --task list ...]
 #
-# There is no profile to pick: every machine fact is detected at run time.
-# `--config` prints what this machine decided and where each value came from.
+# Normal installation configures either or both clients in the specified project.
+# It does not install global Claude hooks or the trigger matrix.
 #
 # Why uv: the system Python on some machines is 3.9, which has no tomllib. uv
 # supplies 3.11+ without touching the system Python and without building an
@@ -22,10 +25,12 @@ CLI="$HERE/src/token_kit/cli.py"
 PY_REQ='>=3.11'
 
 SUB=install
+LEGACY=0
 ARGS=()
 for a in "$@"; do
   case "$a" in
     --uninstall)  SUB=uninstall ;;
+    --legacy)     LEGACY=1 ;;
     --probe)      SUB=probe ;;
     --census)     SUB=census ;;
     --config)     SUB=config ;;
@@ -60,4 +65,5 @@ uv python find "$PY_REQ" >/dev/null 2>&1 || uv python install 3.11 || {
 
 # 3. hand over.
 if [ -z "$SUB" ]; then exec uv run --python "$PY_REQ" --no-project "$CLI" --help; fi
+if [ "$LEGACY" = 1 ]; then exec uv run --python "$PY_REQ" --no-project "$CLI" legacy "$SUB" "${ARGS[@]+"${ARGS[@]}"}; fi
 exec uv run --python "$PY_REQ" --no-project "$CLI" "$SUB" "${ARGS[@]+"${ARGS[@]}"}"

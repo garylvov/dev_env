@@ -398,6 +398,9 @@ def _cap(payload: dict) -> int:
 def handle(payload: dict) -> int:
     if not isinstance(payload, dict) or not payload:
         return allow()
+    from token_kit.core.context import shared_workflow
+    if shared_workflow(payload.get("cwd")):
+        return allow()
     try:
         if payload.get("hook_event_name") == "SessionStart":
             return session_start()
@@ -434,6 +437,10 @@ def guide_for_injection(m) -> str:
 
 def session_start() -> int:
     from . import matrix as matrix_mod
+    from token_kit.core.context import shared_workflow
+
+    if shared_workflow():
+        return allow()
 
     try:
         m = matrix_mod.load()

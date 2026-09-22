@@ -68,14 +68,14 @@ folder titles itself so it sorts by age and can be found again from anywhere. Fo
 `~/.claude/token_kit/work/`, not in the project tree; the project is the `Cwd:` line in `STATE.md`:
 
 ```
-token-kit-task new "migrate the date parsing"        # -> ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing
-token-kit-task retitle <task-dir> "replace the date helper" --summary "what it turned out to be"
-token-kit-task find date parsing --all               # then resume it: token-kit-task resume <words>
+token-kit legacy task new "migrate the date parsing"        # -> ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing
+token-kit legacy task retitle <task-dir> "replace the date helper" --summary "what it turned out to be"
+token-kit legacy task find date parsing --all               # then resume it: token-kit legacy task resume <words>
 ```
 
 The date and time keep their place at the front of the name through a retitle, and the old name stays
 as a symlink, so paths already written into briefs and out.md files still resolve. A nested lane is
-`token-kit-task lane <task-dir> <name> --under <lane-dir>`.
+`token-kit legacy task lane <task-dir> <name> --under <lane-dir>`.
 
 ```
 ~/.claude/token_kit/work/2026-09-21_2242_migrate-the-date-parsing/

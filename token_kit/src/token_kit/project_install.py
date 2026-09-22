@@ -1,6 +1,6 @@
 """Project-local instructions and opt-in CodeGraph wiring; never launches a server.
 
-Run ``python -m token_kit.project_install install --project PATH``. Ownership
+Run ``token-kit install --project PATH``. Ownership
 is tracked per marked text block or JSON entry, leaving other settings alone.
 This configures a project only; it does not install CLI executables on PATH.
 """
@@ -19,7 +19,9 @@ import tomllib
 
 
 MANIFEST = ".token-kit/project-install.json"
-INSTRUCTIONS = """Use token-kit-workflow to maintain portable task and agent records.
+# Freeze the exact previously installed text so upgrades only recognize known
+# installer versions; unrelated or customized text is never inferred as ours.
+_LEGACY_INSTRUCTIONS = """Use token-kit-workflow to maintain portable task and agent records.
 Consult token-kit-workflow --help for new, agent, checkpoint, launch, and status.
 Keep each agent's assignment in in.md, progress and next action in STATE.md,
 and completed results with verification evidence in out.md.
@@ -30,6 +32,12 @@ Treat interrupted operations as uncertain until their outcomes are checked.
 These instructions alone do not enforce budgets, prevent compaction, or
 automatically switch providers; use the workflow launcher and its capabilities.
 """
+_LEGACY_INSTRUCTION_VERSIONS = (
+    _LEGACY_INSTRUCTIONS,
+    _LEGACY_INSTRUCTIONS.replace("new, agent,", "new, agent add,"),
+)
+INSTRUCTIONS = _LEGACY_INSTRUCTIONS.replace("token-kit-workflow", "token-kit").replace(
+    "checkpoint, launch,", "checkpoint, resume, launch,")
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 
@@ -146,13 +154,24 @@ def _configure_locked(project: Path, *, engine: str, codegraph: bool,
                 raise InstallConflict(f"Modified owned CodeGraph entry: {relative}")
 
     def add_text(relative: str, content: str) -> None:
-        if relative in records:
-            return
         text = _read(_path(project, relative))
         start, end = _markers(relative)
+        block = start + "\n" + content.rstrip() + "\n" + end
+        if relative in records:
+            # All ownership hashes were validated above. Upgrade only exact
+            # recognized historical instructions, preserving surrounding text.
+            if relative == "AGENTS.md":
+                left, right = _owned_text(relative, text, records[relative])
+                legacy_blocks = {
+                    start + "\n" + old.rstrip() + "\n" + end
+                    for old in _LEGACY_INSTRUCTION_VERSIONS
+                }
+                if text[left:right] in legacy_blocks:
+                    changes[relative] = text[:left] + block + text[right:]
+                    records[relative]["sha256"] = _hash(block)
+            return
         if start in text or end in text:
             raise InstallConflict(f"Unowned token-kit markers: {relative}")
-        block = start + "\n" + content.rstrip() + "\n" + end
         prefix = "\n\n" if text else ""
         changes[relative] = text + prefix + block + "\n"
         records[relative] = {"kind": "text", "sha256": _hash(block),

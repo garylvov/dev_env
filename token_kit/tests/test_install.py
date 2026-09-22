@@ -54,7 +54,7 @@ def run_cli(home: Path, *args: str) -> subprocess.CompletedProcess:
     env["HOME"] = str(home)
     env.pop("CLAUDE_CONFIG_DIR", None)
     return subprocess.run(
-        [sys.executable, str(CLI), *args],
+        [sys.executable, str(CLI), "legacy", *args],
         capture_output=True, text=True, env=env, cwd=str(KIT_DIR))
 
 

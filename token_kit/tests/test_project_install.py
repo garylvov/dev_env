@@ -8,9 +8,11 @@ import subprocess
 import tempfile
 import tomllib
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from token_kit.project_install import configure, InstallConflict, MANIFEST
+from token_kit import project_install
 
 
 class ProjectInstallTests(unittest.TestCase):
@@ -46,7 +48,7 @@ class ProjectInstallTests(unittest.TestCase):
         self.assertEqual(codex["model"], "existing")
         configure(self.project, engine="claude", uninstall=True)
         self.assertEqual(self.read("CLAUDE.md"), "User Claude rules\n")
-        self.assertIn("token-kit-workflow", self.read("AGENTS.md"))
+        self.assertIn("token-kit --help", self.read("AGENTS.md"))
         self.assertEqual(json.loads(self.read(".mcp.json")), {
             "extra": True, "mcpServers": {"other": {"command": "other"}}})
         configure(self.project, engine="codex", uninstall=True)
@@ -57,6 +59,40 @@ class ProjectInstallTests(unittest.TestCase):
     def test_dry_run_no_files_or_directories(self):
         self.assertTrue(configure(self.project, codegraph=True, dry_run=True))
         self.assertEqual(list(self.project.iterdir()), [])
+
+    def test_known_owned_legacy_instructions_upgrade(self):
+        for legacy in project_install._LEGACY_INSTRUCTION_VERSIONS:
+            with self.subTest(legacy=legacy.splitlines()[1]), tempfile.TemporaryDirectory() as directory:
+                project = Path(directory)
+                agents = project / "AGENTS.md"
+                agents.write_text("User instructions\n")
+                with patch.object(project_install, "INSTRUCTIONS", legacy):
+                    configure(project, codegraph=True)
+                agents.write_text(agents.read_text() + "Appended user instructions\n")
+                before = {str(p.relative_to(project)): p.read_bytes()
+                          for p in project.rglob("*") if p.is_file()}
+                self.assertEqual(set(configure(project, dry_run=True)), {"AGENTS.md", MANIFEST})
+                self.assertEqual(before, {str(p.relative_to(project)): p.read_bytes()
+                                          for p in project.rglob("*") if p.is_file()})
+                self.assertEqual(set(configure(project)), {"AGENTS.md", MANIFEST})
+                text = agents.read_text()
+                self.assertTrue(text.startswith("User instructions\n"))
+                self.assertTrue(text.endswith("Appended user instructions\n"))
+                self.assertNotIn("token-kit-workflow", text)
+                self.assertIn("checkpoint, resume, launch", text)
+                self.assertEqual(configure(project, codegraph=True), [])
+                for relative, content in before.items():
+                    if relative not in {"AGENTS.md", MANIFEST}:
+                        self.assertEqual((project / relative).read_bytes(), content)
+
+    def test_edited_legacy_instructions_refuse_upgrade(self):
+        with patch.object(project_install, "INSTRUCTIONS", project_install._LEGACY_INSTRUCTIONS):
+            configure(self.project)
+        self.write("AGENTS.md", self.read("AGENTS.md").replace("meaningful", "custom"))
+        before = self.snapshot()
+        with self.assertRaises(InstallConflict):
+            configure(self.project)
+        self.assertEqual(before, self.snapshot())
 
     def test_existing_claude_import_preserved(self):
         self.write("CLAUDE.md", "Instructions\n@./AGENTS.md\n")

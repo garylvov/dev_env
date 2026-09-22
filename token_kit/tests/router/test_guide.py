@@ -101,21 +101,21 @@ def all_fenced(text: str) -> list[str]:
 
 
 class TestTaskCommandLinesParse(unittest.TestCase):
-    """Every `token-kit-task ...` line the docs ship, through its own parser."""
+    """Legacy matrix examples remain executable through the explicit namespace."""
 
-    DOCS = (KIT_DIR / "agent_trigger_matrix.md", KIT_DIR / "README.md")
+    DOCS = (KIT_DIR / "agent_trigger_matrix.md",)
 
     def lines(self):
         out = []
         for doc in self.DOCS:
             out += [ln for ln in all_fenced(doc.read_text(encoding="utf-8"))
-                    if ln.split("#")[0].strip().startswith("token-kit-task")]
+                    if ln.split("#")[0].strip().startswith("token-kit legacy task")]
         return out
 
     def test_the_docs_actually_ship_task_commands(self):
         """Arms the next test: a guard with nothing to check is inert."""
-        self.assertGreaterEqual(len(self.lines()), 4,
-                                "no fenced token-kit-task command in the docs")
+        self.assertGreaterEqual(len(self.lines()), 3,
+                                "no fenced legacy task command in the matrix")
 
     def test_every_task_command_line_parses(self):
         from token_kit import task as task_mod
@@ -125,7 +125,7 @@ class TestTaskCommandLinesParse(unittest.TestCase):
             argv = shlex.split(line.split("#")[0].strip(), comments=True)
             with contextlib.redirect_stderr(io.StringIO()):
                 try:
-                    parser.parse_args(argv[1:])
+                    parser.parse_args(argv[3:])
                 except SystemExit as exc:
                     self.fail(f"the docs ship a command the CLI would refuse:\n"
                               f"  {line}\n  argparse exited {exc.code}")
@@ -137,6 +137,27 @@ class TestTaskCommandLinesParse(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 task_mod.build_parser().parse_args(
                     shlex.split("new 'a title' --titled-by-hand"))
+
+
+class TestSharedReadmeCommands(unittest.TestCase):
+    def test_workflow_examples_use_the_real_parser(self):
+        from token_kit.workflow import build_parser
+
+        parser = build_parser()
+        checked = 0
+        for line in all_fenced((KIT_DIR / "README.md").read_text()):
+            argv = shlex.split(line, comments=True)
+            if not argv or argv[0] != "token-kit":
+                continue
+            if argv[1] in ("--help", "install", "uninstall"):
+                continue
+            with contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    parser.parse_args(argv[1:])
+                except SystemExit as exc:
+                    self.fail(f"Invalid README command: {line}: exit {exc.code}")
+            checked += 1
+        self.assertGreaterEqual(checked, 15)
 
 
 class TestInjection(unittest.TestCase):
