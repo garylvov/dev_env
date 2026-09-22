@@ -73,6 +73,21 @@ maintained by agents, not an automatic quota detector or override scheduler.
 _LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
 INSTRUCTIONS = INSTRUCTIONS.replace("Astra (high)", "Astra (medium)")
 INSTRUCTIONS += "Default to medium effort for every model; always run Luna at high effort.\n"
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Explicit user task/role model requests override routing defaults. For example,
+'Opus for the big stuff' assigns major reasoning/design/implementation to Opus
+(medium); 'Luna for run loops' assigns iterative execution to Luna (high);
+'Sol for run loops' assigns iterative execution to Sol (medium). Do not replace
+an explicitly requested Sol with Luna or Astra merely because of default policy.
+Keep simultaneous role choices separate. Use the most specific applicable scope;
+newer requests replace older choices in the same scope, not unrelated roles.
+Record exact wording, model/effort, scope and expiry in checkpointed coordinator
+state and relevant worker assignments; consult them before spawning and on resume.
+If the requested model is unavailable or forbidden by the harness, report it and
+ask before substituting, unless the user already authorized a fallback or expiry.
+Run loops mean useful execution, diagnosis and iteration; pure waiting should use
+process tooling, not repeated model calls. Clarify genuinely ambiguous scope.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

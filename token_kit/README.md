@@ -25,7 +25,7 @@ an already-installed CodeGraph. Advanced commands: `token-kit --help`.
 Coordinator -> leads -> bounded workers, each with its own assignment, state,
 and results. Prefer Codex; Astra for difficult work, Luna for narrow work.
 Fable requires an explicit request. Effort: medium; Luna always high.
-Record temporary overrides in checkpointed state.
+Explicit role/model requests override defaults; checkpoint those choices.
 
 ## Resume files
 

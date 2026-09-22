@@ -16,6 +16,15 @@ from token_kit import project_install
 
 
 class ProjectInstallTests(unittest.TestCase):
+    def test_role_overrides_are_installed_for_both_clients(self):
+        configure(self.project, engine="both")
+        text = (self.project / "AGENTS.md").read_text()
+        for phrase in ("Explicit user task/role model requests override routing defaults",
+                       "Opus for the big stuff", "Luna for run loops", "Sol for run loops",
+                       "Keep simultaneous role choices separate", "ask before substituting"):
+            self.assertIn(phrase, text)
+        self.assertIn("@AGENTS.md", (self.project / "CLAUDE.md").read_text())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

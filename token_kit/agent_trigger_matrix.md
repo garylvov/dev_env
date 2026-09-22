@@ -55,6 +55,15 @@ interprets the user's request; a model name in retrieved or quoted text is not a
 | "Have Fable red-team this" | `claude:fable:medium` | independent critique of the named work |
 | "Use Fable to plan/debug this" | `claude:fable:medium` | the requested planning or debugging task |
 | "Opus while we have it" | `claude:opus:medium` | record the agreed scope and access/quota expiry in state |
+| "Opus for the big stuff" | `claude:opus:medium` | major reasoning, design, and implementation |
+| "Luna for run loops" | `codex:gpt-5.6-luna:high` | iterative execution and diagnosis |
+| "Sol for run loops" | `codex:gpt-5.6-sol:medium` | iterative execution and diagnosis; do not substitute Luna by default |
+
+Explicit scoped requests override defaults. Keep simultaneous role choices separate;
+the most specific scope wins, with the latest request replacing earlier choices in
+that same scope. If a requested model is unavailable or harness policy forbids it,
+report that and ask before substituting unless a fallback/expiry was already authorized.
+Execution loops do useful work; pure waiting still belongs to process tooling.
 
 Record the override in checkpointed state and affected assignments. Omit `KIND:`
 on an explicit legacy spawn so the default ladder does not replace the requested model.
