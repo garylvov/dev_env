@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+SRC="$(cd "$(dirname "$SELF")/../.." && pwd)"
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python '>=3.11' --no-project python -m token_kit.workflow "$@"

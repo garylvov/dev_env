@@ -1,0 +1,26 @@
+"""Small launch contract; checkpoint construction belongs to the shared core."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+
+class AdapterError(ValueError):
+    """The requested launch cannot be prepared safely by this adapter."""
+
+
+@dataclass(frozen=True)
+class LaunchRequest:
+    workspace: Path
+    prompt: str
+    strict_no_compaction: bool = True
+    model: str | None = None
+
+
+@dataclass(frozen=True)
+class LaunchPlan:
+    engine: str
+    argv: tuple[str, ...]
+    cwd: Path
+    env: dict[str, str]
+    strict_no_compaction: bool

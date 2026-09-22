@@ -86,6 +86,7 @@ EXECUTABLES = [
     # The working folder itself: titled at creation, retitled once the work is
     # understood, and findable from any directory through the machine wide index.
     ("token-kit-task", "src/token_kit/bin/token-kit-task"),
+    ("token-kit-workflow", "src/token_kit/bin/token-kit-workflow"),
 ]
 
 # --------------------------------------------------------------------------
@@ -880,6 +881,12 @@ def cmd_task(args) -> int:
     return task_mod.main(args.rest)
 
 
+def cmd_workflow(args) -> int:
+    from token_kit import workflow
+
+    return workflow.main(args.rest)
+
+
 # --------------------------------------------------------------------------
 # hook -- the PreToolUse entry point
 # --------------------------------------------------------------------------
@@ -934,6 +941,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("task", help="create, retitle, find and resume task folders")
     p.add_argument("rest", nargs=argparse.REMAINDER)
     p.set_defaults(fn=cmd_task)
+
+    p = sub.add_parser("workflow", help="portable agent checkpoints and fresh-session launches")
+    p.add_argument("rest", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_workflow)
 
     p = sub.add_parser("hook", help="PreToolUse hook entry point (reads stdin)")
     p.set_defaults(fn=cmd_hook)

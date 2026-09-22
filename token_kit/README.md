@@ -1,5 +1,12 @@
 # token_kit
 
+An additive **portable-workflow preview** now supplies a shared task/checkpoint
+core, Claude and Codex launch adapters, and project-local configuration for both
+clients with optional CodeGraph. See [Portable workflows](docs/portable-workflows.md).
+The existing commands documented below retain their legacy behavior. The preview
+does not yet implement automatic rollover, failover, or combined budget enforcement.
+Strict Codex launches are refused until compaction prevention is verified.
+
 Cuts Claude Code spend. The cost of a session is calls × the context each call re-reads, so the
 kit does three things: sends each subagent to the cheapest model that can do the job, caps how
 long any one agent runs, and restarts a session before its context gets expensive.
