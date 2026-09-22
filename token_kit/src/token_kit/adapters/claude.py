@@ -25,7 +25,7 @@ def prepare_launch(
     """Prepare a fresh session; checking binary availability is the caller's job.
 
     The caller must execute ``argv`` directly with ``shell=False`` and the plan's
-    cwd/environment. Authentication and permissions are inherited unchanged.
+    cwd/environment. Permissions are inherited unless yolo is explicitly requested.
     """
     workspace = Path(request.workspace).resolve()
     if not workspace.is_dir():
@@ -41,6 +41,8 @@ def prepare_launch(
 
     env = dict(os.environ if environ is None else environ)
     argv = [executable]
+    if request.yolo:
+        argv.append("--dangerously-skip-permissions")
     if request.strict_no_compaction:
         env["DISABLE_COMPACT"] = "1"
         argv.extend(("--settings", '{"env":{"DISABLE_COMPACT":"1"}}'))

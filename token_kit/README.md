@@ -87,6 +87,17 @@ token-kit launch /path/to/task --agent parser --engine claude --dry-run
 token-kit launch /path/to/task --agent parser --engine claude
 ```
 
+Optional permission bypass (off by default):
+
+```bash
+token-kit launch /path/to/task --engine claude --yolo
+token-kit launch /path/to/task --engine codex --yolo
+```
+
+`--yolo` maps to Claude's `--dangerously-skip-permissions` or Codex's `--yolo`.
+It bypasses permission checks; Codex also disables sandboxing. Use only in a
+trusted, isolated environment. It does not bypass the Codex compaction blocker below.
+
 Messages stay pending until a checkpoint incorporates their IDs. Evidence paths
 are relative to the source workspace; recovery checks declared evidence and Git
 HEAD changes. Checkpoint before switching clients. Unrecorded reasoning is lost.

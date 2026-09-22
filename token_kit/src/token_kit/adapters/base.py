@@ -15,6 +15,7 @@ class LaunchRequest:
     prompt: str
     strict_no_compaction: bool = True
     model: str | None = None
+    yolo: bool = False
 
 
 @dataclass(frozen=True)

@@ -18,6 +18,30 @@ from token_kit.core.store import Store, read_json
 
 
 class WorkflowLaunchTests(unittest.TestCase):
+    def test_yolo_adapter_mapping_is_opt_in(self):
+        from token_kit.adapters import claude, codex
+        from token_kit.adapters.base import LaunchRequest
+        for adapter, flag in ((claude, "--dangerously-skip-permissions"), (codex, "--yolo")):
+            for enabled in (False, True):
+                request = LaunchRequest(self.root, "continue", False, yolo=enabled)
+                plan = adapter.prepare_launch(request, environ={})
+                self.assertEqual(flag in plan.argv, enabled)
+                self.assertEqual(plan.argv[-2:], ("--", "continue"))
+
+    def test_cli_yolo_dry_run_and_codex_compaction_refusal(self):
+        output, errors = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output):
+            rc = workflow.main(["launch", str(self.store.path), "--engine", "claude", "--yolo", "--dry-run"])
+        self.assertEqual(rc, 0)
+        report = json.loads(output.getvalue())
+        self.assertTrue(report["yolo"])
+        self.assertIn("--dangerously-skip-permissions", report["argv"])
+        with contextlib.redirect_stderr(errors):
+            rc = workflow.main(["launch", str(self.store.path), "--engine", "codex", "--yolo", "--dry-run"])
+        self.assertEqual(rc, 2)
+        self.assertIn("Strict no-compaction", errors.getvalue())
+        self.assertEqual(self.records(), [])
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -65,16 +89,18 @@ class WorkflowLaunchTests(unittest.TestCase):
         with patch.object(self.store, "resume_bundle", return_value=bundle), \
              patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
              patch.object(workflow.subprocess, "Popen", return_value=child) as popen:
-            self.assertEqual(workflow.launch(self.store, "coordinator", "claude", model="sonnet"), 0)
+            self.assertEqual(workflow.launch(self.store, "coordinator", "claude", model="sonnet", yolo=True), 0)
         argv = popen.call_args.args[0]
         kwargs = popen.call_args.kwargs
         self.assertEqual(argv[-2], "--")
+        self.assertIn("--dangerously-skip-permissions", argv)
         self.assertIn(str(bundle["checkpoint"]), argv[-1])
         self.assertEqual(kwargs["cwd"], self.root)
         self.assertEqual(kwargs["env"]["DISABLE_COMPACT"], "1")
         self.assertFalse(kwargs.get("shell", False))
         record, = self.records()
         self.assertEqual(record["status"], "exited")
+        self.assertTrue(record["yolo"])
         run = self.store.agent_path("coordinator") / "runs" / record["run_id"]
         self.assertEqual(read_json(run / "resume.json"), bundle)
         self.assertEqual((run / "prompt.md").read_text().rstrip(), argv[-1])

@@ -52,7 +52,7 @@ def stop_child(child) -> None:
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
-           dry_run: bool = False) -> int:
+           dry_run: bool = False, yolo: bool = False) -> int:
     bundle = store.resume_bundle(agent)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
     checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
@@ -69,15 +69,16 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         "for each message ID addressed. Write out.md when the assignment is complete."
     )
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
-    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model))
+    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
-                          "strict_no_compaction_requested": True, "resume": bundle}, indent=2))
+                          "strict_no_compaction_requested": True, "yolo": yolo, "resume": bundle}, indent=2))
         return 0
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
     run = store.claim_run(agent, engine, True)
+    store.update_run(agent, run.name, yolo=yolo)
     write_json(run / "resume.json", bundle)
     atomic_text(run / "prompt.md", prompt + "\n")
     child = None
@@ -152,6 +153,8 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--engine", choices=("claude", "codex"), required=True)
             command.add_argument("--model")
             command.add_argument("--dry-run", action="store_true")
+            command.add_argument("--yolo", action="store_true",
+                                 help="bypass client permission checks (Codex also disables sandboxing)")
         elif name == "send":
             command.add_argument("text", help="literal text, or - to read stdin")
         elif name == "close-run":
@@ -199,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "close-run":
             store.close_run(args.agent, args.run_id, args.note)
         elif args.command == "launch":
-            return launch(store, args.agent, args.engine, args.model, args.dry_run)
+            return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo)
         elif args.command == "status":
             agents = []
             for path in sorted((store.path / "agents").iterdir()):

@@ -41,6 +41,8 @@ def prepare_launch(
     if not request.prompt.strip() or "\x00" in request.prompt:
         raise AdapterError("Codex prompt must be nonempty and contain no NUL characters")
     argv = [executable, "--cd", str(workspace)]
+    if request.yolo:
+        argv.append("--yolo")
     if request.model is not None:
         if (not request.model.strip() or "\x00" in request.model
                 or request.model.startswith("-")):
