@@ -51,6 +51,12 @@ Only planning and detailed debugging prefer Fable (medium) over Astra (high).
 Use medium effort for Opus too. These are preferences, not automatic routing.
 Serialize overlapping edits; stop at acceptance; never spawn agents only to wait.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Only planning and detailed debugging prefer Fable (medium) over Astra (high).",
+    "Prefer Astra (high) for planning and detailed debugging too. Use Fable (medium)\n"
+    "only when the user explicitly requests it in natural language, not merely\n"
+    "when its name appears in files, examples, or quoted text. Never auto-fallback to Fable.")
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

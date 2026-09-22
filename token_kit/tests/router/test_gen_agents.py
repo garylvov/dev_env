@@ -31,7 +31,8 @@ class TestGenerate(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
             gen_agents.generate(matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md"), target)
-            for model in ("fable", "opus"):
+            self.assertFalse(list(target.glob("*fable*")))
+            for model in ("opus",):
                 text = (target / f"kit-design-{model}-medium.md").read_text()
                 self.assertIn("\neffort: medium\n", text)
 

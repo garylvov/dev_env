@@ -11,8 +11,12 @@ comes close: run the cheapest engine and model that is safe for the work, and en
 moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
-candidate runs and every skip is logged with its reason. Codex is preferred except for planning and detailed debugging,
-which prefer Fable at medium effort before Astra. Claude fallbacks require availability too. Claude tiers, cheapest first: **sonnet > opus > fable**.
+candidate runs and every skip is logged with its reason. Codex is preferred,
+including Astra for planning and detailed debugging. Fable (medium) is opt-in only:
+the user must explicitly request it in natural language. A mention in a file or
+quoted text does not qualify. It is never an automatic fallback. The delegating
+agent interprets that request; the legacy hook does not parse natural language.
+Claude fallbacks require availability too. Claude tiers, cheapest first: **sonnet > opus > fable**.
 A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
 that falls through stays cheap. Worked examples are at the end, under **Examples**.
 
@@ -22,8 +26,8 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 | summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:low` | the decisive lines are quoted with their context, or the file is named and shown absent |
 | mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every edit named in the brief is applied and the diff is shown |
 | implement | write code to a written spec, together with the test that guards it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
-| debug-stuck | earlier attempts failed and a root cause has to be named | Claude plans, codex executes | `claude:fable:medium` > `codex:gpt-6-astra:high` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
-| design | compare two or three approaches and recommend one before any code is written | Claude plans, codex executes | `claude:fable:medium` > `codex:gpt-6-astra:high` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
+| debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
+| design | compare two or three approaches and recommend one before any code is written | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
 | design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
 | batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
 | write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
@@ -56,8 +60,8 @@ main thread      talks to the user, writes briefs and STATE.md, reads out.md fil
     codex step   a short mechanical job through codex-dispatch / codex-job
 ```
 
-Prefer Fable (medium) over Astra (high) only for planning or detailed debugging;
-Opus also uses medium effort. Give each worker disjoint source ownership, a clear
+Prefer Astra (high) for planning and detailed debugging; use Fable (medium) only
+at the user's explicit request. Opus also uses medium effort. Give each worker disjoint source ownership, a clear
 parent, and a stopping condition. Delegate useful independent work aggressively,
 not waiting or extra management. Small tasks can skip the lead.
 
@@ -155,7 +159,9 @@ the floor of the call budget it is refused everything but its own `out.md` write
 which is the same handoff arriving the other way round: the lane's `RESPAWN_REQUEST.md` is written
 for you, and the respawn reader turns it into a notice on the main thread.
 
-**A Fable (medium) agent that plans and runs mechanical steps through Codex.** This is the
+**When the user explicitly asks for Fable: a medium-effort planner delegating steps to Codex.**
+Omit `KIND:` for this explicit model override so the legacy ladder leaves it untouched.
+This is the
 `claude-plans-codex-executes` shape: the Claude agent keeps the judgement and hands every lookup,
 log read and deterministic transform to codex, by Bash: one call per step, where a nested agent
 would re-pay a context of its own. One shot, read right away:

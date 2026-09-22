@@ -42,10 +42,11 @@ class TestParser(unittest.TestCase):
         for name in matrix.names():
             candidates = matrix.row(name)["prefer"]
             if name in ("design", "debug-stuck"):
-                self.assertEqual(candidates[:2], ["claude:fable:medium", "codex:gpt-6-astra:high"])
+                self.assertEqual(candidates[0], "codex:gpt-6-astra:high")
             else:
                 self.assertTrue(candidates[0].startswith("codex:"), name)
             for candidate in candidates:
+                self.assertFalse(candidate.startswith("claude:fable:"), candidate)
                 if candidate.startswith(("claude:fable:", "claude:opus:")):
                     self.assertTrue(candidate.endswith(":medium"), candidate)
 
