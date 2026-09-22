@@ -11,8 +11,8 @@ comes close: run the cheapest engine and model that is safe for the work, and en
 moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
-candidate runs and every skip is logged with its reason. Every ladder ends in a Claude candidate so
-a maxed-out codex can never block a kind. Claude tiers, cheapest first: **sonnet > opus > fable**.
+candidate runs and every skip is logged with its reason. Codex is preferred except for planning and detailed debugging,
+which prefer Fable at medium effort before Astra. Claude fallbacks require availability too. Claude tiers, cheapest first: **sonnet > opus > fable**.
 A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
 that falls through stays cheap. Worked examples are at the end, under **Examples**.
 
@@ -21,12 +21,12 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 | lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:low` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
 | summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:low` | the decisive lines are quoted with their context, or the file is named and shown absent |
 | mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every edit named in the brief is applied and the diff is shown |
-| implement | write code to a written spec, together with the test that guards it | Claude plans, codex executes | `claude:sonnet:high` > `claude:opus:high` | the change and its guard test are both written, and the guard has been shown to fail without the change |
-| debug-stuck | earlier attempts failed and a root cause has to be named | Claude plans, codex executes | `claude:opus:high` > `claude:fable:high` | a root cause is named and shown, or the brief is handed back with what was ruled out |
-| design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:high` > `claude:fable:high` | two or three approaches are compared and one is recommended with its cost |
-| design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:high` > `claude:fable:high` > `claude:opus:high` | each objection names the section it attacks and what would change the verdict |
-| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | Claude does it all | `claude:sonnet:medium` > `claude:opus:medium` | every queue item is marked done or failed in the queue file |
-| write-doc | write or update a document, a brief, a status page or a README | Claude does it all | `claude:sonnet:medium` | the document is written and its absolute path is named |
+| implement | write code to a written spec, together with the test that guards it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
+| debug-stuck | earlier attempts failed and a root cause has to be named | Claude plans, codex executes | `claude:fable:medium` > `codex:gpt-6-astra:high` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
+| design | compare two or three approaches and recommend one before any code is written | Claude plans, codex executes | `claude:fable:medium` > `codex:gpt-6-astra:high` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
+| design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:high` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
+| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | every queue item is marked done or failed in the queue file |
+| write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
 
 **Never spawn a model to wait.** Watching, polling, tailing and babysitting are not work for an
 agent: an agent that waits re-pays its whole context for every sample it takes, and the longest
@@ -44,17 +44,22 @@ One band for every kind, and the kit's one hard mechanism. Change a number here 
 | floor | 230 | only a write of the agent's own `out.md` and the handback are still permitted |
 | hard | 250 | the refusal escalates; the `out.md` write is still never denied |
 
-## Hierarchy
+## Hierarchy: delegationmaxxing
 
 A subagent CAN spawn its own agents, and a `KIND:` line in a nested spawn is resolved the same way.
 Use depth only when it removes context, never to add a manager:
 
 ```
 main thread      talks to the user, writes briefs and STATE.md, reads out.md files, decides
-  lead agent     opus; owns one large task; splits it, keeps the judgement, merges the results
-    worker       sonnet or codex; one bounded piece; hands back by file
-    codex step   a mechanical step through codex-dispatch / codex-job: one call, no context of its own
+  lead agent     Codex by default; owns a workstream, briefs workers, verifies and integrates
+    worker       Codex; one bounded assignment with explicit acceptance checks
+    codex step   a short mechanical job through codex-dispatch / codex-job
 ```
+
+Prefer Fable (medium) over Astra (high) only for planning or detailed debugging;
+Opus also uses medium effort. Give each worker disjoint source ownership, a clear
+parent, and a stopping condition. Delegate useful independent work aggressively,
+not waiting or extra management. Small tasks can skip the lead.
 
 A lead earns its cost when the task has several independent pieces whose raw output the main thread
 should never see. Two levels is the ceiling: a third re-pays three contexts to move one fact. A
@@ -150,7 +155,7 @@ the floor of the call budget it is refused everything but its own `out.md` write
 which is the same handoff arriving the other way round: the lane's `RESPAWN_REQUEST.md` is written
 for you, and the respawn reader turns it into a notice on the main thread.
 
-**An opus agent that plans and runs the mechanical steps through codex.** This is the
+**A Fable (medium) agent that plans and runs mechanical steps through Codex.** This is the
 `claude-plans-codex-executes` shape: the Claude agent keeps the judgement and hands every lookup,
 log read and deterministic transform to codex, by Bash: one call per step, where a nested agent
 would re-pay a context of its own. One shot, read right away:
@@ -171,7 +176,7 @@ codex-job stop   <job>
 
 Both exit 42 when codex is unavailable (`reason=absent|auth|busy|protocol|quota`); on 42 the agent
 does the step itself with its Claude model, and a `quota` refusal parks codex for every later spawn.
-When that opus agent finishes, the main thread can re-invoke it later with `SendMessage` and its job
+When that planning agent finishes, the main thread can re-invoke it later with `SendMessage` and its job
 ids still resolve: the job dir is on the shared filesystem, so `send`/`status`/`stop`/`wait` run from
 anywhere. The owner process and the codex thread live on ONE node, so a `send` to a live owner on
 another host is queued remotely, and a `send` after that owner has exited refuses loudly and keeps

@@ -38,6 +38,19 @@ _LEGACY_INSTRUCTION_VERSIONS = (
 )
 INSTRUCTIONS = _LEGACY_INSTRUCTIONS.replace("token-kit-workflow", "token-kit").replace(
     "checkpoint, launch,", "checkpoint, resume, launch,")
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Delegationmaxxing: delegate bounded independent work when authorized. Keep the
+coordinator focused on user intent and acceptance; use workstream leads only to
+integrate several workers. Default to coordinator -> lead -> worker, skipping
+the lead for small tasks. Each agent owns its state and returns evidence in out.md.
+Record parent/owner, source-path scope, dependencies, and acceptance checks in
+in.md; parent relationships and source ownership are conventions, not enforced.
+Parents inspect results and evidence instead of whole worker transcripts.
+Prefer Codex: Luna for narrow work, Astra for difficult work, including reviews.
+Only planning and detailed debugging prefer Fable (medium) over Astra (high).
+Use medium effort for Opus too. These are preferences, not automatic routing.
+Serialize overlapping edits; stop at acceptance; never spawn agents only to wait.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

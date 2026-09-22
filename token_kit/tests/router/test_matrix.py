@@ -37,6 +37,18 @@ def write(tmp: Path, text: str) -> matrix_mod.Matrix:
 
 
 class TestParser(unittest.TestCase):
+    def test_shipped_model_preferences(self):
+        matrix = matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md")
+        for name in matrix.names():
+            candidates = matrix.row(name)["prefer"]
+            if name in ("design", "debug-stuck"):
+                self.assertEqual(candidates[:2], ["claude:fable:medium", "codex:gpt-6-astra:high"])
+            else:
+                self.assertTrue(candidates[0].startswith("codex:"), name)
+            for candidate in candidates:
+                if candidate.startswith(("claude:fable:", "claude:opus:")):
+                    self.assertTrue(candidate.endswith(":medium"), candidate)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmp.name)

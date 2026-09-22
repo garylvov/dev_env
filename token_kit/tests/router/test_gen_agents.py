@@ -27,6 +27,14 @@ def fixture(tmp: Path, text: str | None = None) -> matrix_mod.Matrix:
 
 
 class TestGenerate(unittest.TestCase):
+    def test_shipped_planning_agents_use_medium_effort(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory)
+            gen_agents.generate(matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md"), target)
+            for model in ("fable", "opus"):
+                text = (target / f"kit-design-{model}-medium.md").read_text()
+                self.assertIn("\neffort: medium\n", text)
+
     def test_one_file_per_row_and_claude_candidate_carrying_its_effort(self):
         with tempfile.TemporaryDirectory() as t:
             tmp = Path(t)
