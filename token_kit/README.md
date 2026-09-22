@@ -4,14 +4,15 @@ Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticate
 
 ## Run
 
+From `dev_env` (setup once/computer):
+
 ```bash
-export PATH="/path/to/dev_env/token_kit/src/token_kit/bin:$PATH"
+source token_kit/add_to_bashrc.bash
 # "Finish retread": session name. Sessions: ~/.config/token_kit.
 token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
 
-Use `--engine codex` for Codex.
-Session-only.
+Codex: `--engine codex`. Session-only.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
