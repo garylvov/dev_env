@@ -51,6 +51,40 @@ def stop_child(child) -> None:
         child.wait()
 
 
+def run(args) -> int:
+    """Configure the project, create or recover a task, and launch one client."""
+    from .project_install import configure
+
+    if args.task and (args.title or args.workspace or args.root):
+        raise ValueError("--task cannot be combined with a new title, --workspace, or --root")
+    store = Store(args.task) if args.task else None
+    workspace = store.workspace if store else (args.workspace or Path.cwd()).resolve()
+    title = args.title or workspace.name
+    # Reject unsupported clients and missing binaries before creating anything.
+    adapter = importlib.import_module(f"token_kit.adapters.{args.engine}")
+    plan = adapter.prepare_launch(LaunchRequest(workspace, "Continue the task", True,
+                                               args.model, yolo=args.yolo))
+    if not args.dry_run and shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
+        raise ValueError(f"Executable not found: {plan.argv[0]}")
+    if store:
+        store.resume_bundle("coordinator")  # validate recovery before changing project files
+    changes = configure(workspace, engine="both", codegraph=args.codegraph, dry_run=True)
+    if args.dry_run:
+        print(json.dumps({"dry_run": True, "engine": args.engine, "workspace": str(workspace),
+                          "task": str(store.path) if store else None, "title": title,
+                          "root": str(args.root or default_root()), "project_changes": changes,
+                          "yolo": args.yolo, "automatic_rollover": False}, indent=2))
+        return 0
+    configure(workspace, engine="both", codegraph=args.codegraph)
+    store = store or Store.create(args.root or default_root(), title, workspace)
+    print(f"Token Kit | {args.engine} | task: {store.path}", file=sys.stderr)
+    print("Checkpoints: agent-maintained | automatic rollover: not implemented", file=sys.stderr)
+    print(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
+          f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
+          + (" --yolo" if args.yolo else ""), file=sys.stderr)
+    return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo)
+
+
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False) -> int:
     bundle = store.resume_bundle(agent)
@@ -114,6 +148,16 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="token-kit", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    start = commands.add_parser("run", help="set up the project, create or resume a task, and launch")
+    start.add_argument("title", nargs="?")
+    start.add_argument("--task", type=Path, help="continue an existing task instead of creating one")
+    start.add_argument("--workspace", type=Path, help="source directory (default: current directory)")
+    start.add_argument("--root", type=Path, help="task storage root for new tasks")
+    start.add_argument("--engine", choices=("claude", "codex"), default="claude")
+    start.add_argument("--model")
+    start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
+    start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
+    start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
     new.add_argument("--root", type=Path, default=default_root())
@@ -168,6 +212,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "run":
+            return run(args)
         if args.command == "new":
             store = Store.create(args.root, args.title, args.workspace)
             if args.summary:

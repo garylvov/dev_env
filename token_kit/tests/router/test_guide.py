@@ -157,7 +157,10 @@ class TestSharedReadmeCommands(unittest.TestCase):
                 except SystemExit as exc:
                     self.fail(f"Invalid README command: {line}: exit {exc.code}")
             checked += 1
-        self.assertGreaterEqual(checked, 15)
+        self.assertGreaterEqual(checked, 1, "quickstart must contain an executable workflow command")
+
+    def test_readme_stays_a_short_quickstart(self):
+        self.assertLessEqual(len((KIT_DIR / "README.md").read_text().split()), 250)
 
 
 class TestInjection(unittest.TestCase):
