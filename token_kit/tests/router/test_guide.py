@@ -162,6 +162,17 @@ class TestSharedReadmeCommands(unittest.TestCase):
     def test_readme_stays_a_short_quickstart(self):
         self.assertLessEqual(len((KIT_DIR / "README.md").read_text().split()), 250)
 
+    def test_readme_explains_resume_layout(self):
+        text = (KIT_DIR / "README.md").read_text()
+        for entry in ("agents/<id>/", "in.md", "STATE.md", "out.md", "checkpoints/", "assignments/"):
+            self.assertIn(entry, text)
+        self.assertIn("committed checkpoints, not transcripts", text)
+
+    def test_fable_is_visible_as_an_explicit_override(self):
+        text = SHIPPED.read_text().split("## Explicit user overrides", 1)[1].split("## Call budget", 1)[0]
+        self.assertIn('"Have Fable red-team this" | `claude:fable:medium`', text)
+        self.assertIn('"Opus while we have it" | `claude:opus:medium`', text)
+
 
 class TestInjection(unittest.TestCase):
     def test_the_injection_is_the_document_itself(self):

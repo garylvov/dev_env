@@ -27,6 +27,23 @@ and results. Prefer Codex; Astra for difficult work, Luna for narrow work.
 Fable requires an explicit request. Fable and Opus use medium effort.
 Record temporary overrides in checkpointed state.
 
+## Resume files
+
+```text
+<task>/
+  task.json
+  agents/<id>/
+    in.md                 # assignment
+    STATE.md              # working progress
+    out.md                # result
+    checkpoints/          # committed recovery state
+    assignments/          # assignment revisions
+    messages/, artifacts/, runs/
+```
+
+Resume reads committed checkpoints, not transcripts. Workers have independent state;
+briefs and file handoffs limit context sharing. Savings are unmeasured.
+
 ## Not finished yet
 
 Automatic rollover is **not connected** to this launcher, including at 500k.
