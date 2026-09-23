@@ -24,6 +24,7 @@ from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
 from . import runtime
 from .core import ledger, lifecycle
+from .timefmt import human, parse_iso
 
 
 def default_root() -> Path:
@@ -89,6 +90,19 @@ def task_next_preview(row: dict) -> str:
         return "unavailable"
 
 
+def picker_created(value) -> str:
+    when = parse_iso(value)
+    if when is None:
+        return "Unknown date"
+    if when.tzinfo is None:
+        return human(when) + " (timezone unknown)"
+    try:
+        local = when.astimezone()
+    except (ValueError, OverflowError, OSError):
+        return "Unknown date"
+    return human(local) + " " + (local.tzname() or "(timezone unknown)")
+
+
 def latest_picker_run(task: str) -> dict:
     """Inspect only bounded immediate coordinator run metadata for one selection."""
     store = Store(task)
@@ -127,9 +141,9 @@ def pick(args) -> int:
     omitted = max(0, len(rows) - args.limit)
     rows = rows[:args.limit]
     for number, row in enumerate(rows, 1):
+        status = {"open": "Unfinished", "done": "Finished"}.get(row.get("status"), "Unknown status")
         print(f"{number:>2}. {compact_text(row.get('title', ''), 64)} "
-              f"[{compact_text(row.get('status', 'open'), 12)}] "
-              f"{compact_text(row.get('created_at', 'unknown date'), 35)}\n"
+              f"[{status}] Created {picker_created(row.get('created_at'))}\n"
               f"    {compact_text(row.get('task_id', ''), 128)} | Next: {task_next_preview(row)}",
               file=sys.stderr)
     if omitted:

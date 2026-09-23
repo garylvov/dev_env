@@ -2,15 +2,17 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import shlex
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from token_kit.workflow import main, ranked_tasks, task_next_preview
+from token_kit.workflow import main, ranked_tasks, task_next_preview, picker_created
 
 
 class TaskPickerTests(unittest.TestCase):
@@ -55,7 +57,8 @@ class TaskPickerTests(unittest.TestCase):
         self.assertIn(str(newest), shlex.split(out))
         self.assertLess(err.index("Verify new"), err.index("Verify old"))
         self.assertNotIn("Hidden", err)
-        self.assertIn("2026-09-23", err)
+        self.assertIn("Created", err)
+        self.assertIn("Sep 2026", err)
 
     def test_no_match_and_non_tty_require_explicit_selection(self):
         self.task("first")
@@ -152,6 +155,38 @@ class TaskPickerTests(unittest.TestCase):
         self.assertEqual(rc, 2)
         self.assertEqual(out, "")
         self.assertIn("exceeds 64 KiB", err)
+
+    def test_local_created_dates_handle_daylight_saving_and_unknown_timezone(self):
+        try:
+            with patch.dict(os.environ, {"TZ": "America/New_York"}):
+                time.tzset()
+                self.assertEqual(picker_created("2026-09-23T17:39:00Z"), "Wed 23 Sep 2026, 1:39pm EDT")
+                self.assertEqual(picker_created("2026-01-23T17:39:00+00:00"), "Fri 23 Jan 2026, 12:39pm EST")
+                self.assertEqual(picker_created("2026-09-23T01:39:00Z"), "Tue 22 Sep 2026, 9:39pm EDT")
+                self.assertEqual(picker_created("2026-09-23T17:39:00"),
+                                 "Wed 23 Sep 2026, 5:39pm (timezone unknown)")
+                self.assertEqual(picker_created(None), "Unknown date")
+                self.assertEqual(picker_created("bad stamp"), "Unknown date")
+        finally:
+            time.tzset()
+
+    def test_human_status_labels_leave_machine_metadata_unchanged(self):
+        self.task("first", status="open")
+        self.task("second", status="done")
+        self.task("third", status="unexpected", created="invalid")
+        _, _, err = self.invoke()
+        self.assertIn("[Unfinished] Created", err)
+        self.assertIn("[Finished] Created", err)
+        self.assertIn("[Unknown status] Created Unknown date", err)
+        for command in (["list"], ["find", "parser"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(main([*command, "--root", str(self.root)]), 0)
+            rows = {row["task_id"]: row for row in json.loads(out.getvalue())}
+            self.assertEqual(rows["first"]["created_at"], "2026-09-23T12:00:00+00:00")
+            self.assertEqual(rows["first"]["status"], "open")
+            self.assertEqual(rows["second"]["status"], "done")
+            self.assertEqual(rows["third"]["created_at"], "invalid")
 
     def test_malformed_settings_do_not_enable_permissions_or_emit_command(self):
         task = self.task("first")
