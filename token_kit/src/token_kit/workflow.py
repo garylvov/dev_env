@@ -133,6 +133,37 @@ def run(args) -> int:
                   idle=idle, initial_prompt=args.prompt)
 
 
+def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control):
+    """Report supervisor evidence, not a guessed explanation of client UI errors."""
+    if control.get("phase") == "halted":
+        outcome = "safety stop: " + str(control.get("reason", "inspect run records"))
+    elif control.get("phase") == "ready":
+        outcome = "rollover limit reached; checkpoint saved"
+    elif rc == 130:
+        outcome = "interrupted (130); reconcile unfinished operations"
+    elif rc == 0:
+        outcome = "client exited normally (0); this does not prove the task is complete"
+    else:
+        outcome = f"client/launcher failure ({rc}); inspect client output and run records"
+    startup_line("Token Kit exit: " + outcome, heading=True)
+    sample = control.get("sample") or {}
+    context = sample.get("context_tokens")
+    startup_line("Latest context: " + (f"{context:,} tokens" if context is not None else "unknown"))
+    startup_line(f"Cumulative usage (including cached input and observed workers): {store.path / 'TOKEN_LEDGER.md'}")
+    command = ["token-kit", "run" if agent == "coordinator" else "launch"]
+    command += ["--task", str(store.path)] if agent == "coordinator" else [str(store.path), "--agent", agent]
+    command += ["--engine", engine]
+    effective_model = sample.get("current_model") or model
+    if effective_model and effective_model != "unknown":
+        command += ["--model", effective_model]
+    if yolo:
+        command += ["--yolo"]
+    if threshold:
+        command += ["--rollover-tokens", str(threshold), "--max-rollovers", str(max_rollovers)]
+    startup_line("Resume with Token Kit (checkpoints, not native transcript): " + shlex.join(command))
+    return rc
+
+
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | None = None,
            max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None) -> int:
@@ -141,14 +172,20 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
     if engine == "codex" and rollover_tokens and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
     for segment in range(max_rollovers + 1):
-        rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
-                                     idle=idle if segment == 0 else False,
-                                     initial_prompt=initial_prompt if segment == 0 else None)
+        try:
+            rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
+                                         idle=idle if segment == 0 else False,
+                                         initial_prompt=initial_prompt if segment == 0 else None)
+        except (OSError, ValueError):
+            if not dry_run:
+                exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {})
+            raise
         if control.get("phase") != "ready":
-            return rc
+            return rc if dry_run else exit_summary(store, agent, engine, model, yolo,
+                                                   rollover_tokens, max_rollovers, rc, control)
         if segment == max_rollovers:
             print("Token Kit: rollover limit reached; checkpoint saved. Resume manually.", file=sys.stderr)
-            return 75
+            return exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 75, control)
         observed_model = (control.get("sample") or {}).get("current_model")
         if observed_model and observed_model != "unknown":
             model = observed_model

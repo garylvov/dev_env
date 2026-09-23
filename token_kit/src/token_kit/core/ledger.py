@@ -117,25 +117,49 @@ def cell(value) -> str:
 
 
 def render(rows: dict) -> str:
+    groups = {"Coordinator / managed agents": [], "Observed workers (native / transport)": []}
+    for key, row in sorted(rows.items()):
+        native = "/native:" in row["agent"] or key.startswith("codex-thread:") or row["agent"].endswith("/codex-worker")
+        groups["Observed workers (native / transport)" if native else "Coordinator / managed agents"].append(row)
     lines = ["# Token ledger", "", "Reported usage only; not a bill or subscription-quota meter.",
              "Cached/cache-write tokens are included in input; reasoning is included in output.",
+             "Uncached input = input minus cached reads and reported cache writes; do not add input and its subsets.",
+             "Codex cache writes and Claude reasoning are not separately reported (shown as unknown).",
+             "Total is cumulative reported usage across requests; reasoning is never added again.",
              "Context is a latest-request proxy, not cumulative spend or a hard context cap.",
-             "Native children appear only when a hook supplies their transcript; unobserved work is excluded.",
+             "Workers appear only when a hook supplies their transcript or an app-server thread reports usage; unobserved work is excluded.",
              "App-server worker model labels are requested models; provider rerouting may differ.",
              "Unavailable rows are unknown, not zero. No prompt/transcript text is stored here.", "",
-             "| Agent | Run | Engine | Model | Input | Cached | Cache write | Output | Reasoning | Total | Status |",
-             "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|"]
+             "| Scope | Observed rows | Unknown rows | Known cumulative total |",
+             "|---|---:|---:|---:|"]
+    for name, group in groups.items():
+        reported = [row for row in group if row.get("status") == "reported" and row.get("models")]
+        total = sum(values["total"] for row in reported for values in row["models"].values())
+        lines.append(f"| {name} | {len(group)} | {len(group) - len(reported)} | {total:,} |")
+    lines.extend(["", "Scope totals cover known observations only; zero observed rows does not establish zero usage.", "",
+                  "| Agent | Run | Engine | Model | Input | Cached | Cache write | Output | Reasoning | Total | Status | Uncached input | Latest context proxy |",
+                  "|---|---|---|---|---:|---:|---:|---:|---:|---:|---|---:|---:|"])
     totals = empty()
     for key, row in sorted(rows.items()):
         models = row.get("models") or {"unknown": {field: "unknown" for field in FIELDS}}
         for model, values in sorted(models.items()):
+            known = row["status"] == "reported" and bool(row.get("models"))
+            display = dict(values) if known else {field: "unknown" for field in FIELDS}
+            uncached = values["input"] - values["cached"] - values["cache_write"] if known else "unknown"
+            if row["engine"] == "codex":
+                display["cache_write"] = "unknown"
+            if row["engine"] == "claude":
+                display["reasoning"] = "unknown"
+            context = row.get("context_tokens") if known else None
             fields = [row["agent"], row["run"], row["engine"], model,
-                      *[values[field] for field in FIELDS], row["status"]]
+                      *[display[field] for field in FIELDS], row["status"], uncached,
+                      context if context is not None else "unknown"]
             lines.append("| " + " | ".join(map(cell, fields)) + " |")
-            if row["status"] == "reported":
+            if known:
                 for field in FIELDS:
                     totals[field] += values[field]
-    lines.extend(["", f"Known reported total: **{totals['total']:,}** tokens. Unknown rows excluded.", ""])
+    lines.extend(["", "Latest context belongs to the observed agent/run and repeats across its model rows; do not sum it.",
+                  f"Known reported total: **{totals['total']:,}** tokens. Unknown rows excluded.", ""])
     return "\n".join(lines)
 
 
@@ -195,6 +219,15 @@ per thread avoids charging a resumed job's earlier turns twice.
             for field in FIELDS:
                 bucket[field] += values[field] - previous[field]
             row.update(wire_totals=values, status="reported", updated_at=now())
+            # Context is independent of cumulative accounting. Missing or malformed
+            # latest-request telemetry must not discard valid cumulative usage.
+            latest = usage.get("last") or {}
+            try:
+                context = count(latest["totalTokens"]) if "totalTokens" in latest else (
+                    count(latest["inputTokens"]) + count(latest["outputTokens"]))
+            except (ValueError, KeyError, TypeError):
+                context = None
+            row["context_tokens"] = context
         except (ValueError, KeyError, TypeError) as exc:
             row.update(status="unavailable", error=str(exc))
         rows[key] = row

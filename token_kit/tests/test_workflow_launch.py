@@ -18,6 +18,34 @@ from token_kit.core.store import Store, read_json
 
 
 class WorkflowLaunchTests(unittest.TestCase):
+    def test_exit_footer_distinguishes_outcomes_and_preserves_resume_flags(self):
+        for rc, control, expected in (
+                (0, {}, "client exited normally"),
+                (130, {}, "interrupted"),
+                (7, {}, "failure (7)"),
+                (75, {"phase": "halted", "reason": "missing checkpoint"}, "safety stop: missing checkpoint"),
+                (75, {"phase": "ready"}, "rollover limit reached")):
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                workflow.exit_summary(self.store, "coordinator", "codex", "gpt-6-astra",
+                                      True, 500000, 10, rc, control)
+            text = output.getvalue()
+            self.assertIn(expected, text)
+            self.assertIn("Latest context: unknown", text)
+            last = text.splitlines()[-1]
+            self.assertIn("token-kit run --task", last)
+            self.assertIn("--yolo --rollover-tokens 500000 --max-rollovers 10", last)
+            self.assertNotIn("codex resume", last)
+
+    def test_exit_footer_uses_observed_model_and_context(self):
+        with contextlib.redirect_stderr(io.StringIO()) as output:
+            workflow.exit_summary(self.store, "parser", "codex", "old", False, 100, 2, 0,
+                                  {"sample": {"context_tokens": 1234, "current_model": "new"}})
+        text = output.getvalue()
+        self.assertIn("1,234 tokens", text)
+        self.assertIn("token-kit launch", text)
+        self.assertIn("--agent parser --engine codex --model new", text)
+        self.assertNotIn("--yolo", text)
+
     def test_model_effort_policy_reaches_both_clients(self):
         from token_kit.adapters import claude, codex
         from token_kit.adapters.base import LaunchRequest
