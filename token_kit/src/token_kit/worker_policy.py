@@ -27,11 +27,13 @@ artifacts/ and the final result in out.md. Checkpoints are agent-maintained, not
 
 Explicit scoped user model/provider/effort requests override these ordered defaults:
 plan/implement Opus -> Astra; review/debug Astra -> Opus; loops Luna -> Sonnet -> Terra
--> Sol; docs Sol -> Luna -> Sonnet; scout/summarize Luna -> Sonnet. Effort is medium,
-except Luna high (scouting xhigh). Fable requires an explicit request. "Use Codex" or
+-> Sol; docs Sol -> Luna -> Sonnet; scout/summarize/mechanical-edit Luna -> Sonnet.
+Effort: medium; Luna high except scouting/mechanical xhigh. Fable is explicit-only. "Use Codex" or
 "conserve Claude" excludes Claude fallbacks. Skip unavailable candidates; record
 overrides and their scope/expiry in state. Do not infer availability or silently switch
-an explicitly required model.
+an explicitly required model. Stay in your scoped role. If complexity exceeds it,
+checkpoint and report evidence/blockers via your parent to the main thread; only
+the main thread authorizes scope/model promotion within user constraints.
 
 Prefer native same-engine delegation, including nesting when permitted. Register
 each child with --parent YOUR_ID. Pass this policy and scoped overrides, not transcripts.

@@ -178,6 +178,23 @@ agents and attempts. Hooks do not automatically register every native spawn.
 Cross-client token accounting requires instrumented transports; raw CLI calls
 are not automatically metered. Missing usage is unknown, not zero.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Implementation/planning (including mechanical edits): Opus medium -> Astra medium.",
+    "Implementation/planning, excluding mechanical edits: Opus medium -> Astra medium.\n"
+    "Mechanical edits: Luna xhigh -> Sonnet medium.")
+INSTRUCTIONS = INSTRUCTIONS.replace("xhigh for scouting and high otherwise",
+                                    "xhigh for scouting/mechanical edits and high otherwise")
+INSTRUCTIONS += """Choose the lowest-cost permitted model capable of the scoped work.
+Mechanical edits belong to the narrow tier, not complex implementation. Every
+brief names the role, allowed paths, output, completion check, and escalation
+boundary. Workers do not expand scope or promote their own model. If complexity
+exceeds the brief, checkpoint and report blockers, evidence, attempted approaches,
+and a proposed change via the parent to the main thread. The main thread decides
+whether to split, clarify, or authorize stronger reasoning within user constraints.
+Leads relay promotion requests. Availability fallback within the assigned ladder
+is separate from complexity promotion; report and checkpoint either change.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

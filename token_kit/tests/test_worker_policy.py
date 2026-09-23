@@ -17,6 +17,16 @@ from token_kit.core.store import Store
 
 
 class WorkerPolicyTests(unittest.TestCase):
+    def test_mechanical_routing_and_main_thread_promotion(self):
+        from token_kit.project_install import INSTRUCTIONS
+        self.assertIn("Mechanical edits: Luna xhigh -> Sonnet medium", INSTRUCTIONS)
+        self.assertNotIn("including mechanical edits", INSTRUCTIONS)
+        self.assertIn("scout/summarize/mechanical-edit Luna -> Sonnet", policy.POLICY)
+        for text in (policy.POLICY, INSTRUCTIONS):
+            self.assertIn("main thread", text)
+            self.assertIn("complexity", text)
+            self.assertIn("checkpoint", text)
+
     def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
         from token_kit.project_install import INSTRUCTIONS
         matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()

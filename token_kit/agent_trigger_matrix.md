@@ -1,7 +1,7 @@
 # Agent trigger matrix
 
 A soft guide for the thread that delegates: what kind of work goes to which engine, model and
-effort, and why. Default effort is medium for every model except Luna, which uses xhigh for scouting and high otherwise.
+effort, and why. Default effort is medium except Luna: xhigh for scouting/mechanical edits, high otherwise.
 It decides nothing for you. Shared Token Kit sessions apply these preferences through
 agent instructions. Only the legacy router resolves a `KIND: <name>` line and writes
 a routing header; that hook is not required for native delegation below.
@@ -37,7 +37,7 @@ that falls through stays cheap. Worked examples are at the end, under **Examples
 | --- | --- | --- | --- | --- |
 | lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
 | summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
-| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | every edit named in the brief is applied and the diff is shown |
+| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | every edit named in the brief is applied and the diff is shown |
 | implement | write code to a written spec, together with the test that guards it | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
 | debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
 | design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | two or three approaches are compared and one is recommended with its cost |
@@ -63,6 +63,7 @@ first, then follow its ordered list after applying the user's current instructio
 | Routine execution | execution loops and job coordination | Luna high > Sonnet medium > Terra medium > Sol medium |
 | Routine writing | documentation | Sol medium > Luna high > Sonnet medium |
 | Narrow | scouting, lookup, and summaries | Luna xhigh > Sonnet medium |
+| Narrow, deterministic | mechanical edits specified by the brief | Luna xhigh > Sonnet medium |
 
 Sol leads documentation and remains in the execution-loop fallback list.
 A tier describes the assignment, not the agent's position in the hierarchy.
@@ -71,6 +72,17 @@ such as "Luna for these loops" or "Sol for this implementation" override the lis
 "Use Codex" filters out Claude without changing the remaining order. Do not
 automatically escalate a narrow task to a complex-tier model just because it ran long;
 surface the blocker and revise the assignment if needed. Fable stays opt-in only.
+
+Choose the lowest-cost permitted model capable of the scoped work. Mechanical
+edits are not complex implementation merely because they change source code.
+Each brief must name the role, allowed paths, expected output, completion check,
+and escalation boundary. Workers must not widen scope or promote their own model.
+If complexity exceeds the brief, checkpoint and report to the main thread via the
+parent: blocker, evidence, attempted approaches, and proposed scope/model change.
+The main thread decides whether to split, clarify, or authorize a stronger model
+within the user's constraints; leads relay promotion requests rather than silently
+upgrading workers. Availability fallback within the assigned ladder is distinct
+from complexity promotion and must still be reported and checkpointed.
 
 ## Explicit user overrides
 
