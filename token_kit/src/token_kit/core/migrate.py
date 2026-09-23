@@ -13,7 +13,7 @@ import re
 import stat
 import tempfile
 
-from .store import Store, atomic_text, component, now, read_json, sync_directory, write_json
+from .store import Store, atomic_text, component, now, read_json, sync_directory, task_component, write_json
 
 MAX_ENTRIES = 2000
 MAX_DEPTH = 16
@@ -144,7 +144,7 @@ def migrate_task(source: Path, root: Path) -> Store:
                 raise ValueError("Import record has invalid provenance")
             if not record.get("task_id"):
                 raise ValueError(f"Incomplete legacy import requires inspection under: {root}")
-            destination = root / component(record["task_id"])
+            destination = root / task_component(record["task_id"])
             if (record.get("source") != str(source) or destination.parent != root
                     or destination.is_symlink()):
                 raise ValueError("Import record has invalid provenance")

@@ -79,6 +79,13 @@ def component(value: str) -> str:
     return value
 
 
+def task_component(value: str) -> str:
+    """Task folder names include local clock colons; agent IDs remain stricter."""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_:-]{0,127}", value):
+        raise ValueError("Task ID must be one safe task-folder component")
+    return value
+
+
 def fingerprint(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -123,10 +130,22 @@ class Store:
         if assignment is not None and not assignment.strip():
             raise ValueError("Assignment must be nonempty when supplied")
         normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
-        slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:64].rstrip("-") or "session"
-        task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + slug + "-" + uuid.uuid4().hex[:8]
-        path = root.resolve() / task_id
-        path.mkdir(parents=True)
+        slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")[:64].rstrip("_") or "session"
+        local = datetime.now().astimezone()
+        months = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sept", "oct", "nov", "dec")
+        stamp = f"{local.hour % 12 or 12}:{local.minute:02d}{'am' if local.hour < 12 else 'pm'}_{months[local.month - 1]}{local.day}"
+        # Short UUID suffixes can collide. Reserve atomically and retry without
+        # touching existing tasks; the full creation date remains in metadata.
+        for _ in range(32):
+            task_id = f"{slug}_{stamp}_{uuid.uuid4().hex[:4]}"
+            path = root.resolve() / task_id
+            try:
+                path.mkdir(parents=True)
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise ValueError("Could not reserve a unique task folder; retry creation")
         sync_directory(path.parent)
         write_json(path / "task.json", {"schema_version": SCHEMA, "task_id": task_id,
                    "title": title, "status": "open", "workspace": str(workspace), "created_at": now()})
