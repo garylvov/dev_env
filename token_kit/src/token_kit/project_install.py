@@ -200,6 +200,20 @@ INSTRUCTIONS += """Keep STATE.md a current snapshot, replacing superseded status
 progress logs. Preserve unresolved operations, decisions, and active user overrides.
 Put chronology and detailed evidence in artifacts and immutable checkpoints.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """For new features, announce the simple/complex route, reason, and selected models.
+Complex: bounded audit (Luna xhigh -> Sonnet medium), plan (Opus -> Astra),
+independent red-team (Astra -> Opus), revise (Opus -> Astra), then delegate bounded
+implementation (Sonnet -> Terra -> Sol). All are medium except Luna xhigh here.
+This feature pipeline overrides the general implementation default; preserve explicit
+user/provider overrides. Resolve review findings before implementation; escalate
+design blockers to the coordinator instead of silently upgrading workers.
+Simple features can go directly from brief design to implementation and validation:
+mid tier for routine implementation, narrow tier for fully specified edits. Uncertain
+scope gets a bounded audit first. No extra approval gate for authorized work.
+Record added features, dependencies, scope, and current phase in state. Announce
+phase changes and revised scope; pause only affected work when requests conflict.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

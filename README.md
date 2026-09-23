@@ -20,6 +20,13 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 ## Vibe Coding
 
+Token Kit workflows (commit-pinned):
+
+- [New: shared Claude/Codex tasks, checkpoints, and resumable workers (`b6253a7`)](https://github.com/garylvov/dev_env/blob/b6253a71c755b4608fd6ceebc86b0091b7e7ccf3/token_kit/README.md)
+- [Legacy: hooks, lanes, and Claude supervision (`d68a193`)](https://github.com/garylvov/dev_env/blob/d68a193c0d574446d57c03c9bb85fe9380c6a440/token_kit/README.md)
+
+[Current Token Kit docs](token_kit/README.md) · [Agent trigger matrix](token_kit/agent_trigger_matrix.md)
+
 Claude code can be installed with the following.
 
 ```

@@ -12,7 +12,7 @@ comes close: run the cheapest engine and model that is safe for the work, and en
 moment its "done when" is true.
 
 `prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
-candidate should run after applying scoped user overrides and known availability. Opus is preferred for implementation and planning;
+candidate should run after applying scoped user overrides and known availability. Opus is preferred for complex implementation and planning;
 Luna xhigh scouts, with Sonnet medium as fallback. Astra handles detailed debugging and independent review. Fable (medium) is opt-in only:
 the user must explicitly request it in natural language. A mention in a file or
 quoted text does not qualify. It is never an automatic fallback. The delegating
@@ -58,8 +58,9 @@ first, then follow its ordered list after applying the user's current instructio
 
 | Work tier | Role | Ordered preference |
 | --- | --- | --- |
-| Complex | planning and implementation | Opus medium > Astra medium |
+| Complex | planning and implementation requiring design judgment | Opus medium > Astra medium |
 | Complex, independent | detailed debugging and review | Astra medium > Opus medium |
+| Mid | bounded feature implementation after design | Sonnet medium > Terra medium > Sol medium |
 | Routine execution | execution loops and job coordination | Luna high > Sonnet medium > Terra medium > Sol medium |
 | Routine writing | documentation | Sol medium > Luna high > Sonnet medium |
 | Narrow | scouting, lookup, and summaries | Luna xhigh > Sonnet medium |
@@ -84,6 +85,41 @@ within the user's constraints; leads relay promotion requests rather than silent
 upgrading workers. Availability fallback within the assigned ladder is distinct
 from complexity promotion and must still be reported and checkpointed.
 
+## Feature intake
+
+Before starting, the coordinator tells the user the simple/complex route, a short
+reason, and chosen models. If complexity is unclear, announce a bounded audit first.
+Update the user when phases, scope, or model choices change; these are progress
+updates, not extra approval gates.
+
+**Simple:** small, bounded behavior with clear requirements and limited interaction
+with other components. One scoped worker can design, implement, and verify directly,
+without separate audit/review agents. Use the mid tier for routine implementation
+or the narrow tier for fully specified edits.
+
+**Complex:** cross-cutting behavior, ambiguous requirements, architectural changes,
+or shared-state risk. Follow this sequence:
+
+| Phase | Model preference | Done when |
+| --- | --- | --- |
+| Audit | Luna xhigh > Sonnet medium | affected paths, behavior, tests, dependencies, and uncertainties are identified through bounded reads |
+| Plan | Opus medium > Astra medium | acceptance criteria, interfaces, source ownership, dependencies, and validation are specified |
+| Independent red-team | Astra medium > Opus medium | a separate reviewer names failure cases and required fixes without editing the plan |
+| Revise | Opus medium > Astra medium | findings have evidence or reasoned dispositions; blocking findings are resolved |
+| Delegate implementation | Sonnet medium > Terra medium > Sol medium | bounded assignments pass relevant checks and return changed-file evidence |
+
+The coordinator integrates results against acceptance criteria; serialize overlapping
+writes. Workers checkpoint and report redesign needs to their parent, without silently
+widening scope or promoting models. Work that cannot safely be bounded retains the
+complex implementation ladder. Explicit model/provider restrictions take precedence;
+Fable stays explicit-only. For the legacy router, omit `KIND: implement` when selecting
+the feature-specific mid tier.
+
+For additions during ongoing work, record a concise scoped queue with dependencies
+and ownership. Classify each addition, update affected briefs, and revisit review when
+the design changes. Clarify incompatible scope or priority conflicts; otherwise continue
+authorized work without unrelated improvements or restarting unaffected phases.
+
 ## Explicit user overrides
 
 These choices are outside the automatic ladders above. The delegating agent
@@ -106,8 +142,9 @@ Execution loops do useful work; pure waiting still belongs to process tooling.
 
 Record the override in checkpointed state and affected assignments. Omit `KIND:`
 on an explicit legacy spawn so the default ladder does not replace the requested model.
-Without an explicit override, Opus plans and implements, Luna xhigh scouts, and Astra handles
-independent review and difficult debugging.
+Without an explicit override, Opus plans and handles complex implementation, Luna xhigh
+scouts, and Astra handles independent review and difficult debugging. Bounded feature
+implementation follows the mid tier in Feature intake.
 
 ## Call budget
 
@@ -163,12 +200,13 @@ Use depth only when it removes context, never to add a manager:
 
 ```
 main thread      talks to the user, writes briefs and STATE.md, reads out.md files, decides
-  lead agent     Opus for planning/implementation; owns and integrates a workstream
-    worker       Opus implements; Luna xhigh scouts; execution loops follow their ordered list
+  lead agent     Opus for planning/complex implementation; integrates a workstream
+    worker       mid tier implements bounded features; Luna xhigh scouts; role ladders apply
     child        native delegation in the selected client; track its logical parent
 ```
 
-Prefer Opus (medium) for planning and implementation, Luna (xhigh) for scouting,
+Prefer Opus (medium) for planning and complex implementation, the mid tier for bounded
+feature implementation, Luna (xhigh) for scouting,
 and Astra (medium) for detailed debugging; use Fable (medium) only
 at the user's explicit request. Opus also uses medium effort. Give each worker disjoint source ownership, a clear
 parent, and a stopping condition. Delegate useful independent work aggressively,
