@@ -76,7 +76,7 @@ def run(args) -> int:
     if args.max_rollovers < 0:
         raise ValueError("--max-rollovers must be nonnegative")
     if args.engine == "codex" and args.rollover_tokens and not args.dry_run:
-        runtime.verify_codex(plan.argv[0], workspace)
+        runtime.ensure_codex_hooks(plan.argv[0], workspace)
     if store:
         store.resume_bundle("coordinator")  # validate recovery before changing project files
     changes = configure(workspace, engine="both", codegraph=args.codegraph, dry_run=True) if args.install_project else []
@@ -113,7 +113,7 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
     if max_rollovers < 0 or (rollover_tokens is not None and rollover_tokens <= 0):
         raise ValueError("Invalid rollover limits")
     if engine == "codex" and rollover_tokens and not dry_run:
-        runtime.verify_codex(workspace=store.workspace)
+        runtime.ensure_codex_hooks(workspace=store.workspace)
     for segment in range(max_rollovers + 1):
         rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens)
         if control.get("phase") != "ready":

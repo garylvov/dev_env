@@ -57,6 +57,10 @@ def codex_config() -> list[str]:
     return result
 
 
+class HookReviewRequired(ValueError):
+    """Required hooks are present but need user review/enabling."""
+
+
 def validate_hooks(result: dict) -> None:
     expected = {event[0].lower() + event[1:] for event in EVENTS}
     command = hooks()["Stop"][0]["hooks"][0]["command"]
@@ -71,7 +75,7 @@ def validate_hooks(result: dict) -> None:
         raise ValueError("This Codex build did not load all required lifecycle hooks; protected rollover unavailable")
     if any(not found[event].get("enabled") or found[event].get("trustStatus") != "trusted"
            for event in expected):
-        raise ValueError("Codex hooks need trust: run token-kit hooks --engine codex, review Token Kit in /hooks, then retry")
+        raise HookReviewRequired("Codex hooks need trust: run token-kit hooks --engine codex, review Token Kit in /hooks, then retry")
 
 
 def verify_codex(executable: str = "codex", workspace: Path | None = None) -> None:
@@ -103,12 +107,28 @@ def verify_codex(executable: str = "codex", workspace: Path | None = None) -> No
         client.close()
 
 
-def review_hooks() -> int:
+def ensure_codex_hooks(executable: str = "codex", workspace: Path | None = None) -> None:
+    """Offer one native review session, then verify actual trust before launch."""
+    try:
+        verify_codex(executable, workspace)
+        return
+    except HookReviewRequired:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise
+    print("Token Kit: opening Codex for hook approval. Open /hooks, trust/enable "
+          "Token Kit's hooks, then exit; your task will continue automatically.", file=sys.stderr)
+    if review_hooks(executable, workspace) != 0:
+        raise ValueError("Codex hook review was cancelled or failed; task launch stopped")
+    # An ordinary exit does not establish approval. Never reopen in a loop.
+    verify_codex(executable, workspace)
+
+
+def review_hooks(executable: str = "codex", workspace: Path | None = None) -> int:
     environment = dict(os.environ)
     for name in ("TOKEN_KIT_TASK", "TOKEN_KIT_AGENT", "TOKEN_KIT_RUN"):
         environment.pop(name, None)
-    print("Open /hooks and review Token Kit's lifecycle hooks, then exit and rerun token-kit run.", file=sys.stderr)
-    return subprocess.call(["codex", *codex_config()], env=environment)
+    print("Open /hooks and review Token Kit's lifecycle hooks, then exit.", file=sys.stderr)
+    return subprocess.call([executable, *codex_config()], env=environment, cwd=workspace)
 
 
 def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | None) -> None:

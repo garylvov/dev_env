@@ -52,6 +52,7 @@ not spend; overshoot is possible. Missing hooks/checkpoints stop recovery.
 `token-kit ledger TASK` shows agent/run/model input, cache, output and totals.
 Not billing/quota.
 
-Codex requires trusted hooks: `token-kit hooks --engine codex`.
+Codex opens hook review automatically when needed: approve in `/hooks`, then exit
+to continue. Manual review: `token-kit hooks --engine codex`.
 Claude requests `DISABLE_COMPACT=1`; Codex requests a compaction veto. Live behavior
 uncertified. No native-child reattachment or automatic provider failover.
