@@ -24,6 +24,7 @@ from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
 from . import runtime
 from .core import ledger, lifecycle
+from .rollover import format_limit, parse_limit
 from .timefmt import human, parse_iso
 
 
@@ -131,6 +132,13 @@ def latest_picker_run(task: str) -> dict:
     return max(records, key=lambda item: (item[0], item[1]))[2] if records else {}
 
 
+def _rollover_command(spec) -> list[str]:
+    """Return the stable CLI spelling for a requested rollover target."""
+    normalized = parse_limit(spec)
+    flag = "--rollover-at" if isinstance(normalized, str) else "--rollover-tokens"
+    return [flag, normalized if isinstance(normalized, str) else str(normalized)]
+
+
 def pick(args) -> int:
     if args.limit <= 0:
         raise ValueError("--limit must be positive")
@@ -186,6 +194,8 @@ def pick(args) -> int:
         observed = usage.get("current_model")
         model = observed if observed and observed != "unknown" else previous.get("model")
     threshold = args.rollover_tokens if args.rollover_tokens is not None else previous.get("rollover_tokens")
+    if threshold is not None:
+        threshold = parse_limit(threshold)
     yolo = args.yolo if args.yolo is not None else previous.get("yolo", False)
     if not isinstance(yolo, bool):
         raise ValueError("invalid recorded permissions; specify --yolo or --no-yolo")
@@ -194,8 +204,8 @@ def pick(args) -> int:
     command = ["token-kit", "run", "--task", task, "--engine", engine]
     if model and model != "unknown":
         command += ["--model", str(model)]
-    if threshold:
-        command += ["--rollover-tokens", str(runtime.token_limit(str(threshold)))]
+    if threshold is not None:
+        command += _rollover_command(threshold)
     if yolo:
         command += ["--yolo"]
     if args.print_command:
@@ -228,6 +238,9 @@ def startup_line(text: str, *, heading: bool = False) -> None:
 def run(args) -> int:
     """Create or recover a task and launch; project installation is opt-in."""
     from .project_install import configure
+
+    if args.rollover_tokens is not None:
+        args.rollover_tokens = parse_limit(args.rollover_tokens)
 
     if args.task and (args.title or args.workspace or args.root or args.prompt is not None):
         raise ValueError("--task cannot be combined with a new title, --workspace, --root, or --prompt")
@@ -279,14 +292,20 @@ def run(args) -> int:
         startup_line("New session: loading trigger matrix, then waiting for your instruction; the title is only a label.")
     startup_line("Guidance: session-only; existing project settings are preserved" if not args.install_project
                  else "Guidance: installed in project")
-    startup_line("Checkpoints: agent-maintained | automatic rollover: " +
-                 (f"{args.rollover_tokens:,} context tokens (turn boundaries)" if args.rollover_tokens else "disabled"))
+    if args.rollover_tokens is None:
+        rollover_display = "disabled"
+    elif isinstance(args.rollover_tokens, str):
+        rollover_display = f"{format_limit(args.rollover_tokens)} context (turn boundaries)"
+    else:
+        rollover_display = f"{format_limit(args.rollover_tokens)} context tokens (turn boundaries)"
+    startup_line("Checkpoints: agent-maintained | automatic rollover: " + rollover_display)
     startup_line(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}")
     startup_line(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
           f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
           + (" --yolo" if args.yolo else "")
-          + (f" --rollover-tokens {args.rollover_tokens} --max-rollovers {args.max_rollovers}"
-             if args.rollover_tokens else ""))
+          + (" " + shlex.join([*_rollover_command(args.rollover_tokens),
+                               "--max-rollovers", str(args.max_rollovers)])
+             if args.rollover_tokens is not None else ""))
     return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo,
                   rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers,
                   idle=idle, initial_prompt=args.prompt)
@@ -294,6 +313,8 @@ def run(args) -> int:
 
 def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control):
     """Report supervisor evidence, not a guessed explanation of client UI errors."""
+    if threshold is not None:
+        threshold = parse_limit(threshold)
     if control.get("phase") == "halted":
         outcome = "safety stop: " + str(control.get("reason", "inspect run records"))
     elif control.get("phase") == "ready":
@@ -317,16 +338,18 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
         command += ["--model", effective_model]
     if yolo:
         command += ["--yolo"]
-    if threshold:
-        command += ["--rollover-tokens", str(threshold), "--max-rollovers", str(max_rollovers)]
+    if threshold is not None:
+        command += [*_rollover_command(threshold), "--max-rollovers", str(max_rollovers)]
     startup_line("Resume with Token Kit (checkpoints, not native transcript): " + shlex.join(command))
     return rc
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
-           dry_run: bool = False, yolo: bool = False, rollover_tokens: int | None = None,
+           dry_run: bool = False, yolo: bool = False, rollover_tokens: int | str | None = None,
            max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None) -> int:
-    if max_rollovers < 0 or (rollover_tokens is not None and rollover_tokens <= 0):
+    if rollover_tokens is not None:
+        rollover_tokens = parse_limit(rollover_tokens)
+    if max_rollovers < 0:
         raise ValueError("Invalid rollover limits")
     if engine == "codex" and rollover_tokens and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
@@ -353,8 +376,10 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 
 
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
-                    dry_run: bool, yolo: bool, rollover_tokens: int | None,
+                    dry_run: bool, yolo: bool, rollover_tokens: int | str | None,
                     *, idle: bool = False, initial_prompt: str | None = None) -> tuple[int, dict]:
+    if rollover_tokens is not None:
+        rollover_tokens = parse_limit(rollover_tokens)
     # A real managed launch may seed an old task's missing snapshot. Dry runs
     # remain read-only and use the repository fallback through resume_bundle.
     if not dry_run:
@@ -481,7 +506,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
     start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
     start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
-    start.add_argument("--rollover-tokens", type=runtime.token_limit, help="context-token rollover target (e.g. 500k); default: unlimited, no token-triggered rollover")
+    start.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit,
+                       help="rollover target: absolute tokens (e.g. 500k) or 1-99 percent of the reported context window; default: disabled")
     start.add_argument("--max-rollovers", type=int, default=10, help="maximum automatic restarts (default: 10)")
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
@@ -503,7 +529,7 @@ def build_parser() -> argparse.ArgumentParser:
     picker.add_argument("--model", help="override the latest run's model")
     picker.add_argument("--select", type=int, help="explicit candidate number (required without a terminal)")
     picker.add_argument("--limit", type=int, default=20, help="maximum candidates shown (default: 20)")
-    picker.add_argument("--rollover-tokens", type=runtime.token_limit)
+    picker.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
     picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
                         help="override the latest run's permission setting")
     migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
@@ -536,7 +562,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--parent", help="parent for a new logical worker (default: coordinator)")
             command.add_argument("--engine", choices=("claude", "codex"))
             command.add_argument("--model")
-            command.add_argument("--rollover-tokens", type=runtime.token_limit)
+            command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
             command.add_argument("--owner-agent", default=os.environ.get("TOKEN_KIT_AGENT"))
             command.add_argument("--owner-run", default=os.environ.get("TOKEN_KIT_RUN"))
         elif action == "bind":
@@ -562,7 +588,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--yolo", action="store_true",
                                  help="bypass client permission checks (Codex also disables sandboxing)")
-            command.add_argument("--rollover-tokens", type=runtime.token_limit)
+            command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
             command.add_argument("--max-rollovers", type=int, default=10)
         elif name == "send":
             command.add_argument("text", help="literal text, or - to read stdin")

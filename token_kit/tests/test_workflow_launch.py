@@ -46,6 +46,34 @@ class WorkflowLaunchTests(unittest.TestCase):
         self.assertIn("--agent parser --engine codex --model new", text)
         self.assertNotIn("--yolo", text)
 
+    def test_percentage_resume_command_keeps_requested_form(self):
+        with contextlib.redirect_stderr(io.StringIO()) as output:
+            workflow.exit_summary(self.store, "coordinator", "claude", None,
+                                  False, "80%", 3, 75, {"phase": "ready"})
+        text = output.getvalue()
+        self.assertIn("--rollover-at 80% --max-rollovers 3", text)
+        self.assertNotIn("--rollover-tokens 80", text)
+
+    def test_percentage_parser_alias_is_available_for_all_launch_commands(self):
+        parser = workflow.build_parser()
+        cases = (
+            (["run", "--rollover-at", "80%"], "run"),
+            (["pick", "--rollover-at", "80%"], "pick"),
+            (["launch", str(self.store.path), "--engine", "claude", "--rollover-at", "80%"], "launch"),
+            (["worker", "prepare", str(self.store.path), "--agent", "parser", "--rollover-at", "80%"], "worker"),
+        )
+        for argv, command in cases:
+            with self.subTest(command=command):
+                args = parser.parse_args(argv)
+                self.assertEqual(args.rollover_tokens, "80%")
+
+    def test_percentage_help_renders_without_formatting_error(self):
+        parser = workflow.build_parser()
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(SystemExit) as exit_info:
+                parser.parse_args(["run", "--help"])
+        self.assertEqual(exit_info.exception.code, 0)
+
     def test_model_effort_policy_reaches_both_clients(self):
         from token_kit.adapters import claude, codex
         from token_kit.adapters.base import LaunchRequest
@@ -110,6 +138,12 @@ class WorkflowLaunchTests(unittest.TestCase):
         self.assertEqual(report["engine"], "claude")
         self.assertEqual(self.records(), [])
         popen.assert_not_called()
+
+    def test_mock_launch_preserves_percentage_spec_for_segment_and_dry_run(self):
+        with patch.object(workflow, "_launch_segment", return_value=(0, {})) as segment:
+            self.assertEqual(workflow.launch(self.store, "coordinator", "claude",
+                                             rollover_tokens="80%", dry_run=True), 0)
+        self.assertEqual(segment.call_args.args[6], "80%")
 
     def test_missing_binary_does_not_claim_a_run(self):
         bundle = self.store.resume_bundle("coordinator")

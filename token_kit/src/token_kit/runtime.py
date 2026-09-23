@@ -22,6 +22,7 @@ if __package__ in (None, ""):
 
 from token_kit.core import ledger, lifecycle
 from token_kit.core.store import Store, read_json, write_json
+from token_kit import rollover
 
 EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "Stop",
           "SubagentStart", "SubagentStop", "PreCompact")
@@ -131,11 +132,15 @@ def review_hooks(executable: str = "codex", workspace: Path | None = None) -> in
     return subprocess.call([executable, *codex_config()], env=environment, cwd=workspace)
 
 
-def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | None,
+def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | str | None,
                *, session_context: str | None = None) -> None:
+    # Keep the requested representation in the run record.  The effective
+    # numeric threshold is filled in only after usage telemetry is observed.
+    threshold = rollover.parse_limit(threshold) if threshold is not None else None
     store.safe(run / "usage-cursors").mkdir()
     write_json(run / "runtime.json", {"phase": "running", "engine": engine,
                "threshold": threshold, "session_id": None, "active_children": [], "sample": None,
+               "effective_threshold": None, "observed_window": None,
                "session_context": session_context, "awaiting_input": session_context is not None})
     ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
 
@@ -282,9 +287,21 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
         if event == "PostToolUse" and not sample.get("error"):
             return {}  # streaming usage may not be published until the next response
         return halt(control, "Context usage unavailable; automatic rollover cannot proceed safely")
-    threshold = control["threshold"]
-    if sample.get("context_window"):
-        threshold = min(threshold, int(sample["context_window"] * 0.8))
+    requested = control["threshold"]
+    try:
+        threshold = rollover.effective_limit(requested, sample.get("context_window"))
+    except ValueError as exc:
+        # A percentage target cannot be evaluated until the client reports its
+        # context window.  At this point context usage is valid, so stopping
+        # is safer than silently treating the percentage as an absolute count.
+        control["effective_threshold"] = None
+        control["observed_window"] = sample.get("context_window")
+        return halt(control, f"Cannot resolve rollover target: {exc}")
+    observed_window = sample.get("context_window")
+    if (control.get("effective_threshold") != threshold
+            or control.get("observed_window") != observed_window):
+        control["effective_threshold"] = threshold
+        control["observed_window"] = observed_window
     if context < threshold and control["phase"] == "running":
         return {}
     bundle = store.resume_bundle(agent)

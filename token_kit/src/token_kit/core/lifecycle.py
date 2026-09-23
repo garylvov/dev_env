@@ -12,6 +12,7 @@ import shlex
 import uuid
 from pathlib import Path
 
+from .. import rollover
 from .store import component, fingerprint, now, read_json, workspace_head, write_json
 
 ACTIONABLE = {"checkpoint_requested", "rollover_requested", "completion_requested",
@@ -105,6 +106,10 @@ def current_locked(store, agent, ticket):
 
 def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agent=None, owner_run=None):
     from ..worker_policy import brief
+    # Normalize before entering the reservation workflow so malformed input
+    # cannot leave a partially prepared attempt behind.
+    if threshold is not None:
+        threshold = rollover.parse_limit(threshold)
     with store.locked():
         parent = parent_of(store, agent)
         if not parent:
@@ -134,11 +139,13 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                 raise ValueError("Native owner run is no longer active")
             if threshold is None:
                 threshold = record.get("rollover_tokens")
+                if threshold is not None:
+                    threshold = rollover.parse_limit(threshold)
         engine = engine or (old or {}).get("engine")
         if engine not in ("claude", "codex"):
             raise ValueError("Specify --engine claude or codex for the first attempt")
-        if threshold is not None and threshold <= 0:
-            raise ValueError("Worker rollover threshold must be positive")
+        if threshold is None and old and old.get("rollover_tokens") is not None:
+            threshold = rollover.parse_limit(old["rollover_tokens"])
         # Validate the task snapshot and construct the complete spawn brief
         # before publishing a launching reservation. A malformed map or prompt
         # cannot strand a hidden ticket that claims a worker was reserved.
@@ -147,7 +154,9 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                  "phase": "launching", "ticket": uuid.uuid4().hex,
                  "generation": (old or {}).get("generation", 0) + 1,
                  "engine": engine, "model": model or (old or {}).get("model"),
-                 "rollover_tokens": threshold if threshold is not None else (old or {}).get("rollover_tokens"),
+                 "rollover_tokens": threshold,
+                 "effective_threshold": None, "observed_window": None,
+                 "rollover_error": None,
                  "owner_agent": owner_agent, "owner_run": owner_run,
                  "native_id": None, "checkpoint": checkpoint, "started_checkpoint": checkpoint,
                  "created_at": now(), "events": (old or {}).get("events", []),
@@ -339,11 +348,39 @@ def native_worker(store, owner_agent, owner_run, native):
 def budget_nudge(store, agent, ticket, context, window=None):
     with store.locked():
         state = current_locked(store, agent, ticket)
-        threshold = state.get("rollover_tokens")
-        if state["phase"] not in ("running", "launching") or not threshold or context is None:
+        requested = state.get("rollover_tokens")
+        if state["phase"] not in ("running", "launching") or not requested or context is None:
             return None
-        threshold = min(threshold, int(window * .8)) if window else threshold
+        try:
+            threshold = rollover.effective_limit(requested, window)
+        except ValueError as exc:
+            # Native hooks cannot safely raise through the parent client. Make
+            # the uncertainty durable and let the normal parent notice/outbox
+            # path request reconciliation.
+            reason = str(exc)
+            previous_phase = state["phase"]
+            changed = (state.get("rollover_error") != reason
+                       or previous_phase != "needs_reconciliation"
+                       or state.get("observed_window") != window)
+            state["rollover_error"] = reason
+            state["effective_threshold"] = None
+            state["observed_window"] = window
+            state["phase"] = "needs_reconciliation"
+            if previous_phase in ("running", "launching"):
+                event(state, "worker_rollover_unresolved",
+                      f"Worker {agent} rollover target could not be resolved: {reason}. Reconcile its native attempt.")
+            if changed:
+                publish_locked(store, state)
+            return None
+        changed = (state.get("effective_threshold") != threshold
+                   or state.get("observed_window") != window
+                   or state.get("rollover_error") is not None)
+        state["effective_threshold"] = threshold
+        state["observed_window"] = window
+        state["rollover_error"] = None
         if context < threshold:
+            if changed:
+                publish_locked(store, state)
             return None
         state["phase"] = "checkpoint_requested"
         event(state, "worker_checkpoint_requested", f"Worker {agent} reached its context target; checkpoint and handoff requested.")
