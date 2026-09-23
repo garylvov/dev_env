@@ -21,8 +21,9 @@ Names are labels; sessions await instructions. `--prompt "..."` starts work;
 add `--codegraph` for installed CodeGraph.
 
 `token-kit pick parser` lists fuzzy matches with dates/IDs/next actions. Choose a
-number (Enter cancels), then run the printed command with saved settings.
-Noninteractive: `--select N`. Resume commands also print at startup/exit.
+number to resume with saved settings; Enter cancels.
+`--print` prints the command only. Noninteractive: `--select N`.
+Resume commands print at startup/exit.
 
 ## Delegation
 

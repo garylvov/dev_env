@@ -13,7 +13,7 @@ Project setup:
 Work:
   run                     Open an idle named session; --prompt starts work, --task resumes
   new, list, find          Create and locate tasks
-  pick                    Fuzzy-select a task and print its resume command
+  pick                    Fuzzy-select and resume a task (--print for command only)
   agent                   Add a logical agent with an assignment
   worker                  Reserve, bind, hand off and reconcile durable worker attempts
   checkpoint, resume      Commit state or inspect recovery information

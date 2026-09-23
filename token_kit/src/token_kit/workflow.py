@@ -153,19 +153,24 @@ def pick(args) -> int:
         if not sys.stdin.isatty():
             print("token-kit: selection required; rerun with --select N", file=sys.stderr)
             return 2
-        print("Choose task number (Enter/q cancels): ", end="", file=sys.stderr, flush=True)
-        try:
-            answer = input().strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\ntoken-kit: cancelled", file=sys.stderr)
-            return 1
-        if answer.casefold() in ("", "q", "quit"):
-            print("token-kit: cancelled", file=sys.stderr)
-            return 1
-        try:
-            selected = int(answer)
-        except ValueError:
-            raise ValueError("choose a task number") from None
+        while selected is None:
+            print("Choose task number (Enter/q cancels): ", end="", file=sys.stderr, flush=True)
+            try:
+                answer = input().strip().casefold()
+            except (EOFError, KeyboardInterrupt):
+                print("\ntoken-kit: cancelled", file=sys.stderr)
+                return 1
+            if not answer or answer == "quit" or set(answer) == {"q"}:
+                print("token-kit: cancelled", file=sys.stderr)
+                return 1
+            try:
+                candidate = int(answer)
+            except ValueError:
+                candidate = 0
+            if 1 <= candidate <= len(rows):
+                selected = candidate
+            else:
+                print(f"Choose a task number between 1 and {len(rows)}, or q to cancel.", file=sys.stderr)
     if not 1 <= selected <= len(rows):
         raise ValueError(f"selection must be between 1 and {len(rows)}")
     task = rows[selected - 1]["path"]
@@ -193,8 +198,11 @@ def pick(args) -> int:
         command += ["--rollover-tokens", str(runtime.token_limit(str(threshold)))]
     if yolo:
         command += ["--yolo"]
-    print(shlex.join(command))
-    return 0
+    if args.print_command:
+        print(shlex.join(command))
+        return 0
+    print("Resuming: " + shlex.join(command), file=sys.stderr)
+    return run(build_parser().parse_args(command[1:]))
 
 
 def stop_child(child) -> None:
@@ -482,7 +490,9 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--open", action="store_true")
         if name == "find":
             command.add_argument("words", nargs="+")
-    picker = commands.add_parser("pick", help="fuzzy task picker; print a resume command without launching")
+    picker = commands.add_parser("pick", help="fuzzy task picker; resume the selected task")
+    picker.add_argument("--print", dest="print_command", action="store_true",
+                        help="print the resume command without launching")
     picker.add_argument("words", nargs="*")
     picker.add_argument("--root", type=Path, default=default_root())
     picker.add_argument("--engine", choices=("codex", "claude"), help="default: latest run engine, or claude")

@@ -1,4 +1,4 @@
-"""Task selection stays read-only and never launches a client."""
+"""Task selection and shared launch routing, without starting real clients."""
 import contextlib
 import io
 import json
@@ -33,14 +33,18 @@ class TaskPickerTests(unittest.TestCase):
         (state / "STATE.md").write_text("## Objective\nOld objective\n## Next\nVerify " + task_id + "\n## Evidence\nHidden\n")
         return path
 
-    def invoke(self, *args, tty=False, answer=None):
+    def invoke(self, *args, tty=False, answer=None, launch=False, run_result=0, run_error=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
                 patch("sys.stdin.isatty", return_value=tty), \
-                patch("builtins.input", side_effect=answer if isinstance(answer, BaseException) else None,
-                      return_value=answer), patch("token_kit.workflow.launch") as launch:
-            rc = main(["pick", "--root", str(self.root), *args])
-            launch.assert_not_called()
+                patch("builtins.input", side_effect=answer if isinstance(answer, (BaseException, list)) else None,
+                      return_value=answer), patch("token_kit.workflow.launch") as client, \
+                patch("token_kit.workflow.run", return_value=run_result, side_effect=run_error) as run:
+            rc = main(["pick", "--root", str(self.root), *([] if launch else ["--print"]), *args])
+            client.assert_not_called()
+            self.last_run = run
+            if not launch:
+                run.assert_not_called()
         return rc, out.getvalue(), err.getvalue()
 
     def test_typo_matches_and_exact_precedes_fuzzy(self):
@@ -74,16 +78,64 @@ class TaskPickerTests(unittest.TestCase):
 
     def test_interactive_cancel_eof_invalid_and_selection(self):
         self.task("first")
-        for answer in ("", "q", EOFError(), KeyboardInterrupt()):
+        for answer in ("", "q", "qq", "quit", EOFError(), KeyboardInterrupt()):
             with self.subTest(answer=answer):
                 rc, out, err = self.invoke(tty=True, answer=answer)
                 self.assertEqual(rc, 1)
                 self.assertEqual(out, "")
                 self.assertIn("cancelled", err)
-        self.assertEqual(self.invoke(tty=True, answer="abc")[0], 2)
+        self.assertEqual(self.invoke(tty=True, answer=["abc", "0", "2", "q"])[0], 1)
         self.assertEqual(self.invoke(tty=True, answer="1")[0], 0)
         self.assertEqual(self.invoke("--select", "0")[0], 2)
         self.assertEqual(self.invoke("--select", "2")[0], 2)
+
+    def test_selection_launches_exact_task_once_with_saved_settings(self):
+        self.task("old", created="2026-09-22T12:00:00+00:00")
+        task = self.task("chosen")
+        self.run_record(task, "run", engine="codex", model="gpt-6-astra", rollover_tokens=500000, yolo=True)
+        rc, out, err = self.invoke(tty=True, answer=["wrong", "99", "1"], launch=True, run_result=7)
+        self.assertEqual(rc, 7)
+        self.assertEqual(out, "")
+        self.assertIn("Resuming: token-kit run", err)
+        self.last_run.assert_called_once()
+        args = self.last_run.call_args.args[0]
+        self.assertEqual((args.task, args.engine, args.model, args.rollover_tokens, args.yolo),
+                         (task, "codex", "gpt-6-astra", 500000, True))
+        self.assertFalse(args.install_project)
+        self.assertFalse(args.dry_run)
+
+    def test_launch_overrides_and_errors_use_shared_run(self):
+        task = self.task("first")
+        self.run_record(task, "run", engine="codex", model="gpt-6-astra", rollover_tokens=500000, yolo=True)
+        rc, _, err = self.invoke("--select", "1", "--engine", "claude", "--model", "opus",
+                                 "--no-yolo", "--rollover-tokens", "100k", launch=True,
+                                 run_error=ValueError("hook validation failed"))
+        self.assertEqual(rc, 2)
+        self.assertIn("hook validation failed", err)
+        self.last_run.assert_called_once()
+        args = self.last_run.call_args.args[0]
+        self.assertEqual((args.engine, args.model, args.rollover_tokens, args.yolo),
+                         ("claude", "opus", 100000, False))
+        for answer in ("qq", "", EOFError()):
+            self.invoke(tty=True, answer=answer, launch=True)
+            self.last_run.assert_not_called()
+        self.invoke(launch=True)
+        self.last_run.assert_not_called()
+
+    def test_selected_codex_resume_passes_shared_hook_validation(self):
+        from token_kit.core.store import Store
+        store = Store.create(self.root, "Parser hooks", Path(self.temp.name))
+        self.run_record(store.path, "previous", engine="codex", rollover_tokens=500000, yolo=False)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), \
+                patch("token_kit.workflow.shutil.which", return_value="/fake/codex"), \
+                patch("token_kit.workflow.runtime.ensure_codex_hooks") as hooks, \
+                patch("token_kit.workflow.launch", return_value=9) as client:
+            rc = main(["pick", "--root", str(self.root), "--select", "1"])
+        self.assertEqual(rc, 9)
+        hooks.assert_called_once_with("codex", store.workspace)
+        client.assert_called_once()
+        self.assertEqual(client.call_args.args[0].path, store.path)
+        self.assertEqual(client.call_args.kwargs["rollover_tokens"], 500000)
 
     def test_command_shell_quotes_paths_and_preserves_flags(self):
         path = self.task("first")
