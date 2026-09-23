@@ -136,7 +136,7 @@ def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int 
     store.safe(run / "usage-cursors").mkdir()
     write_json(run / "runtime.json", {"phase": "running", "engine": engine,
                "threshold": threshold, "session_id": None, "active_children": [], "sample": None,
-               "session_context": session_context})
+               "session_context": session_context, "awaiting_input": session_context is not None})
     ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
 
 
@@ -169,10 +169,14 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
                 control[key] = notice[0]
                 result = ({"decision": "block", "reason": notice[1]} if stopping else
                           {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
-        if (event == "SessionStart" and not native and control.get("session_context")
+        if (event in ("SessionStart", "UserPromptSubmit") and not native and control.get("session_context")
                 and not control.get("context_delivered") and result.get("continue") is not False):
             output = result.setdefault("hookSpecificOutput", {"hookEventName": event})
-            output["additionalContext"] = control["session_context"] + "\n" + output.get("additionalContext", "")
+            context = control["session_context"]
+            if event == "UserPromptSubmit":
+                context = context.replace("New idle Token Kit session. No task has been submitted.",
+                                          "Token Kit session: the user has now submitted their first instruction.")
+            output["additionalContext"] = context + "\n" + output.get("additionalContext", "")
             control["context_delivered"] = True
         write_json(store.safe(run / "runtime.json"), control)
         return result
@@ -183,10 +187,15 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
     if event not in EVENTS:
         return {}
     session = payload.get("session_id")
-    if event == "SessionStart" and not control["session_id"]:
+    if (event in ("SessionStart", "UserPromptSubmit") and not payload.get("agent_id")
+            and not control["session_id"]):
         if not session:
-            return halt(control, "SessionStart did not identify its session")
+            return halt(control, f"{event} did not identify its session")
         control["session_id"] = session
+    if event in ("UserPromptSubmit", "PostToolUse", "Stop", "SubagentStart", "SubagentStop"):
+        control["awaiting_input"] = False
+        if not control["session_id"]:
+            return halt(control, "Work observed before a parent lifecycle handshake; refusing unverified execution")
     native = str(payload.get("agent_id") or "")
     if session and control["session_id"] and session != control["session_id"]:
         native = native or str(session)
@@ -282,6 +291,7 @@ def wait_segment(child, store: Store, agent: str, run: Path, stop_child,
                  *, startup_timeout: float = 30) -> tuple[int, dict]:
     """Only stop a running client for an explicit hook marker; never kill at a token count."""
     started = time.monotonic()
+    idle_warning_sent = False
     while True:
         control = read_json(store.safe(run / "runtime.json"))
         phase = control["phase"]
@@ -297,10 +307,19 @@ def wait_segment(child, store: Store, agent: str, run: Path, stop_child,
         if rc is not None:
             return rc, control
         if not control["session_id"] and time.monotonic() - started > startup_timeout:
-            halt(control, "Lifecycle hook startup not confirmed; check client hook trust/settings")
-            stop_child(child)
-            write_json(run / "runtime.json", control)
-            return child.wait(), control
+            if control.get("awaiting_input"):
+                if not idle_warning_sent:
+                    print("Token Kit: waiting for the first input/hook; keeping the idle session open. "
+                          "Rollover is unverified until a hook arrives. If you already submitted work, "
+                          "stop and inspect /hooks.", file=sys.stderr)
+                    idle_warning_sent = True
+                # Do not write this stale snapshot: a concurrent first-input
+                # hook owns the state transition under runtime.lock.
+            else:
+                halt(control, "Lifecycle hook startup not confirmed; check client hook trust/settings")
+                stop_child(child)
+                write_json(run / "runtime.json", control)
+                return child.wait(), control
         try:
             child.wait(timeout=0.5)
         except subprocess.TimeoutExpired:

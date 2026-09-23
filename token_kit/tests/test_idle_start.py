@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -22,6 +23,58 @@ class IdleStartTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.tasks = self.root / "tasks"
+
+    def idle_runtime(self):
+        store = Store.create(self.tasks, "Label", self.root)
+        run = store.claim_run("coordinator", "codex", True)
+        runtime.initialize(store, "coordinator", run, "codex", 500000,
+                           session_context="New idle Token Kit session. No task has been submitted.")
+        return store, run
+
+    def test_idle_missing_hook_survives_startup_timeout(self):
+        store, run = self.idle_runtime()
+        child = Mock()
+        child.poll.side_effect = [None, None, 0]
+        child.wait.side_effect = subprocess.TimeoutExpired("client", 0.5)
+        stop = Mock()
+        with patch.object(runtime.time, "monotonic", side_effect=[0, 31, 120]), \
+             contextlib.redirect_stderr(io.StringIO()) as output:
+            rc, control = runtime.wait_segment(child, store, "coordinator", run, stop)
+        self.assertEqual(rc, 0)
+        self.assertEqual(control["phase"], "running")
+        self.assertTrue(control["awaiting_input"])
+        stop.assert_not_called()
+        self.assertEqual(output.getvalue().count("keeping the idle session open"), 1)
+
+    def test_first_submission_is_fallback_handshake_and_delivers_context_once(self):
+        store, run = self.idle_runtime()
+        payload = {"hook_event_name": "UserPromptSubmit", "session_id": "parent"}
+        result = runtime.handle(store, "coordinator", run, payload)
+        self.assertIn("first instruction", result["hookSpecificOutput"]["additionalContext"])
+        self.assertNotIn("No task has been submitted", str(result))
+        control = read_json(run / "runtime.json")
+        self.assertEqual(control["session_id"], "parent")
+        self.assertFalse(control["awaiting_input"])
+        self.assertEqual(runtime.handle(store, "coordinator", run, payload), {})
+        self.assertEqual(runtime.handle(store, "coordinator", run,
+                         {**payload, "hook_event_name": "SessionStart"}), {})
+
+    def test_work_without_parent_handshake_fails_closed(self):
+        for payload in ({"hook_event_name": "PostToolUse", "session_id": "parent"},
+                        {"hook_event_name": "UserPromptSubmit"},
+                        {"hook_event_name": "UserPromptSubmit", "session_id": "parent",
+                         "agent_id": "child"}):
+            store, run = self.idle_runtime()
+            result = runtime.handle(store, "coordinator", run, payload)
+            self.assertFalse(result["continue"])
+            self.assertEqual(read_json(run / "runtime.json")["phase"], "halted")
+
+    def test_halted_session_is_not_blindly_restarted(self):
+        store = Store.create(self.tasks, "Label", self.root)
+        with patch.object(workflow, "_launch_segment", return_value=(75, {"phase": "halted"})) as segment:
+            self.assertEqual(workflow.launch(store, "coordinator", "claude",
+                                             rollover_tokens=100, idle=True), 75)
+        segment.assert_called_once()
 
     def test_adapters_omit_initial_message_for_idle_launch(self):
         for adapter in (claude, codex):
