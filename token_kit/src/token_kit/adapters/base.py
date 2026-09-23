@@ -18,7 +18,7 @@ class AdapterError(ValueError):
 @dataclass(frozen=True)
 class LaunchRequest:
     workspace: Path
-    prompt: str
+    prompt: str | None  # None opens the interactive composer without a model turn.
     strict_no_compaction: bool = True
     model: str | None = None
     yolo: bool = False

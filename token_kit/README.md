@@ -13,6 +13,8 @@ token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
 
 Codex: `--engine codex`. Session-only.
+Names are labels; new sessions wait for input. `--prompt "..."` starts work immediately.
+Source directory: `--workspace PATH`.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;

@@ -38,7 +38,7 @@ def prepare_launch(
     workspace = request.workspace.expanduser().resolve()
     if not workspace.is_dir():
         raise AdapterError(f"Codex workspace is not a directory: {workspace}")
-    if not request.prompt.strip() or "\x00" in request.prompt:
+    if request.prompt is not None and (not request.prompt.strip() or "\x00" in request.prompt):
         raise AdapterError("Codex prompt must be nonempty and contain no NUL characters")
     argv = [executable, "--cd", str(workspace)]
     if request.yolo:
@@ -58,7 +58,8 @@ def prepare_launch(
         argv.extend(codex_config())
     if request.worker_task is not None:
         argv.extend(("--add-dir", request.worker_task))
-    argv.extend(("--", request.prompt))
+    if request.prompt is not None:
+        argv.extend(("--", request.prompt))
     return LaunchPlan(
         engine="codex",
         argv=tuple(argv),

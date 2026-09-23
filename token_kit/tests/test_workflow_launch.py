@@ -107,8 +107,11 @@ class WorkflowLaunchTests(unittest.TestCase):
         self.assertEqual(argv[-2], "--")
         self.assertIn("--dangerously-skip-permissions", argv)
         self.assertIn(str(bundle["checkpoint"]), argv[-1])
+        from token_kit.worker_policy import POLICY
         from token_kit.project_install import INSTRUCTIONS
-        self.assertIn(INSTRUCTIONS.rstrip(), argv[-1])
+        self.assertIn(POLICY, argv[-1])
+        self.assertNotIn(INSTRUCTIONS.rstrip(), argv[-1])
+        self.assertLess(len(argv[-1].encode()), 5000)
         self.assertFalse((self.root / "AGENTS.md").exists())
         self.assertEqual(kwargs["cwd"], self.root)
         self.assertEqual(kwargs["env"]["DISABLE_COMPACT"], "1")

@@ -115,10 +115,12 @@ class Store:
         return path
 
     @classmethod
-    def create(cls, root: Path, title: str, workspace: Path) -> "Store":
+    def create(cls, root: Path, title: str, workspace: Path, *, assignment: str | None = None) -> "Store":
         workspace = workspace.resolve(strict=True)
         if not workspace.is_dir() or not title.strip():
             raise ValueError("A workspace directory and nonempty title are required")
+        if assignment is not None and not assignment.strip():
+            raise ValueError("Assignment must be nonempty when supplied")
         task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
         path = root.resolve() / task_id
         path.mkdir(parents=True)
@@ -126,7 +128,7 @@ class Store:
         write_json(path / "task.json", {"schema_version": SCHEMA, "task_id": task_id,
                    "title": title, "status": "open", "workspace": str(workspace), "created_at": now()})
         store = cls(path)
-        store.add_agent("coordinator", title)
+        store.add_agent("coordinator", title if assignment is None else assignment)
         return store
 
     def update_task(self, **fields) -> None:

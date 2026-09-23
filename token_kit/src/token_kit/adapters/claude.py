@@ -33,7 +33,7 @@ def prepare_launch(
         raise AdapterError(f"Workspace is not a directory: {workspace}")
     if not executable or "\0" in executable or executable.startswith("-"):
         raise AdapterError("Claude executable must be a nonempty command or path")
-    if not request.prompt.strip() or "\0" in request.prompt:
+    if request.prompt is not None and (not request.prompt.strip() or "\0" in request.prompt):
         raise AdapterError("Prompt must be nonempty and contain no NUL bytes")
     if request.model is not None and (
         not request.model.strip() or "\0" in request.model or request.model.startswith("-")
@@ -62,7 +62,8 @@ def prepare_launch(
     if request.model is not None:
         argv.extend(("--model", request.model))
     # The separator also keeps a prompt beginning with '-' from becoming flags.
-    argv.extend(("--", request.prompt))
+    if request.prompt is not None:
+        argv.extend(("--", request.prompt))
     return LaunchPlan(
         engine="claude",
         argv=tuple(argv),

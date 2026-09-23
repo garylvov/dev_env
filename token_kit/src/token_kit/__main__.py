@@ -11,7 +11,7 @@ Project setup:
   install, uninstall       Project instructions and optional CodeGraph configuration
 
 Work:
-  run                     One command: new/resumed task and session-only launch
+  run                     Open an idle named session; --prompt starts work, --task resumes
   new, list, find          Create and locate tasks
   agent                   Add a logical agent with an assignment
   worker                  Reserve, bind, hand off and reconcile durable worker attempts

@@ -59,8 +59,11 @@ def run(args) -> int:
     """Create or recover a task and launch; project installation is opt-in."""
     from .project_install import configure
 
-    if args.task and (args.title or args.workspace or args.root):
-        raise ValueError("--task cannot be combined with a new title, --workspace, or --root")
+    if args.task and (args.title or args.workspace or args.root or args.prompt is not None):
+        raise ValueError("--task cannot be combined with a new title, --workspace, --root, or --prompt")
+    if args.prompt is not None and (not args.prompt.strip() or "\0" in args.prompt):
+        raise ValueError("--prompt must be nonempty and contain no NUL characters")
+    idle = not args.task and args.prompt is None
     if args.codegraph and not args.install_project:
         raise ValueError("--codegraph writes project settings; add --install-project to opt in")
     store = Store(args.task) if args.task else None
@@ -85,14 +88,22 @@ def run(args) -> int:
                           "task": str(store.path) if store else None, "title": title,
                           "root": str(args.root or default_root()), "project_changes": changes,
                           "yolo": args.yolo, "install_project": args.install_project,
+                          "startup": "idle" if idle else "prompt" if args.prompt is not None else "resume",
+                          "initial_prompt": args.prompt,
                           "automatic_rollover": bool(args.rollover_tokens),
                           "rollover_tokens": args.rollover_tokens,
                           "max_rollovers": args.max_rollovers}, indent=2))
         return 0
     if args.install_project:
         configure(workspace, engine="both", codegraph=args.codegraph)
-    store = store or Store.create(args.root or default_root(), title, workspace)
+    assignment = args.prompt if args.prompt is not None else (
+        "No task assigned. Wait for the user's first instruction. The session title is only a label, "
+        "not authorization to investigate files or perform work. Record the user's actual objective "
+        "and scope in STATE.md after receiving an instruction.")
+    store = store or Store.create(args.root or default_root(), title, workspace, assignment=assignment)
     print(f"Token Kit | {args.engine} | task: {store.path}", file=sys.stderr)
+    if idle:
+        print("New session: waiting for your first instruction; the title is only a label.", file=sys.stderr)
     print("Guidance: session-only; existing project settings are preserved" if not args.install_project
           else "Guidance: installed in project", file=sys.stderr)
     print("Checkpoints: agent-maintained | automatic rollover: " +
@@ -104,18 +115,21 @@ def run(args) -> int:
           + (f" --rollover-tokens {args.rollover_tokens} --max-rollovers {args.max_rollovers}"
              if args.rollover_tokens else ""), file=sys.stderr)
     return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo,
-                  rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers)
+                  rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers,
+                  idle=idle, initial_prompt=args.prompt)
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | None = None,
-           max_rollovers: int = 10) -> int:
+           max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None) -> int:
     if max_rollovers < 0 or (rollover_tokens is not None and rollover_tokens <= 0):
         raise ValueError("Invalid rollover limits")
     if engine == "codex" and rollover_tokens and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
     for segment in range(max_rollovers + 1):
-        rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens)
+        rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
+                                     idle=idle if segment == 0 else False,
+                                     initial_prompt=initial_prompt if segment == 0 else None)
         if control.get("phase") != "ready":
             return rc
         if segment == max_rollovers:
@@ -129,7 +143,8 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 
 
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
-                    dry_run: bool, yolo: bool, rollover_tokens: int | None) -> tuple[int, dict]:
+                    dry_run: bool, yolo: bool, rollover_tokens: int | None,
+                    *, idle: bool = False, initial_prompt: str | None = None) -> tuple[int, dict]:
     bundle = store.resume_bundle(agent)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
     checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
@@ -145,29 +160,35 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         f"with {checkpoint_command}; add --evidence for relevant changed files and --incorporated "
         "for each message ID addressed. Write out.md when the assignment is complete."
     )
-    from .project_install import INSTRUCTIONS
     from .worker_policy import brief
-    if agent == "coordinator":
-        prompt += "\n\nToken Kit guidance for this session:\n" + INSTRUCTIONS.rstrip()
-    else:
-        prompt = brief(prompt, str(store.path), agent)
+    if idle:
+        prompt = ("New idle Token Kit session. No task has been submitted. The session title is a label, "
+                  "not an instruction. Do not investigate, recover prior work, or execute tools until "
+                  "the user gives an instruction. Do not compact. Then record their objective/scope in your STATE.md. "
+                  f"Your workspace is {store.workspace}. Recovery command, only when needed: {resume_command}.")
+    elif initial_prompt is not None:
+        prompt = f"User's explicit task:\n{initial_prompt}\n\nDo not compact. Token Kit record: {resume_command}."
+    prompt = brief(prompt, str(store.path), agent)
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
-    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
+    plan = adapter.prepare_launch(LaunchRequest(store.workspace, None if idle else prompt, True, model, yolo=yolo,
                                                worker_task=str(store.path),
                                                managed_hooks=engine == "claude" or bool(rollover_tokens)))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
                           "strict_no_compaction_requested": True, "yolo": yolo, "resume": bundle,
+                          "startup": "idle" if idle else "prompt" if initial_prompt is not None else "resume",
                           "rollover_tokens": rollover_tokens}, indent=2))
         return 0, {}
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
     run = store.claim_run(agent, engine, True)
-    store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens)
-    runtime.initialize(store, agent, run, engine, rollover_tokens)
+    store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
+                     startup="idle" if idle else "prompt" if initial_prompt is not None else "resume")
+    runtime.initialize(store, agent, run, engine, rollover_tokens,
+                       session_context=prompt if idle else None)
     write_json(run / "resume.json", bundle)
-    atomic_text(run / "prompt.md", prompt + "\n")
+    atomic_text(run / ("session-context.md" if idle else "prompt.md"), prompt + "\n")
     child = None
     terminal = None
     try:
@@ -228,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--engine", choices=("codex",), default="codex")
     start = commands.add_parser("run", help="create or resume a task and launch with session-only guidance")
     start.add_argument("title", nargs="?")
+    start.add_argument("--prompt", help="explicit initial task; otherwise a new named session opens idle")
     start.add_argument("--task", type=Path, help="continue an existing task instead of creating one")
     start.add_argument("--workspace", type=Path, help="source directory (default: current directory)")
     start.add_argument("--root", type=Path, help="session root (default: ~/.config/token_kit; honors XDG_CONFIG_HOME)")

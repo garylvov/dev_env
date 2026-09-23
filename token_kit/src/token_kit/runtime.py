@@ -131,10 +131,12 @@ def review_hooks(executable: str = "codex", workspace: Path | None = None) -> in
     return subprocess.call([executable, *codex_config()], env=environment, cwd=workspace)
 
 
-def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | None) -> None:
+def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | None,
+               *, session_context: str | None = None) -> None:
     store.safe(run / "usage-cursors").mkdir()
     write_json(run / "runtime.json", {"phase": "running", "engine": engine,
-               "threshold": threshold, "session_id": None, "active_children": [], "sample": None})
+               "threshold": threshold, "session_id": None, "active_children": [], "sample": None,
+               "session_context": session_context})
     ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
 
 
@@ -167,6 +169,11 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
                 control[key] = notice[0]
                 result = ({"decision": "block", "reason": notice[1]} if stopping else
                           {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
+        if (event == "SessionStart" and not native and control.get("session_context")
+                and not control.get("context_delivered") and result.get("continue") is not False):
+            output = result.setdefault("hookSpecificOutput", {"hookEventName": event})
+            output["additionalContext"] = control["session_context"] + "\n" + output.get("additionalContext", "")
+            control["context_delivered"] = True
         write_json(store.safe(run / "runtime.json"), control)
         return result
 
