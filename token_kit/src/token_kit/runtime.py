@@ -182,6 +182,23 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
         return result
 
 
+def _link_codex_identity(store, agent, run, transcript, native, parent_session):
+    """Read only the supplied transcript's bounded metadata header, not its conversation."""
+    if not parent_session:
+        return
+    with Path(transcript).open(encoding="utf-8") as stream:
+        line = stream.readline(262145)
+    if len(line) > 262144:
+        return
+    row = json.loads(line)
+    meta = row.get("payload", {})
+    if (row.get("type") == "session_meta" and meta.get("id") == native
+            and (meta.get("session_id") == parent_session or meta.get("parent_thread_id") == parent_session)):
+        alias = meta.get("agent_path")
+        if isinstance(alias, str):
+            lifecycle.record_native_identity(store, agent, run.name, alias, native)
+
+
 def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -> dict:
     event = payload.get("hook_event_name")
     if event not in EVENTS:
@@ -199,6 +216,14 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
     native = str(payload.get("agent_id") or "")
     if session and control["session_id"] and session != control["session_id"]:
         native = native or str(session)
+    transcript = (payload.get("agent_transcript_path") if native else payload.get("transcript_path"))
+    if native and session and session != control["session_id"]:
+        transcript = transcript or payload.get("transcript_path")
+    if transcript and native and control["engine"] == "codex":
+        try:
+            _link_codex_identity(store, agent, run, transcript, native, control["session_id"])
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            control["identity_warning"] = str(exc)
     if event == "SubagentStart":
         control["active_children"] = sorted(set(control["active_children"]) | {native or "unknown"})
         ledger.record(store, agent, run.name, control["engine"],
@@ -209,9 +234,6 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
             lifecycle.observe_native(store, agent, run.name, native, "precompact")
             return {"continue": False, "stopReason": "Token Kit: child compaction vetoed; parent reconciliation required"}
         return halt(control, "Compaction requested; stopping rather than compacting. Inspect state and use a lower rollover threshold.")
-    transcript = (payload.get("agent_transcript_path") if native else payload.get("transcript_path"))
-    if native and session and session != control["session_id"]:
-        transcript = transcript or payload.get("transcript_path")
     # Parent transcript fields in child hooks must not be billed to the child.
     if native and event != "SubagentStop" and not transcript:
         return {}

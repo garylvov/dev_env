@@ -177,6 +177,30 @@ not read in full. Prefer at most two delegation levels. Shared records live at
 
 ### Native delegation and parent tracking
 
+Use the compact creation path instead of handwritten Python to write/register briefs:
+
+```bash
+token-kit worker prepare TASK --agent scout --parent coordinator --engine codex --model MODEL --brief "Role: scout. Read only PATH. Output: summary with evidence. Stop when QUESTION is answered; escalate broader work."
+```
+
+`--assignment-file FILE` is an alternative for a longer brief. These options create
+a new agent only; never overwrite an existing assignment. For an existing worker,
+omit them. Save the returned ticket and spawn prompt; use `native_task_name` for
+the native spawn, then bind its returned ID. Do not reconstruct paths or tickets
+from memory. Reserve and bind remain separate because spawning is a client action.
+If binding a `/root/...` task path, `hook_identity_status: pending_metadata` means
+UUID-based tracking is not yet confirmed. The hook maps it only from a matching
+child transcript metadata header. Never guess UUIDs from timing or model names.
+
+Prefer completion notifications. When explicit waiting is required, use the longest
+interruptible wait compatible with the harness and user-update requirements; do not
+repeat short waits or message workers merely to ask whether they are done. Send
+messages for changed scope, blockers, decisions, or meaningful new evidence. Do not
+re-read unchanged state or repeat CLI help each turn. Integrate concise worker
+results instead of duplicating their searches. A context rollover target is not a
+cumulative-spend budget: inspect the ledger at milestones, not in a polling loop.
+Cached input still counts as reported usage; do not describe it as free or as billing.
+
 1. Register the child: `token-kit agent TASK CHILD --parent PARENT --assignment-file BRIEF`.
 2. Reserve: `token-kit worker prepare TASK --agent CHILD --engine ENGINE`.
    Spawn with the native tool only when `spawn_authorized` is true, passing its

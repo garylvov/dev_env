@@ -33,6 +33,83 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(again["spawn_authorized"])
         self.assertEqual(first["worker"]["ticket"], again["worker"]["ticket"])
 
+    def test_path_binding_maps_uuid_before_or_after_bind(self):
+        for early in (True, False):
+            name = "early" if early else "late"
+            self.store.add_agent(name, "Scoped scout")
+            ticket = lifecycle.prepare(self.store, name, engine="codex")["worker"]["ticket"]
+            alias, native = "/root/" + name, "uuid-" + name
+            if early:
+                lifecycle.record_native_identity(self.store, "coordinator", None, alias, native)
+                lifecycle.observe_native(self.store, "coordinator", None, native, "stop")
+            state = lifecycle.bind(self.store, name, ticket, alias)
+            if not early:
+                self.assertEqual(state["hook_identity_status"], "pending_metadata")
+                lifecycle.record_native_identity(self.store, "coordinator", None, alias, native)
+                lifecycle.observe_native(self.store, "coordinator", None, native, "stop")
+            worker = lifecycle.native_worker(self.store, "coordinator", None, native)
+            self.assertEqual(worker["agent_id"], name)
+            self.assertEqual(worker["phase"], "needs_reconciliation")
+            self.assertEqual(worker["hook_identity_status"], "bound")
+            self.assertIsNone(lifecycle.native_worker(self.store, "coordinator", "other-run", native))
+
+    def test_identity_reuse_and_double_binding_are_rejected(self):
+        ticket = self.prepare()["worker"]["ticket"]
+        lifecycle.record_native_identity(self.store, "coordinator", None, "/root/parser", "uuid")
+        lifecycle.bind(self.store, "parser", ticket, "/root/parser")
+        with self.assertRaisesRegex(ValueError, "reused"):
+            lifecycle.record_native_identity(self.store, "coordinator", None, "/root/parser", "different")
+        self.store.add_agent("other", "Other work")
+        other = lifecycle.prepare(self.store, "other", engine="codex")["worker"]["ticket"]
+        with self.assertRaisesRegex(ValueError, "another attempt"):
+            lifecycle.bind(self.store, "other", other, "uuid")
+
+    def test_metadata_replays_observation_after_alias_binding_once(self):
+        ticket = self.prepare()["worker"]["ticket"]
+        lifecycle.observe_native(self.store, "coordinator", None, "uuid", "precompact")
+        lifecycle.bind(self.store, "parser", ticket, "/root/parser")
+        lifecycle.record_native_identity(self.store, "coordinator", None, "/root/parser", "uuid")
+        state = lifecycle.inspect(self.store, "parser")
+        self.assertEqual(state["phase"], "needs_reconciliation")
+        count = len(state["events"])
+        lifecycle.record_native_identity(self.store, "coordinator", None, "/root/parser", "uuid")
+        self.assertEqual(len(lifecycle.inspect(self.store, "parser")["events"]), count)
+
+    def test_verified_metadata_links_budget_nudges(self):
+        run = self.store.claim_run("coordinator", "codex", True)
+        runtime.initialize(self.store, "coordinator", run, "codex", 100)
+        runtime.handle(self.store, "coordinator", run,
+                       {"hook_event_name": "SessionStart", "session_id": "parent"})
+        ticket = lifecycle.prepare(self.store, "parser", engine="codex", threshold=100,
+                                   owner_agent="coordinator", owner_run=run.name)["worker"]["ticket"]
+        lifecycle.bind(self.store, "parser", ticket, "/root/parser")
+        transcript = self.root / "child.jsonl"
+        rows = [{"type": "session_meta", "payload": {"id": "child-uuid", "session_id": "parent",
+                 "agent_path": "/root/parser"}},
+                {"type": "event_msg", "payload": {"type": "token_count", "info": {
+                 "total_token_usage": {"input_tokens": 150, "output_tokens": 10, "total_tokens": 160},
+                 "last_token_usage": {"total_tokens": 160}, "model_context_window": 1000}}}]
+        transcript.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        result = runtime.handle(self.store, "coordinator", run, {"hook_event_name": "PostToolUse",
+                 "session_id": "parent", "agent_id": "child-uuid", "agent_transcript_path": str(transcript)})
+        self.assertIn("worker budget reached", result["hookSpecificOutput"]["additionalContext"])
+        self.assertEqual(lifecycle.inspect(self.store, "parser")["phase"], "checkpoint_requested")
+
+    def test_foreign_metadata_does_not_link(self):
+        run = self.store.claim_run("coordinator", "codex", True)
+        ticket = lifecycle.prepare(self.store, "parser", engine="codex",
+                                   owner_agent="coordinator", owner_run=run.name)["worker"]["ticket"]
+        lifecycle.bind(self.store, "parser", ticket, "/root/parser")
+        transcript = self.root / "foreign.jsonl"
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": "uuid", "session_id": "foreign", "agent_path": "/root/parser"}}) + "\n")
+        runtime._link_codex_identity(self.store, "coordinator", run, transcript, "uuid", "parent")
+        self.assertIsNone(lifecycle.native_worker(self.store, "coordinator", run.name, "uuid"))
+        transcript.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": "uuid", "agent_path": "/root/parser"}}) + "\n")
+        runtime._link_codex_identity(self.store, "coordinator", run, transcript, "uuid", None)
+        self.assertIsNone(lifecycle.native_worker(self.store, "coordinator", run.name, "uuid"))
+
     def test_rollover_requires_checkpoint_and_explicit_reconciliation(self):
         ticket = self.prepare()["worker"]["ticket"]
         lifecycle.bind(self.store, "parser", ticket, "native1")

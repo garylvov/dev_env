@@ -18,8 +18,7 @@ Main thread: orchestrator only; workers execute. If delegation is blocked, expla
 why and ask before substantial direct execution.
 Follow applicable repository instructions and the assignment's source boundaries.
 Use your own stable agent record: in.md, STATE.md, out.md, checkpoints/, artifacts/.
-Never use the parent's identity. If no record is assigned, ask the coordinator to
-register one with token-kit agent before changing source files.
+Never use the parent's identity. Ask the coordinator for a record before source edits.
 Recover with token-kit resume TASK --agent ID; read its assignment, committed state,
 and pending messages. Verify evidence and unfinished operations before repeating work.
 Maintain STATE.md sections Objective, Completed, Evidence, Unresolved, Next. Checkpoint
@@ -37,8 +36,9 @@ an explicitly required model. Stay in your scoped role. If complexity exceeds it
 checkpoint and report evidence/blockers via your parent to the main thread; only
 the main thread authorizes scope/model promotion within user constraints.
 
-Prefer native same-engine delegation, including nesting when permitted. Register
-each child with --parent YOUR_ID. Pass this policy and scoped overrides, not transcripts.
+Prefer native same-engine delegation, nesting when permitted. Create children using
+worker prepare --brief TEXT --parent YOUR_ID; pass scoped overrides, not transcripts.
+Prefer completion notifications; avoid short wait loops and status-only messages.
 Use token-kit worker prepare/bind; spawn only when authorized. Track direct children
 with token-kit resume TASK --agent YOUR_ID; status TASK shows all attempts/parents.
 Honor your attempt ticket:

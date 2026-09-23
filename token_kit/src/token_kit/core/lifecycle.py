@@ -164,7 +164,9 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                   f"run {checkpoint_cmd} with evidence/message IDs, then {request} and return. "
                   f"When finished instead, checkpoint, write out.md, run {complete}, and return. "
                   "Never start your own replacement or use a sibling/parent identity.")
-        return {"spawn_authorized": True, "worker": state, "spawn_prompt": brief(prompt, str(store.path), agent)}
+        return {"spawn_authorized": True, "worker": state,
+                "native_task_name": f"{agent}_{state['ticket'][:8]}",
+                "spawn_prompt": brief(prompt, str(store.path), agent)}
 
 
 def _observation_path(store, owner_agent, owner_run, native):
@@ -181,17 +183,25 @@ def bind(store, agent, ticket, native):
             raise ValueError("Cannot bind a reconciled attempt")
         if state["native_id"] and state["native_id"] != native:
             raise ValueError("Attempt already bound to a different native worker")
+        identity = _identity_path(store, state["owner_agent"], state["owner_run"], native)
+        hook_native = read_json(identity)["native_id"] if identity.exists() else native
         for directory in (store.path / "agents").iterdir():
             other = read_locked(store, directory.name)
             for attempt in ([other] + other.get("history", [])) if other else []:
-                if (attempt["ticket"] != ticket and attempt.get("native_id") == native
+                if (attempt["ticket"] != ticket
+                        and ({native, hook_native} & {attempt.get("native_id"), attempt.get("hook_native_id")})
                         and attempt.get("owner_agent") == state["owner_agent"]
                         and attempt.get("owner_run") == state["owner_run"]):
                     raise ValueError("Native worker already belongs to another attempt")
         state["native_id"] = native
+        if identity.exists():
+            state["hook_native_id"] = hook_native
+        state["hook_identity_status"] = ("pending_metadata" if native.startswith("/root/")
+                                          and not state.get("hook_native_id") else "bound")
         if state["phase"] == "launching":
             state["phase"] = "running"
-        observation = _observation_path(store, state["owner_agent"], state["owner_run"], native)
+        observation = _observation_path(store, state["owner_agent"], state["owner_run"],
+                                        state.get("hook_native_id", native))
         if observation.exists():
             _apply_observation(state, read_json(observation)["kind"])
         publish_locked(store, state)
@@ -262,6 +272,41 @@ def _apply_observation(state, kind):
           "This is not proof of closure. Inspect its checkpoint/result and close or reconcile the native attempt.")
 
 
+def _identity_path(store, owner_agent, owner_run, alias):
+    key = hashlib.sha256(json.dumps([owner_agent, owner_run, alias]).encode()).hexdigest()
+    return store.safe(store.path / "native-identities" / (key + ".json"))
+
+
+def record_native_identity(store, owner_agent, owner_run, alias, native):
+    """Associate a verified transcript identity, never guess from a worker name."""
+    if not alias.startswith("/root/") or not native or len(alias) > 512:
+        return
+    with store.locked():
+        target = _identity_path(store, owner_agent, owner_run, alias)
+        if target.exists() and read_json(target)["native_id"] != native:
+            raise ValueError("Native path reused with a different thread; use a unique attempt path")
+        for directory in (store.path / "agents").iterdir():
+            other = read_locked(store, directory.name)
+            for attempt in ([other] + other.get("history", [])) if other else []:
+                if (attempt.get("owner_agent") == owner_agent and attempt.get("owner_run") == owner_run
+                        and native in (attempt.get("native_id"), attempt.get("hook_native_id"))
+                        and attempt.get("native_id") != alias):
+                    raise ValueError("Native UUID already bound under another identity")
+        write_json(target, {"native_id": native, "alias": alias})
+        for directory in (store.path / "agents").iterdir():
+            state = read_locked(store, directory.name)
+            if (state and state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
+                    and state.get("native_id") == alias):
+                if state.get("hook_native_id") == native:
+                    continue
+                state["hook_native_id"] = native
+                state["hook_identity_status"] = "bound"
+                observation = _observation_path(store, owner_agent, owner_run, native)
+                if observation.exists():
+                    _apply_observation(state, read_json(observation)["kind"])
+                publish_locked(store, state)
+
+
 def observe_native(store, owner_agent, owner_run, native, kind):
     with store.locked():
         target = _observation_path(store, owner_agent, owner_run, native)
@@ -269,7 +314,7 @@ def observe_native(store, owner_agent, owner_run, native, kind):
         for directory in (store.path / "agents").iterdir():
             state = read_locked(store, directory.name)
             if (state and state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
-                    and state.get("native_id") == native):
+                    and native in (state.get("native_id"), state.get("hook_native_id"))):
                 _apply_observation(state, kind)
                 publish_locked(store, state)
                 return state
@@ -281,7 +326,7 @@ def native_worker(store, owner_agent, owner_run, native):
         for directory in (store.path / "agents").iterdir():
             state = read_locked(store, directory.name)
             if (state and state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
-                    and state.get("native_id") == native):
+                    and native in (state.get("native_id"), state.get("hook_native_id"))):
                 return state
     return None
 

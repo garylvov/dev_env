@@ -317,6 +317,11 @@ def build_parser() -> argparse.ArgumentParser:
         if action in ("bind", "request-rollover", "stopped", "complete"):
             command.add_argument("--ticket", required=True)
         if action == "prepare":
+            assignment = command.add_mutually_exclusive_group()
+            assignment.add_argument("--brief", help="create a new logical worker with this assignment")
+            assignment.add_argument("--assignment-file", type=Path,
+                                    help="create a new logical worker from this assignment file")
+            command.add_argument("--parent", help="parent for a new logical worker (default: coordinator)")
             command.add_argument("--engine", choices=("claude", "codex"))
             command.add_argument("--model")
             command.add_argument("--rollover-tokens", type=runtime.token_limit)
@@ -394,6 +399,16 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "worker":
             action = args.worker_action
             if action == "prepare":
+                assignment = args.brief
+                if args.assignment_file is not None:
+                    assignment = args.assignment_file.read_text(encoding="utf-8")
+                if assignment is not None:
+                    try:
+                        store.add_agent(args.agent, assignment, args.parent)
+                    except FileExistsError:
+                        raise ValueError(f"Agent {args.agent} already exists; omit --brief/--assignment-file to prepare it") from None
+                elif args.parent is not None:
+                    raise ValueError("--parent requires --brief or --assignment-file to create a new worker")
                 result = lifecycle.prepare(store, args.agent, engine=args.engine, model=args.model,
                                            threshold=args.rollover_tokens, owner_agent=args.owner_agent,
                                            owner_run=args.owner_run)
