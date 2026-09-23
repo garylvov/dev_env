@@ -9,11 +9,12 @@ From `dev_env`:
 ```bash
 source token_kit/add_to_bashrc.bash # Shell setup
 # "Fix parser": session name. Sessions: ~/.config/token_kit.
-token-kit run "Fix parser" --engine codex --rollover-at 80% --yolo
+token-kit run "Fix parser" --engine codex --rollover-perc 80 --yolo
 ```
 
-Claude uses absolute targets such as `--rollover-tokens 500k`; Codex supports
-`--rollover-at 80%`. Names are labels; sessions wait for instructions.
+`--rollover-perc 80` selects 80% of the reported context; legacy
+`--rollover-at 80%` remains accepted. Absolute targets use
+`--rollover-tokens 500k`. Names are labels; sessions wait for instructions.
 `--prompt "..."` starts work; `--workspace PATH` selects source.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
@@ -50,9 +51,10 @@ before replacement (`token-kit worker --help`). Keep `STATE.md` current.
 
 ## Rollover and accounting
 
-Rollover defaults off. `--rollover-at 80%` uses the reported context window
+Rollover defaults off. `--rollover-perc 80` uses the reported context window
 (currently Codex); absolute `--rollover-tokens 500k` is capped at 80% when a
-window is known. Restarts are checkpoint-gated at turn boundaries;
+window is known.
+Restarts are checkpoint-gated at turn boundaries;
 `--max-rollovers` defaults to 10. Threshold measures context, not spend;
 overshoot is possible. Missing hooks/checkpoints stop recovery.
 

@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from token_kit.workflow import main, ranked_tasks, task_next_preview, picker_created
+from token_kit.workflow import build_parser, main, ranked_tasks, task_next_preview, picker_created
 
 
 class TaskPickerTests(unittest.TestCase):
@@ -144,17 +144,19 @@ class TaskPickerTests(unittest.TestCase):
         self.assertEqual(shlex.split(out), ["token-kit", "run", "--task", str(path), "--engine", "claude",
                                            "--rollover-tokens", "500000", "--yolo"])
 
-    def test_picker_preserves_recorded_percentage_and_uses_percentage_alias(self):
+    def test_picker_preserves_recorded_percentage_with_canonical_spelling(self):
         task = self.task("first")
         self.run_record(task, "run", engine="claude", rollover_tokens="80%", yolo=False)
         rc, out, _ = self.invoke("--select", "1")
         self.assertEqual(rc, 0)
         self.assertEqual(shlex.split(out), ["token-kit", "run", "--task", str(task), "--engine", "claude",
-                                           "--rollover-at", "80%"])
+                                           "--rollover-perc", "80"])
+        parsed = build_parser().parse_args(shlex.split(out)[1:])
+        self.assertEqual(parsed.rollover_tokens, "80%")
 
     def test_picker_percentage_override_reaches_shared_run_parser(self):
         task = self.task("first")
-        rc, out, _ = self.invoke("--select", "1", "--rollover-at", "80%", launch=True)
+        rc, out, _ = self.invoke("--select", "1", "--rollover-perc", "80", launch=True)
         self.assertEqual(rc, 0)
         self.assertEqual(out, "")
         self.assertEqual(self.last_run.call_args.args[0].rollover_tokens, "80%")

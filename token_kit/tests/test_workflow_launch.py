@@ -51,21 +51,46 @@ class WorkflowLaunchTests(unittest.TestCase):
             workflow.exit_summary(self.store, "coordinator", "claude", None,
                                   False, "80%", 3, 75, {"phase": "ready"})
         text = output.getvalue()
-        self.assertIn("--rollover-at 80% --max-rollovers 3", text)
-        self.assertNotIn("--rollover-tokens 80", text)
+        self.assertIn("--rollover-perc 80 --max-rollovers 3", text)
+        self.assertNotIn("--rollover-at", text)
 
-    def test_percentage_parser_alias_is_available_for_all_launch_commands(self):
+    def test_percentage_parser_is_available_for_all_launch_commands(self):
         parser = workflow.build_parser()
         cases = (
-            (["run", "--rollover-at", "80%"], "run"),
-            (["pick", "--rollover-at", "80%"], "pick"),
-            (["launch", str(self.store.path), "--engine", "claude", "--rollover-at", "80%"], "launch"),
-            (["worker", "prepare", str(self.store.path), "--agent", "parser", "--rollover-at", "80%"], "worker"),
+            (["run", "--rollover-perc", "80"], "run"),
+            (["pick", "--rollover-perc", "80"], "pick"),
+            (["launch", str(self.store.path), "--engine", "claude", "--rollover-perc", "80"], "launch"),
+            (["worker", "prepare", str(self.store.path), "--agent", "parser", "--rollover-perc", "80"], "worker"),
         )
         for argv, command in cases:
             with self.subTest(command=command):
                 args = parser.parse_args(argv)
                 self.assertEqual(args.rollover_tokens, "80%")
+
+    def test_legacy_percentage_and_absolute_spellings_remain_compatible(self):
+        parser = workflow.build_parser()
+        cases = (
+            (["run", "--rollover-at", "80%"], "80%"),
+            (["pick", "--rollover-tokens", "500k"], 500000),
+            (["launch", str(self.store.path), "--engine", "claude", "--rollover-at", "80%"], "80%"),
+            (["worker", "prepare", str(self.store.path), "--agent", "parser", "--rollover-tokens", "500k"], 500000),
+        )
+        for argv, expected in cases:
+            with self.subTest(argv=argv):
+                self.assertEqual(parser.parse_args(argv).rollover_tokens, expected)
+
+    def test_percentage_parser_rejects_suffix_and_out_of_range_values(self):
+        for value in ("0", "100", "80%", "80.5", "tokens"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    workflow.parse_rollover_percentage(value)
+
+    def test_same_destination_uses_last_rollover_option(self):
+        parser = workflow.build_parser()
+        self.assertEqual(parser.parse_args(["run", "--rollover-tokens", "500k", "--rollover-perc", "80"]).rollover_tokens,
+                         "80%")
+        self.assertEqual(parser.parse_args(["run", "--rollover-perc", "80", "--rollover-tokens", "500k"]).rollover_tokens,
+                         500000)
 
     def test_percentage_help_renders_without_formatting_error(self):
         parser = workflow.build_parser()

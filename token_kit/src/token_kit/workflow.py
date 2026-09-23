@@ -132,11 +132,23 @@ def latest_picker_run(task: str) -> dict:
     return max(records, key=lambda item: (item[0], item[1]))[2] if records else {}
 
 
+def parse_rollover_percentage(value: object) -> str:
+    """Normalize the CLI percentage spelling to the internal ``N%`` form."""
+    text = str(value).strip()
+    if not re.fullmatch(r"[0-9]+", text):
+        raise ValueError("--rollover-perc expects an integer from 1 through 99 without '%'")
+    percentage = int(text)
+    if not 1 <= percentage <= 99:
+        raise ValueError("--rollover-perc expects an integer from 1 through 99")
+    return parse_limit(f"{percentage}%")
+
+
 def _rollover_command(spec) -> list[str]:
     """Return the stable CLI spelling for a requested rollover target."""
     normalized = parse_limit(spec)
-    flag = "--rollover-at" if isinstance(normalized, str) else "--rollover-tokens"
-    return [flag, normalized if isinstance(normalized, str) else str(normalized)]
+    if isinstance(normalized, str):
+        return ["--rollover-perc", normalized[:-1]]
+    return ["--rollover-tokens", str(normalized)]
 
 
 def pick(args) -> int:
@@ -506,6 +518,8 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--codegraph", action="store_true", help="configure an already installed CodeGraph")
     start.add_argument("--yolo", action="store_true", help="bypass client permission checks")
     start.add_argument("--dry-run", action="store_true", help="preview without writing or launching")
+    start.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
+                       help="rollover target as an integer percentage from 1 through 99")
     start.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit,
                        help="rollover target: absolute tokens (e.g. 500k) or 1-99 percent of the reported context window; default: disabled")
     start.add_argument("--max-rollovers", type=int, default=10, help="maximum automatic restarts (default: 10)")
@@ -529,6 +543,8 @@ def build_parser() -> argparse.ArgumentParser:
     picker.add_argument("--model", help="override the latest run's model")
     picker.add_argument("--select", type=int, help="explicit candidate number (required without a terminal)")
     picker.add_argument("--limit", type=int, default=20, help="maximum candidates shown (default: 20)")
+    picker.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
+                        help="rollover target as an integer percentage from 1 through 99")
     picker.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
     picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
                         help="override the latest run's permission setting")
@@ -562,6 +578,8 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--parent", help="parent for a new logical worker (default: coordinator)")
             command.add_argument("--engine", choices=("claude", "codex"))
             command.add_argument("--model")
+            command.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
+                                 help="rollover target as an integer percentage from 1 through 99")
             command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
             command.add_argument("--owner-agent", default=os.environ.get("TOKEN_KIT_AGENT"))
             command.add_argument("--owner-run", default=os.environ.get("TOKEN_KIT_RUN"))
@@ -588,6 +606,8 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--yolo", action="store_true",
                                  help="bypass client permission checks (Codex also disables sandboxing)")
+            command.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
+                                 help="rollover target as an integer percentage from 1 through 99")
             command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
             command.add_argument("--max-rollovers", type=int, default=10)
         elif name == "send":
