@@ -26,6 +26,15 @@ class WorkerPolicyTests(unittest.TestCase):
             self.assertIn("status TASK", text)
         self.assertIn("not implemented", matrix)
 
+    def test_matrix_separates_worktree_indexes_and_source_integration(self):
+        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        section = matrix.split("### CodeGraph: worktree ownership and freshness", 1)[1]
+        for requirement in ("One index per worktree", "--absolute-git-dir",
+                            "dirty and untracked", "Never merge SQLite",
+                            "separate tasks with explicit --workspace", "one coordinated writer",
+                            "not an implemented Token Kit index supervisor"):
+            self.assertIn(requirement, section)
+
     def test_brief_is_compact_idempotent_and_preserves_assignment(self):
         text = 'Only src/parser.py. Use Codex. $(echo nope)\n"quoted"'
         result = policy.brief(text, "/tasks/one", "parser")

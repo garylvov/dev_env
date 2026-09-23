@@ -161,6 +161,56 @@ Codex usage inside managed sessions; raw CLI calls do not. A corresponding one-s
 Claude wrapper and unified `token-kit exec` are not implemented. Do not claim that
 cross-engine jobs automatically share native attempt tracking.
 
+### CodeGraph: worktree ownership and freshness
+
+One index per worktree, not per task, branch name, remote URL, or Git commit.
+Independent worktrees and independent clones must not share a writable index,
+even at the same HEAD. Tasks using the same worktree should reuse its index.
+
+Resolve the assignment's explicit source workspace before querying. For Git work:
+
+```bash
+git -C /path/to/worktree rev-parse --show-toplevel
+git -C /path/to/worktree rev-parse --absolute-git-dir
+```
+
+Canonicalize these paths (resolve symlinks). The physical worktree root plus its
+per-worktree Git directory distinguishes linked worktrees; the shared Git common
+directory alone does not. Record the resolved workspace, Git directory, index
+location, and index generation/provenance in the assignment and STATE.md. For
+non-Git sources, record the physical workspace root and explicit index provenance.
+Do not infer a child's workspace from its parent's cwd or select an index by branch
+name. A moved, copied, or recreated checkout requires identity revalidation; if its
+index provenance is uncertain, rebuild deliberately rather than reuse blindly.
+
+| Event | Rule |
+| --- | --- |
+| First use of a worktree | Initialize its own index after confirming scope and indexing authority |
+| Edits in that worktree | Use incremental sync; HEAD alone misses dirty and untracked source changes |
+| Session start or rollover | Reuse the matching index; check freshness before relying on results |
+| Checkout, merge, rebase, reset, or edits from another session | Reconcile changed source before querying; do not assume watcher delivery |
+| Several agents in one worktree | Share one coordinated writer; do not launch competing rebuilds |
+| Identity or freshness uncertain | Read the assigned source directly; label graph evidence stale/unknown |
+
+Independent workers query their own worktree's graph and return findings with the
+worktree identity, source path, and revision or content evidence. The parent treats
+those findings as branch-specific, not as facts about its own checkout. Integrate
+source changes using the agreed Git workflow, resolve source conflicts, then sync
+the destination worktree's index and revalidate findings there. Never merge SQLite
+index databases or copy a worker's graph over the parent's graph.
+
+Indexes are disposable derived data; assignments and checkpoints remain durable
+task state. Token Kit currently stores one workspace per task and does not implement
+automatic per-agent worktree routing or index identity/freshness enforcement. For
+independent worktrees, use separate tasks with explicit --workspace paths and record
+their task paths in the coordinating parent's state. A native worker ticket alone
+does not isolate a filesystem or switch its workspace.
+
+On shared HPC storage, do not assume cross-host SQLite/watcher safety. Coordinate
+one writer in a supported storage/host setup; large indexing belongs in a compute
+allocation. Do not silently start daemons or scan a broad directory. This is agent
+policy, not an implemented Token Kit index supervisor.
+
 The call-budget hooks, lane layout, supervisor, and examples below describe legacy
 compatibility, not the shared native-worker lifecycle above.
 
