@@ -77,6 +77,43 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertEqual(child.count(policy.POLICY), 1)
         self.assertTrue(child.endswith("work"))
 
+    def test_legacy_and_standalone_prefixes_are_refreshed(self):
+        legacy = "<!-- token-kit worker policy v0 -->\nOld rules.\n<!-- /token-kit worker policy -->"
+        body = "  Work exactly here.\n\nKeep trailing space.  \n"
+        for wrapper in (legacy + "\n\n", legacy + "\n", policy.POLICY + "\n\n",
+                        legacy + '\nToken Kit record: {"task": "/task", "agent": "worker"}\n\n'):
+            with self.subTest(wrapper=wrapper[:50]):
+                result = policy.brief(wrapper + body, "/task", "worker")
+                self.assertEqual(result, policy.brief(body, "/task", "worker"))
+                self.assertEqual(policy.brief(result, "/task"), result)
+
+    def test_stacked_prefixes_preserve_outer_identity_and_exact_body(self):
+        body = "\nAssignment.\n\n" + policy.POLICY + "\nThis is an interior example.\n"
+        legacy = "<!-- token-kit worker policy v2.1 -->\nLegacy.\n<!-- /token-kit worker policy -->"
+        inner = policy.brief(body, "/old-task", "old-worker")
+        stacked = legacy + '\nToken Kit record: {"task": "/task", "agent": "worker"}\n\n' + inner
+        self.assertEqual(policy.brief(stacked, "/task"), policy.brief(body, "/task", "worker"))
+        self.assertEqual(policy.brief(stacked, "/task", "new"), policy.brief(body, "/task", "new"))
+        self.assertEqual(policy.brief(stacked, "/other"), policy.brief(body, "/other"))
+        standalone = legacy + "\n\n" + policy.POLICY + "\n\n" + inner
+        self.assertEqual(policy.brief(standalone, "/task"), policy.brief(body, "/task"))
+
+    def test_policy_examples_and_malformed_wrappers_are_not_erased(self):
+        for body in ("Example:\n" + policy.POLICY,
+                     "```\n" + policy.POLICY + "\n```",
+                     "> " + policy.POLICY.replace("\n", "\n> "),
+                     "<!-- token-kit worker policy v0 -->\nDo this task.",
+                     "<!-- token-kit worker policy v0 -->\nDo this task.\n" + policy.POLICY,
+                     policy.POLICY + '\nToken Kit record: {broken}\n\nDo this task.',
+                     policy.POLICY + '\nToken Kit record: []\n\nDo this task.',
+                     policy.POLICY + '\nToken Kit record: {"task": 123}\n\nDo this task.',
+                     policy.POLICY + '\nToken Kit record: {"task": "/task", "agent": 1}\n\nTask.',
+                     policy.POLICY + '\nToken Kit record: {"task": "/task"}\nTask.'):
+            with self.subTest(body=body[-80:]):
+                expected = policy.POLICY + '\nToken Kit record: {"task": "/task"}\n\n' + body
+                self.assertEqual(policy.brief(body, "/task"), expected)
+                self.assertEqual(policy.brief(expected, "/task"), expected)
+
     def test_hook_changes_only_prompt_without_approving_tool(self):
         for name in ("Agent", "Task"):
             args = {"prompt": "Scout only; Luna xhigh", "model": "sonnet", "resume": "native-id",

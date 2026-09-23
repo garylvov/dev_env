@@ -195,6 +195,11 @@ whether to split, clarify, or authorize stronger reasoning within user constrain
 Leads relay promotion requests. Availability fallback within the assigned ladder
 is separate from complexity promotion; report and checkpoint either change.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """Keep STATE.md a current snapshot, replacing superseded status rather than appending
+progress logs. Preserve unresolved operations, decisions, and active user overrides.
+Put chronology and detailed evidence in artifacts and immutable checkpoints.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

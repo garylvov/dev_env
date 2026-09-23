@@ -1,10 +1,10 @@
 # Token Kit
 
-Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, and an authenticated client.
+Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, authenticated client.
 
 ## Run
 
-From `dev_env` (setup once/computer):
+From `dev_env`:
 
 ```bash
 source token_kit/add_to_bashrc.bash # Install Token Kit on your Bash PATH
@@ -13,17 +13,20 @@ token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
 
 Codex: `--engine codex`. Session-only.
-Names are labels; sessions acknowledge the matrix, then wait. `--prompt "..."` starts work.
-Source directory: `--workspace PATH`.
+Names are labels; sessions await instructions. `--prompt "..."` starts work;
+`--workspace PATH` selects source.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
 add `--codegraph` for installed CodeGraph.
 
+`token-kit pick parser` fuzzy-selects a task and prints its resume command with saved
+settings. Flags override settings; `--select N` selects without a terminal.
+Resume commands also print at startup/exit.
+
 ## Delegation
 
-See the [agent trigger matrix](agent_trigger_matrix.md) for model preferences,
-effort, and user overrides.
+See [agent trigger matrix](agent_trigger_matrix.md) for model preferences/overrides.
 
 ## Resume files
 
@@ -42,19 +45,16 @@ effort, and user overrides.
 ```
 
 Resume reads committed checkpoints, not transcripts. Parents reconcile workers
-before replacing them under the same ID (`token-kit worker --help`).
+before replacement (`token-kit worker --help`). Keep `STATE.md` current; archive history.
 
 ## Rollover and accounting
 
-Default token limit: unlimited (no token-triggered rollover). `--rollover-tokens 500k`
-opts into checkpoint-gated, same-engine restarts at turn boundaries.
-`--max-rollovers` defaults to 10. Threshold measures context,
+Rollover defaults off. `--rollover-tokens 500k` enables checkpoint-gated restarts at
+turn boundaries; `--max-rollovers` defaults to 10. Threshold measures context,
 not spend; overshoot is possible. Missing hooks/checkpoints stop recovery.
 
-`token-kit ledger TASK` shows agent/run/model input, cache, output and totals.
-Not billing/quota.
+`token-kit ledger TASK` shows reported usage, not billing/quota.
 
-Codex opens hook review automatically when needed: approve in `/hooks`, then exit
-to continue. Manual review: `token-kit hooks --engine codex`.
+Codex opens hook review when needed: approve in `/hooks`, then exit.
 Claude requests `DISABLE_COMPACT=1`; Codex requests a compaction veto. Live behavior
 uncertified. No native-child reattachment or automatic provider failover.

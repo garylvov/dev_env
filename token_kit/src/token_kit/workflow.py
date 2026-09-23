@@ -7,9 +7,12 @@ of live client behavior or a hard context cap.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
+from difflib import SequenceMatcher
 import importlib
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -44,6 +47,140 @@ def task_rows(root: Path, words: list[str] | None = None, only_open: bool = Fals
             continue
         result.append({**metadata, "status": metadata.get("status", "open"), "path": str(store.path)})
     return result
+
+
+def ranked_tasks(root: Path, words: list[str]) -> list[dict]:
+    """Rank metadata only: substring matches precede conservative typo matches."""
+    query = [word.casefold() for phrase in words for word in phrase.split()]
+    ranked = []
+    for row in task_rows(root):
+        text = " ".join(str(row.get(key, "")) for key in
+                        ("title", "task_id", "summary", "workspace")).casefold()
+        tokens = re.findall(r"\w+", text)
+        scores = [1.0 if word in text else max(
+            (SequenceMatcher(None, word, token).ratio() for token in tokens), default=0.0)
+            if len(word) >= 3 else 0.0 for word in query]
+        if any(score < 0.72 for score in scores):
+            continue
+        try:
+            created = datetime.fromisoformat(str(row.get("created_at", ""))).timestamp()
+        except (ValueError, OverflowError):
+            created = 0.0
+        ranked.append((sum(scores) / len(scores) if scores else 1.0, created, row))
+    ranked.sort(key=lambda item: (-item[0], -item[1], str(item[2].get("task_id", ""))))
+    return [row for _, _, row in ranked]
+
+
+def compact_text(value, limit: int) -> str:
+    text = " ".join("".join(c for c in str(value) if c.isprintable() or c.isspace()).split())
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def task_next_preview(row: dict) -> str:
+    """Read at most 32 KiB of current coordinator state; never walk history."""
+    try:
+        store = Store(row["path"])
+        path = store.safe(store.path / "agents" / "coordinator" / "STATE.md")
+        with path.open("rb") as handle:
+            state = handle.read(32768).decode("utf-8", errors="replace")
+        match = re.search(r"^## Next\s*\n(.*?)(?=^## |\Z)", state, re.MULTILINE | re.DOTALL)
+        return compact_text(match.group(1), 100) if match else "unavailable"
+    except (OSError, ValueError, KeyError):
+        return "unavailable"
+
+
+def latest_picker_run(task: str) -> dict:
+    """Inspect only bounded immediate coordinator run metadata for one selection."""
+    store = Store(task)
+    root = store.safe(store.path / "agents" / "coordinator" / "runs")
+    if not root.exists():
+        return {}
+    records = []
+    for number, path in enumerate(root.iterdir(), 1):
+        if number > 256:
+            raise ValueError("too many coordinator runs to infer resume settings safely (limit: 256)")
+        record_path = store.safe(path / "run.json")
+        if not record_path.is_file():
+            continue
+        with record_path.open("rb") as handle:
+            raw = handle.read(65537)
+        if len(raw) > 65536:
+            raise ValueError("run metadata exceeds 64 KiB; cannot infer resume settings safely")
+        record = json.loads(raw)
+        if not isinstance(record, dict):
+            raise ValueError(f"Expected run metadata object: {record_path}")
+        try:
+            created = datetime.fromisoformat(str(record.get("created_at", ""))).timestamp()
+        except (ValueError, OverflowError):
+            created = 0.0
+        records.append((created, path.name, record))
+    return max(records, key=lambda item: (item[0], item[1]))[2] if records else {}
+
+
+def pick(args) -> int:
+    if args.limit <= 0:
+        raise ValueError("--limit must be positive")
+    rows = ranked_tasks(args.root, args.words)
+    if not rows:
+        print("token-kit: no matching tasks", file=sys.stderr)
+        return 1
+    omitted = max(0, len(rows) - args.limit)
+    rows = rows[:args.limit]
+    for number, row in enumerate(rows, 1):
+        print(f"{number:>2}. {compact_text(row.get('title', ''), 64)} "
+              f"[{compact_text(row.get('status', 'open'), 12)}] "
+              f"{compact_text(row.get('created_at', 'unknown date'), 35)}\n"
+              f"    {compact_text(row.get('task_id', ''), 128)} | Next: {task_next_preview(row)}",
+              file=sys.stderr)
+    if omitted:
+        print(f"{omitted} more matching tasks; narrow your query or increase --limit.", file=sys.stderr)
+    selected = args.select
+    if selected is None:
+        if not sys.stdin.isatty():
+            print("token-kit: selection required; rerun with --select N", file=sys.stderr)
+            return 2
+        print("Choose task number (Enter/q cancels): ", end="", file=sys.stderr, flush=True)
+        try:
+            answer = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\ntoken-kit: cancelled", file=sys.stderr)
+            return 1
+        if answer.casefold() in ("", "q", "quit"):
+            print("token-kit: cancelled", file=sys.stderr)
+            return 1
+        try:
+            selected = int(answer)
+        except ValueError:
+            raise ValueError("choose a task number") from None
+    if not 1 <= selected <= len(rows):
+        raise ValueError(f"selection must be between 1 and {len(rows)}")
+    task = rows[selected - 1]["path"]
+    previous = latest_picker_run(task)
+    engine = args.engine or previous.get("engine") or "claude"
+    if engine not in ("codex", "claude"):
+        raise ValueError("unknown recorded engine; specify --engine")
+    model = args.model
+    if model is None and engine == previous.get("engine"):
+        usage = previous.get("usage") or {}
+        if not isinstance(usage, dict):
+            raise ValueError("invalid recorded usage; specify --model")
+        observed = usage.get("current_model")
+        model = observed if observed and observed != "unknown" else previous.get("model")
+    threshold = args.rollover_tokens if args.rollover_tokens is not None else previous.get("rollover_tokens")
+    yolo = args.yolo if args.yolo is not None else previous.get("yolo", False)
+    if not isinstance(yolo, bool):
+        raise ValueError("invalid recorded permissions; specify --yolo or --no-yolo")
+    if model is not None and not isinstance(model, str):
+        raise ValueError("invalid recorded model; specify --model")
+    command = ["token-kit", "run", "--task", task, "--engine", engine]
+    if model and model != "unknown":
+        command += ["--model", str(model)]
+    if threshold:
+        command += ["--rollover-tokens", str(runtime.token_limit(str(threshold)))]
+    if yolo:
+        command += ["--yolo"]
+    print(shlex.join(command))
+    return 0
 
 
 def stop_child(child) -> None:
@@ -331,6 +468,16 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--open", action="store_true")
         if name == "find":
             command.add_argument("words", nargs="+")
+    picker = commands.add_parser("pick", help="fuzzy task picker; print a resume command without launching")
+    picker.add_argument("words", nargs="*")
+    picker.add_argument("--root", type=Path, default=default_root())
+    picker.add_argument("--engine", choices=("codex", "claude"), help="default: latest run engine, or claude")
+    picker.add_argument("--model", help="override the latest run's model")
+    picker.add_argument("--select", type=int, help="explicit candidate number (required without a terminal)")
+    picker.add_argument("--limit", type=int, default=20, help="maximum candidates shown (default: 20)")
+    picker.add_argument("--rollover-tokens", type=runtime.token_limit)
+    picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
+                        help="override the latest run's permission setting")
     migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
     migrate.add_argument("source", type=Path)
     migrate.add_argument("--root", type=Path, default=default_root())
@@ -417,6 +564,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in ("list", "find"):
             print(json.dumps(task_rows(args.root, getattr(args, "words", None), args.open), indent=2))
             return 0
+        if args.command == "pick":
+            return pick(args)
         if args.command == "migrate":
             from .core.migrate import migrate_task
             print(migrate_task(args.source, args.root).path)

@@ -148,6 +148,9 @@ Every logical agent, including workers, owns its own `TASK/agents/ID/STATE.md`
 with Objective, Completed, Evidence, Unresolved, and Next sections. Checkpoint after
 meaningful milestones and before returning, with changed-file evidence and incorporated
 message IDs. Parents read `out.md` and verification evidence, not entire transcripts.
+Keep `STATE.md` a current snapshot: replace superseded status instead of appending
+progress logs. Preserve unresolved operations, decisions, and active user overrides;
+put chronology and detailed evidence in artifacts and immutable checkpoints.
 The coordinator's state records decisions, worker ownership, dependencies, and next
 actions. The main-thread-only state rule in the legacy layout below does not apply
 to these shared per-agent records.

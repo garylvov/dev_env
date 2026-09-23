@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -18,53 +19,70 @@ Main thread: orchestrator only; workers execute. If delegation is blocked, expla
 why and ask before substantial direct execution.
 Follow applicable repository instructions and the assignment's source boundaries.
 Use your own stable agent record: in.md, STATE.md, out.md, checkpoints/, artifacts/.
-Never use the parent's identity. Ask the coordinator for a record before source edits.
+Never use the parent's identity. Request a record before source edits.
 Recover with token-kit resume TASK --agent ID; read its assignment, committed state,
-and pending messages. Verify evidence and unfinished operations before repeating work.
-Maintain STATE.md sections Objective, Completed, Evidence, Unresolved, Next. Checkpoint
+and messages. Verify evidence and unfinished operations before repeating work.
+STATE.md is the current snapshot: replace stale status; keep history in artifacts/checkpoints.
+Preserve unresolved actions and scoped model overrides. Sections: Objective, Completed,
+Evidence, Unresolved, Next. Checkpoint
 after milestones and before returning: token-kit checkpoint TASK --agent ID.
-Include changed-file --evidence and addressed --incorporated message IDs. Put detail in
-artifacts/ and the final result in out.md. Checkpoints are agent-maintained, not automatic.
+Include changed-file --evidence and addressed --incorporated message IDs; detail in
+artifacts/, final result in out.md. Agents maintain checkpoints.
 
 Explicit scoped user model/provider/effort requests override these ordered defaults:
 plan/implement Opus -> Astra; review/debug Astra -> Opus; loops Luna -> Sonnet -> Terra
 -> Sol; docs Sol -> Luna -> Sonnet; scout/summarize/mechanical-edit Luna -> Sonnet.
 Effort: medium; Luna high except scouting/mechanical xhigh. Fable is explicit-only. "Use Codex" or
 "conserve Claude" excludes Claude fallbacks. Skip unavailable candidates; record
-overrides and their scope/expiry in state. Do not infer availability or silently switch
+override scope/expiry in state. Do not infer availability or silently switch
 an explicitly required model. Stay in your scoped role. If complexity exceeds it,
 checkpoint and report evidence/blockers via your parent to the main thread; only
 the main thread authorizes scope/model promotion within user constraints.
 
 Prefer native same-engine delegation, nesting when permitted. Create children using
 worker prepare --brief TEXT --parent YOUR_ID; pass scoped overrides, not transcripts.
-Prefer completion notifications; avoid short wait loops and status-only messages.
+Prefer completion notifications; avoid short waits and status-only messages.
 Use token-kit worker prepare/bind; spawn only when authorized. Track direct children
 with token-kit resume TASK --agent YOUR_ID; status TASK shows all attempts/parents.
-Honor your attempt ticket:
-checkpoint, request-rollover or complete, then return. Parents confirm closure with
-worker stopped before reserving replacements; never blindly repeat an uncertain spawn.
+Honor attempt tickets: checkpoint, request-rollover or complete, then return. Parents
+confirm worker stopped before replacements; never repeat an uncertain spawn.
 <!-- /token-kit worker policy -->"""
 
 
 def brief(text: str, task: str, agent: str | None = None) -> str:
-    """Idempotently add policy, preserving the original assignment verbatim."""
+    """Refresh leading policy wrappers without changing the assignment body."""
     prefix = POLICY + "\nToken Kit record: "
-    if text.startswith(prefix):
-        record, separator, original = text[len(prefix):].partition("\n\n")
-        try:
-            previous = json.loads(record)
-        except ValueError:
-            previous = None
-        if separator and isinstance(previous, dict):
-            if previous.get("task") == str(task) and (agent is None or previous.get("agent") == agent):
-                return text
-            # A coordinator may reuse a brief for another registered worker.
-            # Replace the record reference instead of inheriting the old identity.
-            text = original
+    previous = None
+    opening = re.compile(r"<!-- token-kit worker policy(?: v[\w.-]+)? -->\n")
+    closing = re.compile(r"^<!-- /token-kit worker policy -->(?:\n|$)", re.MULTILINE)
+    while start := opening.match(text):
+        end = closing.search(text)
+        # Do not let a broken outer marker consume a later complete wrapper.
+        if end is None or "<!-- token-kit worker policy" in text[start.end():end.start()]:
+            break
+        original = text[end.end():]
+        record = None
+        if original.startswith("Token Kit record: "):
+            raw, separator, body = original[len("Token Kit record: "):].partition("\n\n")
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                break
+            if (not separator or not isinstance(record, dict)
+                    or not isinstance(record.get("task"), str)
+                    or ("agent" in record and not isinstance(record["agent"], str))):
+                break
+            original = body
+        elif original.startswith("\n"):
+            original = original[1:]
+        if previous is None and record is not None:
+            previous = record
+        text = original
     context = {"task": str(task)}
     if agent is not None:
         context["agent"] = agent
+    elif previous is not None and previous["task"] == str(task) and "agent" in previous:
+        context["agent"] = previous["agent"]
     return prefix + json.dumps(context) + "\n\n" + text
 
 
