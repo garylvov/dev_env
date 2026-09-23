@@ -20,9 +20,9 @@ Names are labels; sessions await instructions. `--prompt "..."` starts work;
 `--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
 add `--codegraph` for installed CodeGraph.
 
-`token-kit pick parser` fuzzy-selects a task and prints its resume command with saved
-settings. Flags override settings; `--select N` selects without a terminal.
-Resume commands also print at startup/exit.
+`token-kit pick parser` lists fuzzy matches with dates/IDs/next actions. Choose a
+number (Enter cancels), then run the printed command with saved settings.
+Noninteractive: `--select N`. Resume commands also print at startup/exit.
 
 ## Delegation
 
