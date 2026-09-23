@@ -123,6 +123,35 @@ One band for every kind, and the kit's one hard mechanism. Change a number here 
 
 ## Hierarchy: delegationmaxxing
 
+The main thread is the orchestrator, not an execution worker. It owns user intent,
+task decomposition, scoped briefs, model selection, durable coordination state,
+acceptance decisions, and the final synthesis. Delegate source exploration,
+session/transcript summaries, implementation, debugging, tests, documentation,
+and independent verification to bounded workers using the role ladders above.
+Do not start a substantial investigation in the main thread before delegating it.
+Workers execute their assignments; this rule does not require workers to recursively
+delegate every action. Small tasks can use a single worker without a lead.
+
+The coordinator may read applicable instructions, inspect task/worker status, write
+briefs and its own state, manage lifecycle tickets, and inspect returned evidence.
+It should not duplicate the worker's investigation or ingest full transcripts.
+Parallelize independent workers only where permitted; serialize overlapping edits.
+Never spawn agents solely to wait or manufacture unnecessary management layers.
+
+If site rules, client capabilities, or permitted model availability block delegation,
+explain the specific restriction before substantial execution. Ask for a scoped
+direct-work exception or propose an authorized execution environment; do not silently
+take over the worker's job or bypass a restriction. Explicit user instructions can
+change this role preference, but cannot override higher-priority safety constraints.
+
+Every logical agent, including workers, owns its own `TASK/agents/ID/STATE.md`
+with Objective, Completed, Evidence, Unresolved, and Next sections. Checkpoint after
+meaningful milestones and before returning, with changed-file evidence and incorporated
+message IDs. Parents read `out.md` and verification evidence, not entire transcripts.
+The coordinator's state records decisions, worker ownership, dependencies, and next
+actions. The main-thread-only state rule in the legacy layout below does not apply
+to these shared per-agent records.
+
 Prefer the current client's native delegation tools for same-engine work, including
 nested delegation where the client and repository policy permit it. Do not use raw
 CLI subprocesses as a substitute for available native children. If nesting is not

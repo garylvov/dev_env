@@ -17,6 +17,14 @@ from token_kit.core.store import Store
 
 
 class WorkerPolicyTests(unittest.TestCase):
+    def test_orchestrator_role_and_blocked_delegation_are_explicit(self):
+        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        self.assertIn("orchestrator, not an execution worker", matrix)
+        self.assertIn("before substantial execution", matrix)
+        self.assertIn("Every logical agent, including workers", matrix)
+        self.assertIn("orchestrator only", policy.POLICY)
+        self.assertIn("ask before substantial direct execution", policy.POLICY)
+
     def test_mechanical_routing_and_main_thread_promotion(self):
         from token_kit.project_install import INSTRUCTIONS
         self.assertIn("Mechanical edits: Luna xhigh -> Sonnet medium", INSTRUCTIONS)

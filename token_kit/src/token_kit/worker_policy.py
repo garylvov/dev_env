@@ -14,6 +14,8 @@ import sys
 
 
 POLICY = """<!-- token-kit worker policy v1 -->
+Main thread: orchestrator only; workers execute. If delegation is blocked, explain
+why and ask before substantial direct execution.
 Follow applicable repository instructions and the assignment's source boundaries.
 Use your own stable agent record: in.md, STATE.md, out.md, checkpoints/, artifacts/.
 Never use the parent's identity. If no record is assigned, ask the coordinator to
