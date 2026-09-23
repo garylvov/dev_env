@@ -13,7 +13,7 @@ token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
 
 Codex: `--engine codex`. Session-only.
-Names are labels; new sessions wait for input. `--prompt "..."` starts work immediately.
+Names are labels; sessions acknowledge the matrix, then wait. `--prompt "..."` starts work.
 Source directory: `--workspace PATH`.
 `--yolo` bypasses permission checks; Codex also disables sandboxing.
 

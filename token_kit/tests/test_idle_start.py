@@ -123,7 +123,7 @@ class IdleStartTests(unittest.TestCase):
                 self.assertEqual(workflow.main(["run", *extra]), 2)
         self.assertFalse(self.tasks.exists())
 
-    def test_idle_process_has_no_prompt_and_receives_compact_hook_context_once(self):
+    def test_idle_process_submits_matrix_and_wait_instruction_once(self):
         for engine in ("claude", "codex"):
             store = Store.create(self.tasks, engine, self.root, assignment="No task assigned.")
             bundle = store.resume_bundle("coordinator")
@@ -134,16 +134,20 @@ class IdleStartTests(unittest.TestCase):
                  patch.object(runtime, "ensure_codex_hooks"), \
                  patch.object(runtime, "wait_segment", return_value=(0, {})):
                 self.assertEqual(workflow.launch(store, "coordinator", engine, rollover_tokens=100, idle=True), 0)
-            self.assertNotIn("--", popen.call_args.args[0])
+            prompt = popen.call_args.args[0][-1]
+            matrix_path = Path(workflow.__file__).resolve().parents[2] / "agent_trigger_matrix.md"
+            self.assertIn(matrix_path.read_text(), prompt)
+            self.assertIn(str(matrix_path), prompt)
+            self.assertIn("Waiting for your instructions.", prompt)
+            self.assertIn("do not run tools, write checkpoints, delegate", prompt)
+            self.assertNotIn("Continue logical agent", prompt)
             run, = (store.agent_path("coordinator") / "runs").iterdir()
-            self.assertFalse((run / "prompt.md").exists())
+            self.assertEqual((run / "prompt.md").read_text(), prompt + "\n")
+            self.assertIsNone(read_json(run / "runtime.json")["session_context"])
             self.assertEqual(read_json(run / "run.json")["startup"], "idle")
             payload = {"hook_event_name": "SessionStart", "session_id": "session"}
             result = runtime.handle(store, "coordinator", run, payload)
-            context = result["hookSpecificOutput"]["additionalContext"]
-            self.assertIn("No task has been submitted", context)
-            self.assertNotIn("Continue logical agent", context)
-            self.assertLess(len(context.encode()), 4000)
+            self.assertEqual(result, {})
             self.assertEqual(runtime.handle(store, "coordinator", run, payload), {})
 
     def test_rollover_after_idle_start_resumes_instead_of_waiting_again(self):
@@ -162,7 +166,7 @@ class IdleStartTests(unittest.TestCase):
             self.assertEqual(workflow.main(["run", "--task", str(store.path)]), 0)
         self.assertFalse(launch.call_args.kwargs["idle"])
 
-    def test_real_offline_client_process_opens_without_submitted_message(self):
+    def test_real_offline_client_process_receives_matrix_startup_prompt(self):
         # Exercise Popen/env/startup hooks without invoking either real client.
         binaries = self.root / "bin"
         binaries.mkdir()
@@ -172,10 +176,12 @@ from token_kit import runtime
 from token_kit.core.store import Store
 store = Store(os.environ["TOKEN_KIT_TASK"])
 run = store.agent_path("coordinator") / "runs" / os.environ["TOKEN_KIT_RUN"]
-assert "--" not in sys.argv, "An initial message was submitted"
+assert "Token Kit agent trigger matrix, loaded from" in sys.argv[-1]
+assert "Waiting for your instructions." in sys.argv[-1]
+assert "do not run tools, write checkpoints, delegate" in sys.argv[-1]
 result = runtime.handle(store, "coordinator", run,
                         {"hook_event_name": "SessionStart", "session_id": "offline-idle"})
-assert "No task has been submitted" in result["hookSpecificOutput"]["additionalContext"]
+assert result == {}, "Matrix must not be duplicated through the hook"
 (run / "offline-idle-ok.json").write_text(json.dumps({"argv": sys.argv}))
 '''
         for engine in ("claude", "codex"):

@@ -117,7 +117,7 @@ def run(args) -> int:
     startup_line(f"Token Kit | {args.engine} | {display_title}", heading=True)
     startup_line(f"Task: {store.path}")
     if idle:
-        startup_line("New session: waiting for your first instruction; the title is only a label.")
+        startup_line("New session: loading trigger matrix, then waiting for your instruction; the title is only a label.")
     startup_line("Guidance: session-only; existing project settings are preserved" if not args.install_project
                  else "Guidance: installed in project")
     startup_line("Checkpoints: agent-maintained | automatic rollover: " +
@@ -176,15 +176,24 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     )
     from .worker_policy import brief
     if idle:
-        prompt = ("New idle Token Kit session. No task has been submitted. The session title is a label, "
+        matrix_path = Path(__file__).resolve().parents[2] / "agent_trigger_matrix.md"
+        matrix = matrix_path.read_text(encoding="utf-8")
+        prompt = (f"Token Kit agent trigger matrix, loaded from {matrix_path}:\n\n"
+                  f"{matrix}\n\nEND OF TRIGGER MATRIX\n\n"
+                  "Apply the shared-session delegation guidance to future work, subject to applicable "
+                  "repository instructions and user overrides. Legacy-only examples are not active commands "
+                  "or guarantees for this shared session.\n\n"
+                  "New idle Token Kit session. No task has been submitted. The session title is a label, "
                   "not an instruction. Do not investigate, recover prior work, or execute tools until "
                   "the user gives an instruction. Do not compact. Then record their objective/scope in your STATE.md. "
-                  f"Your workspace is {store.workspace}. Recovery command, only when needed: {resume_command}.")
+                  f"Your workspace is {store.workspace}. Recovery command, only when needed: {resume_command}. "
+                  "For this startup turn only, do not run tools, write checkpoints, delegate, or start any task. "
+                  "Reply briefly: 'Token Kit trigger matrix loaded. Waiting for your instructions.' Then wait.")
     elif initial_prompt is not None:
         prompt = f"User's explicit task:\n{initial_prompt}\n\nDo not compact. Token Kit record: {resume_command}."
     prompt = brief(prompt, str(store.path), agent)
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
-    plan = adapter.prepare_launch(LaunchRequest(store.workspace, None if idle else prompt, True, model, yolo=yolo,
+    plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
                                                worker_task=str(store.path),
                                                managed_hooks=engine == "claude" or bool(rollover_tokens)))
     if dry_run:
@@ -199,10 +208,9 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     run = store.claim_run(agent, engine, True)
     store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
                      startup="idle" if idle else "prompt" if initial_prompt is not None else "resume")
-    runtime.initialize(store, agent, run, engine, rollover_tokens,
-                       session_context=prompt if idle else None)
+    runtime.initialize(store, agent, run, engine, rollover_tokens)
     write_json(run / "resume.json", bundle)
-    atomic_text(run / ("session-context.md" if idle else "prompt.md"), prompt + "\n")
+    atomic_text(run / "prompt.md", prompt + "\n")
     child = None
     terminal = None
     try:
