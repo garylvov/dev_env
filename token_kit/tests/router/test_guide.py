@@ -168,10 +168,12 @@ class TestSharedReadmeCommands(unittest.TestCase):
             self.assertIn(entry, text)
         self.assertIn("committed checkpoints, not transcripts", text)
 
-    def test_fable_is_visible_as_an_explicit_override(self):
-        text = SHIPPED.read_text().split("## Explicit user overrides", 1)[1].split("## Call budget", 1)[0]
-        self.assertIn('"Have Fable red-team this" | `claude:fable:medium`', text)
-        self.assertIn('"Opus while we have it" | `claude:opus:medium`', text)
+    def test_tier_defaults_have_one_canonical_document(self):
+        text = SHIPPED.read_text()
+        self.assertIn("trigger_pyramid.md", text)
+        self.assertIn("## Session and worker overrides", text)
+        pyramid = (KIT_DIR / "trigger_pyramid.md").read_text()
+        self.assertIn("claude:opus:high > claude:fable:medium", pyramid)
 
 
 class TestInjection(unittest.TestCase):

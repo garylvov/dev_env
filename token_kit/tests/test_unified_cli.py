@@ -59,8 +59,8 @@ class UnifiedTests(unittest.TestCase):
         installed = subprocess.run(command, capture_output=True, text=True)
         self.assertEqual(installed.returncode, 0, installed.stderr)
         instructions = (self.project / "AGENTS.md").read_text()
-        self.assertIn("Opus while we have it", instructions)
-        self.assertIn("generic request to red-team still defaults to Codex", instructions)
+        self.assertIn("TASK/trigger_pyramid.md", instructions)
+        self.assertIn("independent smart red-team", instructions)
         self.assertTrue((self.project / "CLAUDE.md").is_file())
 
     def test_migrate_routes_to_shared_core_without_changing_source(self):

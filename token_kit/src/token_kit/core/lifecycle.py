@@ -139,6 +139,10 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
             raise ValueError("Specify --engine claude or codex for the first attempt")
         if threshold is not None and threshold <= 0:
             raise ValueError("Worker rollover threshold must be positive")
+        # Validate the task snapshot and construct the complete spawn brief
+        # before publishing a launching reservation. A malformed map or prompt
+        # cannot strand a hidden ticket that claims a worker was reserved.
+        trigger_pyramid = store._trigger_pyramid_locked(seed=True)
         state = {"schema_version": 1, "agent_id": agent, "parent_agent": parent,
                  "phase": "launching", "ticket": uuid.uuid4().hex,
                  "generation": (old or {}).get("generation", 0) + 1,
@@ -152,7 +156,6 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
             state["history"] = state["history"] + [{key: value for key, value in old.items()
                                                    if key not in ("history", "events")}]
         event(state, "worker_reserved", f"Worker {agent} attempt {state['generation']} reserved. Spawn at most once, then bind its native ID.")
-        publish_locked(store, state)
         base = ["token-kit", "worker"]
         request = shlex.join([*base, "request-rollover", str(store.path), "--agent", agent,
                              "--ticket", state["ticket"], "--reason", "Context budget reached"])
@@ -164,9 +167,11 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                   f"run {checkpoint_cmd} with evidence/message IDs, then {request} and return. "
                   f"When finished instead, checkpoint, write out.md, run {complete}, and return. "
                   "Never start your own replacement or use a sibling/parent identity.")
+        spawn_prompt = brief(prompt, str(store.path), agent, pyramid=trigger_pyramid)
+        publish_locked(store, state)
         return {"spawn_authorized": True, "worker": state,
                 "native_task_name": f"{agent}_{state['ticket'][:8]}",
-                "spawn_prompt": brief(prompt, str(store.path), agent)}
+                "spawn_prompt": spawn_prompt}
 
 
 def _observation_path(store, owner_agent, owner_run, native):

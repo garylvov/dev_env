@@ -7,7 +7,7 @@ Resumable Claude/Codex agents. Requires `uv`, Python >=3.11, authenticated clien
 From `dev_env`:
 
 ```bash
-source token_kit/add_to_bashrc.bash # Install Token Kit on your Bash PATH
+source token_kit/add_to_bashrc.bash # Shell setup
 # "Finish retread": session name. Sessions: ~/.config/token_kit.
 token-kit run "Finish retread" --engine claude --rollover-tokens 500k --yolo
 ```
@@ -27,13 +27,14 @@ Resume commands print at startup/exit.
 
 ## Delegation
 
-See [agent trigger matrix](agent_trigger_matrix.md) for model preferences/overrides.
+[Pyramid](trigger_pyramid.md): model tiers/overrides. [Matrix](agent_trigger_matrix.md): when to delegate.
 
 ## Resume files
 
 ```text
 <task>/
   task.json
+  trigger_pyramid.md       # session model tiers
   TOKEN_LEDGER.md          # reported usage
   agents/<id>/
     in.md                 # assignment

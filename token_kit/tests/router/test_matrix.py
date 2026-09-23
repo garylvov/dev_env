@@ -41,20 +41,20 @@ class TestParser(unittest.TestCase):
         matrix = matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md")
         for name in matrix.names():
             candidates = matrix.row(name)["prefer"]
-            if name in ("implement", "design"):
-                self.assertEqual(candidates, ["claude:opus:medium", "codex:gpt-6-astra:medium"])
+            if name in ("design", "design-review", "debug-stuck"):
+                self.assertEqual(candidates, ["codex:gpt-6-astra:medium", "claude:opus:medium"])
             elif name in ("lookup", "summarise", "mechanical-edit"):
-                self.assertEqual(candidates, ["codex:gpt-5.6-luna:xhigh", "claude:sonnet:medium"])
-            elif name == "debug-stuck":
-                self.assertEqual(candidates[0], "codex:gpt-6-astra:medium")
-            elif name == "batch-run":
-                self.assertEqual(candidates, ["codex:gpt-5.6-luna:high", "claude:sonnet:medium", "codex:gpt-5.6-terra:medium", "codex:gpt-5.6-sol:medium"])
+                self.assertEqual(candidates, ["codex:gpt-5.6-luna:xhigh", "claude:sonnet:medium", "codex:gpt-5.6-terra:medium"])
+            elif name in ("implement", "batch-run"):
+                self.assertEqual(candidates, ["codex:gpt-5.6-luna:high", "claude:sonnet:medium", "codex:gpt-5.6-terra:medium"])
             elif name == "write-doc":
-                self.assertEqual(candidates, ["codex:gpt-5.6-sol:medium", "codex:gpt-5.6-luna:high", "claude:sonnet:medium"])
+                self.assertEqual(candidates, ["codex:gpt-5.6-sol:high"])
             else:
                 self.assertTrue(candidates[0].startswith("codex:"), name)
             for candidate in candidates:
                 expected = ("xhigh" if name in ("lookup", "summarise", "mechanical-edit") else "high") if "luna" in candidate else "medium"
+                if "sol" in candidate:
+                    expected = "high"
                 self.assertEqual(candidate.rsplit(":", 1)[1], expected)
                 self.assertFalse(candidate.startswith("claude:fable:"), candidate)
                 if candidate.startswith(("claude:fable:", "claude:opus:")):

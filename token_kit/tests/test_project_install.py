@@ -19,17 +19,18 @@ class ProjectInstallTests(unittest.TestCase):
     def test_role_overrides_are_installed_for_both_clients(self):
         configure(self.project, engine="both")
         text = (self.project / "AGENTS.md").read_text()
-        for phrase in ("Explicit user task/role model requests override routing defaults",
-                       "Opus for the big stuff", "Luna for run loops", "Sol for run loops",
-                       "Keep simultaneous role choices separate", "ask before substituting"):
+        for phrase in ("TASK/trigger_pyramid.md", "token_kit/trigger_pyramid.md",
+                       "Restrictive user provider filters take precedence",
+                       "exact wording, scope, and expiry", "ask before substituting",
+                       "Keep simultaneous role choices separate",
+                       "preserve an existing session file"):
             self.assertIn(phrase, text)
         self.assertIn("@AGENTS.md", (self.project / "CLAUDE.md").read_text())
-        self.assertIn("Opus medium -> Astra medium", text)
-        self.assertIn("Luna xhigh -> Sonnet medium", text)
-        self.assertIn("excludes every Claude candidate", text)
-        self.assertIn("Routine execution loops/job coordination: Luna high -> Sonnet medium -> Terra medium -> Sol medium", text)
-        self.assertIn("Choose the\ntier by the actual assignment, not hierarchy depth", text)
-        self.assertNotIn("Prefer Astra (medium) for planning", text)
+        self.assertIn("excludes every\nClaude candidate", text)
+        for obsolete in ("Opus medium -> Astra medium", "Terra medium -> Sol medium",
+                         "Default to medium effort for every model",
+                         "Never auto-fallback to Fable", "Smartest: Astra xhigh"):
+            self.assertNotIn(obsolete, text)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

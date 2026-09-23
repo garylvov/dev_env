@@ -129,6 +129,8 @@ class Store:
             raise ValueError("A workspace directory and nonempty title are required")
         if assignment is not None and not assignment.strip():
             raise ValueError("Assignment must be nonempty when supplied")
+        from ..pyramid import NAME, read_pyramid
+        defaults = read_pyramid()
         normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
         slug = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")[:64].rstrip("_") or "session"
         local = datetime.now().astimezone()
@@ -150,6 +152,8 @@ class Store:
         write_json(path / "task.json", {"schema_version": SCHEMA, "task_id": task_id,
                    "title": title, "status": "open", "workspace": str(workspace), "created_at": now()})
         store = cls(path)
+        with store.locked():
+            atomic_text(store.safe(path / NAME), defaults["content"])
         store.add_agent("coordinator", title if assignment is None else assignment)
         return store
 
@@ -180,6 +184,21 @@ class Store:
             fcntl.flock(handle, fcntl.LOCK_EX)
             yield
 
+    def trigger_pyramid(self, *, seed: bool = False) -> dict[str, str]:
+        """Read the current map, optionally seeding a missing task snapshot."""
+        with self.locked():
+            return self._trigger_pyramid_locked(seed=seed)
+
+    def _trigger_pyramid_locked(self, *, seed: bool = False) -> dict[str, str]:
+        """Caller owns the task lock; existing snapshots are never overwritten."""
+        from ..pyramid import NAME, read_pyramid
+        target = self.safe(self.path / NAME)
+        current = read_pyramid(self.path)
+        if seed and current["source"] == "repository":
+            atomic_text(target, current["content"])
+            current = {"path": str(target), "source": "task", "content": current["content"]}
+        return current
+
     def agent_path(self, agent: str) -> Path:
         path = self.safe(self.path / "agents" / component(agent))
         for name in ("agent.json", "STATE.md", "in.md", "assignments", "checkpoints", "messages", "runs", "artifacts"):
@@ -201,6 +220,8 @@ class Store:
         with self.locked():
             if parent:
                 self.agent_path(parent)
+            pyramid = self._trigger_pyramid_locked()
+            saved = brief(assignment, str(self.path), agent, pyramid=pyramid)
             path = self.safe(self.path / "agents" / agent)
             path.mkdir(parents=True, exist_ok=False)
             sync_directory(path.parent)
@@ -209,7 +230,6 @@ class Store:
             write_json(path / "agent.json", {"schema_version": SCHEMA, "agent_id": agent,
                        "parent_agent": parent,
                        "assignment_revision": 1, "created_at": now(), "latest_checkpoint": None})
-            saved = brief(assignment, str(self.path), agent)
             atomic_text(path / "assignments" / "0001.md", saved + "\n")
             atomic_text(path / "in.md", saved + "\n")
             atomic_text(path / "STATE.md", "# Agent state\n\n## Objective\n" + assignment +
@@ -312,6 +332,7 @@ class Store:
             changed = [e["path"] for e in manifest["evidence"]
                        if not Path(e["path"]).is_file() or fingerprint(Path(e["path"])) != e["sha256"]]
             return {"agent_id": agent, "workspace": str(self.workspace), "checkpoint": str(snapshot),
+                    "trigger_pyramid": self._trigger_pyramid_locked(),
                     "children": children,
                     "assignment": str(path / "assignments" / f'{manifest["assignment_revision"]:04d}.md'),
                     "pending_messages": messages, "changed_evidence": changed,

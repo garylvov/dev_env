@@ -115,7 +115,7 @@ class JobCase(unittest.TestCase):
     # -- the guards ------------------------------------------------------
 
     def test_managed_job_persists_policy_context_and_sends_compact_brief(self):
-        from token_kit.worker_policy import POLICY
+        from token_kit.pyramid import read_pyramid
         from token_kit.core.store import Store
         store = Store.create(self.tmp / "tasks", "test", self.tmp)
         job_id = self.start(linger="0", TOKEN_KIT_TASK=str(store.path), TOKEN_KIT_AGENT="parent-secret")
@@ -124,7 +124,8 @@ class JobCase(unittest.TestCase):
         meta = json.loads((self.job(job_id).root / "meta.json").read_text())
         self.assertEqual(meta["token_kit_task"], str(store.path))
         prompt = self.sent("turn/start")[0]["input"][0]["text"]
-        self.assertIn(POLICY, prompt)
+        self.assertIn("<!-- token-kit worker policy v2 -->", prompt)
+        self.assertIn(read_pyramid(store.path)["content"].rstrip(), prompt)
         self.assertTrue(prompt.endswith(self.task.read_text()))
         self.assertNotIn("parent-secret", prompt)
         self.assertIn("codex-worker", (store.path / "TOKEN_LEDGER.md").read_text())

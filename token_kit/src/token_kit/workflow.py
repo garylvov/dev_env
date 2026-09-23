@@ -355,6 +355,10 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     dry_run: bool, yolo: bool, rollover_tokens: int | None,
                     *, idle: bool = False, initial_prompt: str | None = None) -> tuple[int, dict]:
+    # A real managed launch may seed an old task's missing snapshot. Dry runs
+    # remain read-only and use the repository fallback through resume_bundle.
+    if not dry_run:
+        store.trigger_pyramid(seed=True)
     bundle = store.resume_bundle(agent)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
     checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
@@ -387,7 +391,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                   "Reply briefly: 'Token Kit trigger matrix loaded. Waiting for your instructions.' Then wait.")
     elif initial_prompt is not None:
         prompt = f"User's explicit task:\n{initial_prompt}\n\nDo not compact. Token Kit record: {resume_command}."
-    prompt = brief(prompt, str(store.path), agent)
+    prompt = brief(prompt, str(store.path), agent, pyramid=bundle["trigger_pyramid"])
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
     plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
                                                worker_task=str(store.path),

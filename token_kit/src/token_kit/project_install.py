@@ -214,6 +214,77 @@ scope gets a bounded audit first. No extra approval gate for authorized work.
 Record added features, dependencies, scope, and current phase in state. Announce
 phase changes and revised scope; pause only affected work when requests conflict.
 """
+# Keep the previous full block recognizable for ownership-safe upgrades.
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = """Use token-kit to maintain portable task and agent records.
+Consult token-kit --help for new, agent, checkpoint, resume, launch, and status.
+Each agent owns in.md, STATE.md, out.md, artifacts/, and checkpoints/. Keep STATE.md
+current: Objective, Completed, Evidence, Unresolved, Next. Replace stale status;
+keep history in artifacts/checkpoints. Checkpoint at meaningful milestones and
+before returning or switching clients, with changed-file evidence and incorporated
+message IDs. Verify uncertain operations before repeating them.
+
+Model selection has one source: TASK/trigger_pyramid.md, the complete current-session
+snapshot shared by every worker and resume. Repository token_kit/trigger_pyramid.md
+contains only default tier definitions; use it only when a session snapshot is absent.
+New sessions snapshot those defaults; preserve an existing session file. Read the
+session pyramid before delegation and on resume; never import model ladders from
+legacy instructions. Restrictive user provider filters take precedence, then exact
+scoped worker assignments, then the session pyramid, then repository defaults.
+Keep simultaneous role choices separate; the most specific scope wins, with newer
+requests replacing older ones only in that scope. For session-wide natural-language
+overrides, the coordinator updates only affected session pyramid rows. Keep worker-only
+overrides in that worker's assignment, leaving shared rows unchanged. Record the user's
+exact wording, scope, and expiry in STATE.md and affected briefs. Do not edit repo
+defaults for a session override. Respect explicit effort choices and expiry; report
+unavailability and follow only authorized fallbacks within the same tier. An exact
+assigned model is not silently replaced: ask before substituting unless a fallback
+or expiry was already authorized. 'Use Codex' or 'conserve Claude' excludes every
+Claude candidate, including fallbacks. If no permitted candidate remains, report
+that instead of silently changing providers. No automatic NLP, quota detection,
+live model switching, or override scheduler is implied.
+
+The main thread orchestrates user intent, scoped briefs, ownership, dependencies,
+acceptance, and results; workers execute. Usually use smart for coordination and
+mid for bounded execution; use smartest sparingly. Smart workers may delegate mid
+work when useful and permitted. Use many independent bounded workers when useful,
+with disjoint source ownership; serialize overlapping writes. Skip unnecessary leads.
+Each brief names role, allowed paths, output, acceptance checks, and escalation
+boundary. Workers do not widen scope or promote models; checkpoint and report
+blockers, evidence, attempted approaches, and proposed changes via their parent.
+The coordinator decides within user constraints. Prefer completion notifications;
+never spawn workers only to wait or repeat short waits/status-only messages.
+
+Announce the feature route, reason, selected models, and phase changes to the user.
+Complex features: bounded mid audit, smart plan, independent smart red-team,
+smart revision resolving blocking findings, then bounded mid implementation and
+verification. Simple features can design, implement, and verify directly with mid;
+audit uncertain scope first. Queue additions with scope, dependencies, and ownership
+in state; update affected briefs and review changed designs. Clarify incompatible
+scope or priorities without adding approval gates for authorized work.
+
+Prefer native same-engine delegation; if nesting is unsupported, ask the coordinator
+to spawn rather than substitute raw CLI calls or silently change providers. Register
+children with token-kit agent TASK ID --parent PARENT --assignment-file FILE, or
+worker prepare with --brief/--assignment-file for new agents. Reserve with token-kit
+worker prepare TASK --agent ID --engine ENGINE. Spawn only when spawn_authorized
+is true using the returned prompt, then worker bind with its ticket and native ID.
+Pass scoped briefs, not transcripts. A lost spawn response is uncertain: reconcile
+it before any retry. Inherited TOKEN_KIT_AGENT/RUN identify the owner, not the child.
+Workers checkpoint, then request rollover or complete with their attempt ticket.
+Parents read child records/notices on resume, allow handoffs to finish, and confirm
+native closure and reconcile external operations before worker stopped. That command
+records closure; it does not kill processes. A Stop hook alone is not proof of closure.
+Rollover uses the same logical ID; completed workers are not blindly respawned.
+Use resume TASK --agent PARENT for children/notices and status TASK for all attempts.
+Every lead follows this protocol. Parents inspect out.md and verification evidence,
+not whole transcripts. Ownership boundaries are conventions, not enforced isolation.
+
+Instructions alone do not enforce budgets, prevent compaction, automatically register
+native spawns, or switch providers. Use the launcher and its actual capabilities.
+Cross-client usage requires instrumented transports; raw CLI calls are not automatically
+metered. Missing usage is unknown, not zero. Never infer authority for extra work.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

@@ -93,13 +93,14 @@ class DispatchCase(unittest.TestCase):
     # -- the guards ------------------------------------------------------
 
     def test_managed_session_adds_worker_policy_to_wire(self):
-        from token_kit.worker_policy import POLICY
+        from token_kit.pyramid import read_pyramid
         from token_kit.core.store import Store
         store = Store.create(self.tmp / "tasks", "test", self.tmp)
         proc, _ = self.run_cli(env_extra={"TOKEN_KIT_TASK": str(store.path), "TOKEN_KIT_AGENT": "parent-secret"})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         prompt = self.sent("turn/start")["input"][0]["text"]
-        self.assertIn(POLICY, prompt)
+        self.assertIn("<!-- token-kit worker policy v2 -->", prompt)
+        self.assertIn(read_pyramid(store.path)["content"].rstrip(), prompt)
         self.assertTrue(prompt.endswith(self.task.read_text()))
         self.assertNotIn("parent-secret", prompt)
         self.assertIn("codex-worker", (store.path / "TOKEN_LEDGER.md").read_text())

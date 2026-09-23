@@ -23,17 +23,16 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertIn("before substantial execution", matrix)
         self.assertIn("Every logical agent, including workers", matrix)
         self.assertIn("orchestrator only", policy.POLICY)
-        self.assertIn("ask before substantial direct execution", policy.POLICY)
+        self.assertIn("ask before execution", policy.POLICY)
 
-    def test_mechanical_routing_and_main_thread_promotion(self):
+    def test_session_map_is_the_only_model_source(self):
         from token_kit.project_install import INSTRUCTIONS
-        self.assertIn("Mechanical edits: Luna xhigh -> Sonnet medium", INSTRUCTIONS)
-        self.assertNotIn("including mechanical edits", INSTRUCTIONS)
-        self.assertIn("scout/summarize/mechanical-edit Luna -> Sonnet", policy.POLICY)
+        self.assertIn("TASK/trigger_pyramid.md", INSTRUCTIONS)
+        self.assertIn("Map supersedes default prose, not explicit assignments", policy.POLICY)
+        self.assertIn("checkpoint/report to the main thread", policy.POLICY)
         for text in (policy.POLICY, INSTRUCTIONS):
-            self.assertIn("main thread", text)
-            self.assertIn("complexity", text)
-            self.assertIn("checkpoint", text)
+            self.assertNotIn("Opus medium -> Astra medium", text)
+            self.assertNotIn("Never auto-fallback to Fable", text)
 
     def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
         from token_kit.project_install import INSTRUCTIONS
@@ -66,7 +65,7 @@ class WorkerPolicyTests(unittest.TestCase):
             self.assertEqual(policy.managed_brief("work"), "work")
         with patch.dict(os.environ, {"TOKEN_KIT_TASK": "/task", "TOKEN_KIT_AGENT": "parent-secret"}):
             result = policy.managed_brief("work")
-        self.assertIn(policy.POLICY, result)
+        self.assertIn(policy._OPEN, result)
         self.assertNotIn("parent-secret", result)
 
     def test_reused_brief_gets_new_registered_identity(self):
@@ -74,7 +73,7 @@ class WorkerPolicyTests(unittest.TestCase):
         child = policy.brief(parent, "/task", "child")
         self.assertNotIn('"agent": "parent"', child)
         self.assertIn('"agent": "child"', child)
-        self.assertEqual(child.count(policy.POLICY), 1)
+        self.assertEqual(child.count(policy._OPEN), 1)
         self.assertTrue(child.endswith("work"))
 
     def test_legacy_and_standalone_prefixes_are_refreshed(self):
@@ -110,7 +109,7 @@ class WorkerPolicyTests(unittest.TestCase):
                      policy.POLICY + '\nToken Kit record: {"task": "/task", "agent": 1}\n\nTask.',
                      policy.POLICY + '\nToken Kit record: {"task": "/task"}\nTask.'):
             with self.subTest(body=body[-80:]):
-                expected = policy.POLICY + '\nToken Kit record: {"task": "/task"}\n\n' + body
+                expected = policy.brief("", "/task") + body
                 self.assertEqual(policy.brief(body, "/task"), expected)
                 self.assertEqual(policy.brief(expected, "/task"), expected)
 
@@ -154,15 +153,15 @@ class WorkerPolicyTests(unittest.TestCase):
             workspace.mkdir()
             store = Store.create(root / "tasks", "Fix parser", workspace)
             agent = store.add_agent("parser", "Fix only parser. Use Codex.")
-            self.assertIn(policy.POLICY, (agent / "in.md").read_text())
-            self.assertNotIn(policy.POLICY, (agent / "STATE.md").read_text())
+            self.assertIn(policy._OPEN, (agent / "in.md").read_text())
+            self.assertNotIn(policy._OPEN, (agent / "STATE.md").read_text())
             bundle = store.resume_bundle("parser")
             self.assertEqual(Path(bundle["assignment"]).read_text(), (agent / "in.md").read_text())
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 self.assertEqual(workflow.launch(store, "parser", "claude", dry_run=True), 0)
             argv = json.loads(output.getvalue())["argv"]
-            self.assertIn(policy.POLICY, argv[-1])
+            self.assertIn(policy._OPEN, argv[-1])
             settings = json.loads(argv[argv.index("--settings") + 1])
             self.assertEqual(settings["env"], {"DISABLE_COMPACT": "1"})
             hook = settings["hooks"]["PreToolUse"][0]

@@ -13,45 +13,45 @@ import re
 import shlex
 import sys
 
+try:
+    from .pyramid import read_pyramid
+except ImportError:  # Direct hook execution: this file's directory is on sys.path.
+    from pyramid import read_pyramid
 
-POLICY = """<!-- token-kit worker policy v1 -->
-Main thread: orchestrator only; workers execute. If delegation is blocked, explain
-why and ask before substantial direct execution.
-Follow applicable repository instructions and the assignment's source boundaries.
-Use your own stable agent record: in.md, STATE.md, out.md, checkpoints/, artifacts/.
-Never use the parent's identity. Request a record before source edits.
-Recover with token-kit resume TASK --agent ID; read its assignment, committed state,
-and messages. Verify evidence and unfinished operations before repeating work.
-STATE.md is the current snapshot: replace stale status; keep history in artifacts/checkpoints.
-Preserve unresolved actions and scoped model overrides. Sections: Objective, Completed,
-Evidence, Unresolved, Next. Checkpoint
-after milestones and before returning: token-kit checkpoint TASK --agent ID.
-Include changed-file --evidence and addressed --incorporated message IDs; detail in
-artifacts/, final result in out.md. Agents maintain checkpoints.
+_OPEN = "<!-- token-kit worker policy v2 -->"
+_CLOSE = "<!-- /token-kit worker policy -->"
+_BODY = """Main: orchestrator only; workers execute. If blocked, explain and ask before execution.
+Follow repo instructions. Own scoped source, in.md, STATE.md, out.md, checkpoints; never parent's identity. Resume:
+token-kit resume TASK --agent ID; verify assignment, messages, evidence before repeating.
+STATE.md: Objective/Completed/Evidence/Unresolved/Next. Before return: token-kit checkpoint TASK
+--agent ID with evidence/message IDs; details in artifacts, result in out.md.
 
-Explicit scoped user model/provider/effort requests override these ordered defaults:
-plan/implement Opus -> Astra; review/debug Astra -> Opus; loops Luna -> Sonnet -> Terra
--> Sol; docs Sol -> Luna -> Sonnet; scout/summarize/mechanical-edit Luna -> Sonnet.
-Effort: medium; Luna high except scouting/mechanical xhigh. Fable is explicit-only. "Use Codex" or
-"conserve Claude" excludes Claude fallbacks. Skip unavailable candidates; record
-override scope/expiry in state. Do not infer availability or silently switch
-an explicitly required model. Stay in your scoped role. If complexity exceeds it,
-checkpoint and report evidence/blockers via your parent to the main thread; only
-the main thread authorizes scope/model promotion within user constraints.
+Use current pyramid: lowest capable; coordinator Smart, bounded execution Mid. Announce route/tier/model/reason/changes.
+Scoped user/provider/model/effort overrides survive resume; isolate siblings.
+Map supersedes default prose, not explicit assignments. If tier is exceeded, checkpoint/report to the main thread;
+coordinator changes it. Escalate for complexity, not delay; fallback remains in tier.
 
-Prefer native same-engine delegation, nesting when permitted. Create children using
-worker prepare --brief TEXT --parent YOUR_ID; pass scoped overrides, not transcripts.
-Prefer completion notifications; avoid short waits and status-only messages.
-Use token-kit worker prepare/bind; spawn only when authorized. Track direct children
-with token-kit resume TASK --agent YOUR_ID; status TASK shows all attempts/parents.
-Honor attempt tickets: checkpoint, request-rollover or complete, then return. Parents
-confirm worker stopped before replacements; never repeat an uncertain spawn.
-<!-- /token-kit worker policy -->"""
+Use native worker prepare/bind --parent; scoped overrides; no transcripts. Spawn only when authorized.
+Track children: resume TASK and status TASK. Checkpoint, then request-rollover or complete with ticket.
+Confirm stop before replacement; never repeat uncertain spawns."""
+
+# Kept as a stable base for callers and documentation. ``brief`` renders the
+# current map between these same replaceable markers.
+POLICY = f"{_OPEN}\n{_BODY}\n{_CLOSE}"
 
 
-def brief(text: str, task: str, agent: str | None = None) -> str:
+def _render(pyramid: dict[str, str]) -> str:
+    content = pyramid["content"]
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Trigger pyramid content must be nonempty text")
+    return f"{_OPEN}\n{_BODY}\n{content.rstrip()}\n{_CLOSE}"
+
+
+def brief(text: str, task: str, agent: str | None = None,
+          *, pyramid: dict[str, str] | None = None) -> str:
     """Refresh leading policy wrappers without changing the assignment body."""
-    prefix = POLICY + "\nToken Kit record: "
+    current = pyramid if pyramid is not None else read_pyramid(task)
+    prefix = _render(current) + "\nToken Kit record: "
     previous = None
     opening = re.compile(r"<!-- token-kit worker policy(?: v[\w.-]+)? -->\n")
     closing = re.compile(r"^<!-- /token-kit worker policy -->(?:\n|$)", re.MULTILINE)

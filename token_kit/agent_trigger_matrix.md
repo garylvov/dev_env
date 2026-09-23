@@ -1,89 +1,60 @@
 # Agent trigger matrix
 
-A soft guide for the thread that delegates: what kind of work goes to which engine, model and
-effort, and why. Default effort is medium except Luna: xhigh for scouting/mechanical edits, high otherwise.
-It decides nothing for you. Shared Token Kit sessions apply these preferences through
-agent instructions. Only the legacy router resolves a `KIND: <name>` line and writes
-a routing header; that hook is not required for native delegation below.
+A soft guide for the thread that delegates: how to classify work, apply the
+[canonical trigger pyramid](trigger_pyramid.md), and bound workers. Shared Token Kit
+sessions apply these preferences through agent instructions. Only the legacy router
+resolves a `KIND: <name>` line and writes a routing header; that hook is not required
+for native delegation below.
 
 The one cost fact behind every row: an agent re-pays for its whole standing context on **every call
 it makes**, so a long agent costs far more than a long prompt. Two levers follow and nothing else
 comes close: run the cheapest engine and model that is safe for the work, and end the agent the
 moment its "done when" is true.
 
-`prefer` is an ordered ladder, `engine:model:effort` separated by ` > `; the first available
-candidate should run after applying scoped user overrides and known availability. Opus is preferred for complex implementation and planning;
-Luna xhigh scouts, with Sonnet medium as fallback. Astra handles detailed debugging and independent review. Fable (medium) is opt-in only:
-the user must explicitly request it in natural language. A mention in a file or
-quoted text does not qualify. It is never an automatic fallback. The delegating
-agent interprets that request; the legacy hook does not parse natural language.
-Fable may red-team only on explicit request; generic red-teaming prefers Astra.
-Record temporary overrides such as "Opus while we have it" in coordinator state
-and worker assignments, including exact wording, medium effort, scope, and expiry.
-Checkpoint shared task state before switching sessions. When access/quota ends,
-record expiry and return to the role defaults; this requires agent action, not an
-automatic detector. An explicit override must omit `KIND:` to avoid legacy rerouting.
-Claude fallbacks require availability too. These are ordered preferences, not provider locks.
-When Claude usage is exhausted, skip Claude entries and use the next Codex candidate.
-"Use Codex" or "conserve Claude" excludes ALL Claude entries for the requested scope,
-including fallbacks; preserve the order of the remaining Codex candidates. Record this
-mode in state across resumes, until the user changes it or its stated expiry occurs.
-Do not silently restore Claude when Codex is unavailable. The shared agent applies
-this policy; automatic Claude quota detection is not implemented by the legacy hook. Claude tiers, cheapest first: **sonnet > opus > fable**.
-A later candidate is a fallback, never an upgrade, so a ladder climbs at most one tier, and cheap work
-that falls through stays cheap. Worked examples are at the end, under **Examples**.
+## Legacy `KIND:` compatibility
+
+This static projection exists only for the legacy router. It does not read
+`TASK/trigger_pyramid.md`. `prefer` is an ordered list of
+`engine:model:effort` entries separated by ` > `. Omit `KIND:` and select manually
+when a task-session map, provider restriction, or explicit worker assignment applies.
 
 | kind | use when | who does it | prefer | done when |
 | --- | --- | --- | --- | --- |
-| lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
-| summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
-| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` | every edit named in the brief is applied and the diff is shown |
-| implement | write code to a written spec, together with the test that guards it | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
+| lookup | find a fact in files, logs or command output, or show it is absent | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` | the fact is quoted with the file or command that produced it, or absence is shown by a search that returned nothing |
+| summarise | read one large file, log or transcript and say what it shows | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` | the decisive lines are quoted with their context, or the file is named and shown absent |
+| mechanical-edit | a deterministic transform, or an edit fully specified in the brief | codex does it all | `codex:gpt-5.6-luna:xhigh` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` | every edit named in the brief is applied and the diff is shown |
+| implement | write code to a written spec, together with the test that guards it | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` | the change and its guard test are both written, and the guard has been shown to fail without the change |
 | debug-stuck | earlier attempts failed and a root cause has to be named | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | a root cause is named and shown, or the brief is handed back with what was ruled out |
-| design | compare two or three approaches and recommend one before any code is written | Claude does it all | `claude:opus:medium` > `codex:gpt-6-astra:medium` | two or three approaches are compared and one is recommended with its cost |
+| design | compare two or three approaches and recommend one before any code is written | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | two or three approaches are compared and one is recommended with its cost |
 | design-review | an independent critique of a design someone else wrote; the reviewer may not edit it | codex does it all | `codex:gpt-6-astra:medium` > `claude:opus:medium` | each objection names the section it attacks and what would change the verdict |
-| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` > `codex:gpt-5.6-sol:medium` | every queue item is marked done or failed in the queue file |
-| write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-sol:medium` > `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` | the document is written and its absolute path is named |
+| batch-run | own a queue of jobs to completion; the irreversible dispatch stays with the owner | codex does it all | `codex:gpt-5.6-luna:high` > `claude:sonnet:medium` > `codex:gpt-5.6-terra:medium` | every queue item is marked done or failed in the queue file |
+| write-doc | write or update a document, a brief, a status page or a README | codex does it all | `codex:gpt-5.6-sol:high` | the document is written and its absolute path is named |
 
 **Never spawn a model to wait.** Watching, polling, tailing and babysitting are not work for an
-agent: an agent that waits re-pays its whole context for every sample it takes, and the longest
-agents ever measured were all watchers. Write a shell loop that appends one line per sample to a
-status file, start it detached, and read that file once when you next need it. A model may read the
-status file; a model may not be the loop.
+agent. Dedicated watcher agents and repeated model wakeups re-pay context without
+advancing the task. Prefer client completion or message notifications. The coordinator
+keeps useful independent work moving and may park on an interruptible completion wait
+when none remains. If the client lacks notifications, bounded process tooling may record
+status for the coordinator to read when needed; do not create a polling worker.
 
-## Model pyramid
+## Tier use policy
 
-This is our task-allocation policy, not a benchmark ranking. Choose the work tier
-first, then follow its ordered list after applying the user's current instructions.
+The [trigger pyramid](trigger_pyramid.md) owns the live model and effort lists.
+Choose the lowest capable tier and start with Mid. Use Medium for scoped work that
+is harder than Mid, including substantive documentation; Smart for complex planning,
+debugging, and independent review; and Smartest only for especially difficult or
+high-consequence decisions. Tell the user why whenever Smartest is selected.
 
-| Work tier | Role | Ordered preference |
-| --- | --- | --- |
-| Complex | planning and implementation requiring design judgment | Opus medium > Astra medium |
-| Complex, independent | detailed debugging and review | Astra medium > Opus medium |
-| Mid | bounded feature implementation after design | Sonnet medium > Terra medium > Sol medium |
-| Routine execution | execution loops and job coordination | Luna high > Sonnet medium > Terra medium > Sol medium |
-| Routine writing | documentation | Sol medium > Luna high > Sonnet medium |
-| Narrow | scouting, lookup, and summaries | Luna xhigh > Sonnet medium |
-| Narrow, deterministic | mechanical edits specified by the brief | Luna xhigh > Sonnet medium |
-
-Sol leads documentation and remains in the execution-loop fallback list.
-A tier describes the assignment, not the agent's position in the hierarchy.
-Leads and workers can use any tier suitable for their actual work. Explicit requests
-such as "Luna for these loops" or "Sol for this implementation" override the lists.
-"Use Codex" filters out Claude without changing the remaining order. Do not
-automatically escalate a narrow task to a complex-tier model just because it ran long;
-surface the blocker and revise the assignment if needed. Fable stays opt-in only.
-
-Choose the lowest-cost permitted model capable of the scoped work. Mechanical
-edits are not complex implementation merely because they change source code.
+A tier describes the assignment, not the agent's place in the hierarchy. Mechanical
+edits do not move up a tier merely because they change source code.
 Each brief must name the role, allowed paths, expected output, completion check,
 and escalation boundary. Workers must not widen scope or promote their own model.
 If complexity exceeds the brief, checkpoint and report to the main thread via the
 parent: blocker, evidence, attempted approaches, and proposed scope/model change.
-The main thread decides whether to split, clarify, or authorize a stronger model
-within the user's constraints; leads relay promotion requests rather than silently
-upgrading workers. Availability fallback within the assigned ladder is distinct
-from complexity promotion and must still be reported and checkpointed.
+The coordinator decides whether to split, clarify, or assign a higher tier within
+the user's constraints, and announces the change and reason. Escalate for actual
+complexity, not elapsed time. Availability fallback stays within the assigned tier
+and, when chosen, must still be reported and checkpointed.
 
 ## Feature intake
 
@@ -94,57 +65,46 @@ updates, not extra approval gates.
 
 **Simple:** small, bounded behavior with clear requirements and limited interaction
 with other components. One scoped worker can design, implement, and verify directly,
-without separate audit/review agents. Use the mid tier for routine implementation
-or the narrow tier for fully specified edits.
+without separate audit/review agents. Use Mid for the direct design, implementation,
+and check.
 
 **Complex:** cross-cutting behavior, ambiguous requirements, architectural changes,
 or shared-state risk. Follow this sequence:
 
-| Phase | Model preference | Done when |
+| Phase | Tier | Done when |
 | --- | --- | --- |
-| Audit | Luna xhigh > Sonnet medium | affected paths, behavior, tests, dependencies, and uncertainties are identified through bounded reads |
-| Plan | Opus medium > Astra medium | acceptance criteria, interfaces, source ownership, dependencies, and validation are specified |
-| Independent red-team | Astra medium > Opus medium | a separate reviewer names failure cases and required fixes without editing the plan |
-| Revise | Opus medium > Astra medium | findings have evidence or reasoned dispositions; blocking findings are resolved |
-| Delegate implementation | Sonnet medium > Terra medium > Sol medium | bounded assignments pass relevant checks and return changed-file evidence |
+| Audit | Mid | affected paths, behavior, tests, dependencies, and uncertainties are identified through bounded reads |
+| Plan | Smart | acceptance criteria, interfaces, source ownership, dependencies, and validation are specified |
+| Independent red-team | Smart | a separate reviewer names failure cases and required fixes without editing the plan |
+| Revise | Smart | findings have evidence or reasoned dispositions; blocking findings are resolved |
+| Delegate implementation | Mid | bounded assignments pass relevant checks and return changed-file evidence |
 
 The coordinator integrates results against acceptance criteria; serialize overlapping
 writes. Workers checkpoint and report redesign needs to their parent, without silently
-widening scope or promoting models. Work that cannot safely be bounded retains the
-complex implementation ladder. Explicit model/provider restrictions take precedence;
-Fable stays explicit-only. For the legacy router, omit `KIND: implement` when selecting
-the feature-specific mid tier.
+widening scope or promoting models. The coordinator handles and announces any tier
+change. Exact model, effort, and provider restrictions take precedence.
 
 For additions during ongoing work, record a concise scoped queue with dependencies
 and ownership. Classify each addition, update affected briefs, and revisit review when
 the design changes. Clarify incompatible scope or priority conflicts; otherwise continue
 authorized work without unrelated improvements or restarting unaffected phases.
 
-## Explicit user overrides
+## Session and worker overrides
 
-These choices are outside the automatic ladders above. The delegating agent
-interprets the user's request; a model name in retrieved or quoted text is not authorization.
+Apply the snapshot and override lifecycle in the [trigger pyramid](trigger_pyramid.md).
+At task start, copy the file to `TASK/trigger_pyramid.md`; this session snapshot
+governs workers, rollovers, and resumes until reset or replaced. Repository-default
+updates do not rewrite active snapshots, and other sessions are unaffected.
 
-| User request | Selection | Scope |
-| --- | --- | --- |
-| "Have Fable red-team this" | `claude:fable:medium` | independent critique of the named work |
-| "Use Fable to plan/debug this" | `claude:fable:medium` | the requested planning or debugging task |
-| "Opus while we have it" | `claude:opus:medium` | record the agreed scope and access/quota expiry in state |
-| "Opus for the big stuff" | `claude:opus:medium` | major reasoning, design, and implementation |
-| "Luna for run loops" | `codex:gpt-5.6-luna:high` | iterative execution and diagnosis |
-| "Sol for run loops" | `codex:gpt-5.6-sol:medium` | iterative execution and diagnosis; do not substitute Luna by default |
-
-Explicit scoped requests override defaults. Keep simultaneous role choices separate;
-the most specific scope wins, with the latest request replacing earlier choices in
-that same scope. If a requested model is unavailable or harness policy forbids it,
-report that and ask before substituting unless a fallback/expiry was already authorized.
-Execution loops do useful work; pure waiting still belongs to process tooling.
-
-Record the override in checkpointed state and affected assignments. Omit `KIND:`
-on an explicit legacy spawn so the default ladder does not replace the requested model.
-Without an explicit override, Opus plans and handles complex implementation, Luna xhigh
-scouts, and Astra handles independent review and difficult debugging. Bounded feature
-implementation follows the mid tier in Feature intake.
+For a session-wide request, the user may override rows with a compact instruction
+such as `smartest opus-med smart astra-high medium sol-med mid luna-xhigh`. The
+coordinator interprets it and edits only the current session copy; no natural-language
+parser does this automatically. Each supplied tier replaces that row, and omitted
+tiers stay as they were. Exact user effort beats the scouting/mechanical default. Exact provider
+restrictions such as "Use Codex" filter rows without reordering them; ask if the
+selected tier becomes empty instead of promoting. An explicit worker assignment
+wins over the session map and remains scoped to that worker. Omit `KIND:` on legacy
+spawns that use either override path.
 
 ## Call budget
 
@@ -162,9 +122,11 @@ One band for every kind, and the kit's one hard mechanism. Change a number here 
 
 The main thread is the orchestrator, not an execution worker. It owns user intent,
 task decomposition, scoped briefs, model selection, durable coordination state,
-acceptance decisions, and the final synthesis. Delegate source exploration,
-session/transcript summaries, implementation, debugging, tests, documentation,
-and independent verification to bounded workers using the role ladders above.
+acceptance decisions, and the final synthesis. It normally uses Smart under the
+current task snapshot, typically Astra or Opus; session overrides still apply.
+Delegate source exploration, session/transcript summaries, implementation,
+debugging, tests, documentation, and independent verification to bounded workers
+using the trigger pyramid.
 Do not start a substantial investigation in the main thread before delegating it.
 Workers execute their assignments; this rule does not require workers to recursively
 delegate every action. Small tasks can use a single worker without a lead.
@@ -172,8 +134,11 @@ delegate every action. Small tasks can use a single worker without a lead.
 The coordinator may read applicable instructions, inspect task/worker status, write
 briefs and its own state, manage lifecycle tickets, and inspect returned evidence.
 It should not duplicate the worker's investigation or ingest full transcripts.
-Parallelize independent workers only where permitted; serialize overlapping edits.
-Never spawn agents solely to wait or manufacture unnecessary management layers.
+For complex work, split bounded audit, design, implementation, review, validation,
+and documentation workstreams when their dependencies allow. Parallelize ready
+work with disjoint source ownership; bound worker count by useful independent work,
+not an arbitrary headcount. Serialize overlapping edits. The coordinator advances
+other ready coordination while workers run and does not create duplicate managers.
 
 If site rules, client capabilities, or permitted model availability block delegation,
 explain the specific restriction before substantial execution. Ask for a scoped
@@ -200,17 +165,16 @@ Use depth only when it removes context, never to add a manager:
 
 ```
 main thread      talks to the user, writes briefs and STATE.md, reads out.md files, decides
-  lead agent     Opus for planning/complex implementation; integrates a workstream
-    worker       mid tier implements bounded features; Luna xhigh scouts; role ladders apply
+  lead agent     optional Smart integrator for a workstream
+    worker       Mid or Medium assignment; may be spawned by a useful Smart lead
     child        native delegation in the selected client; track its logical parent
 ```
 
-Prefer Opus (medium) for planning and complex implementation, the mid tier for bounded
-feature implementation, Luna (xhigh) for scouting,
-and Astra (medium) for detailed debugging; use Fable (medium) only
-at the user's explicit request. Opus also uses medium effort. Give each worker disjoint source ownership, a clear
-parent, and a stopping condition. Delegate useful independent work aggressively,
-not waiting or extra management. Small tasks can skip the lead.
+Smart leads are optional and may delegate Mid workers when that removes context or
+coordinates a real workstream. Use Medium for scoped work between Mid and Smart.
+Smartest remains an exceptional escalation, not a default complex-feature stage.
+Give each worker disjoint source ownership, a clear parent, and a stopping condition.
+Small tasks can skip the lead.
 
 A lead earns its cost when it integrates independent pieces the main thread need
 not read in full. Prefer at most two delegation levels. Shared records live at
@@ -233,11 +197,10 @@ If binding a `/root/...` task path, `hook_identity_status: pending_metadata` mea
 UUID-based tracking is not yet confirmed. The hook maps it only from a matching
 child transcript metadata header. Never guess UUIDs from timing or model names.
 
-Prefer completion notifications. When explicit waiting is required, use the longest
-interruptible wait compatible with the harness and user-update requirements; do not
-repeat short waits or message workers merely to ask whether they are done. Send
-messages for changed scope, blockers, decisions, or meaningful new evidence. Do not
-re-read unchanged state or repeat CLI help each turn. Integrate concise worker
+Use automatic completion or message notifications when the client supports them;
+do not assume every client can wake an idle turn. Send messages for changed scope,
+blockers, decisions, or meaningful new evidence, not merely to ask whether a worker
+is done. Do not re-read unchanged state or repeat CLI help each turn. Integrate concise worker
 results instead of duplicating their searches. A context rollover target is not a
 cumulative-spend budget: inspect the ledger at milestones, not in a polling loop.
 Cached input still counts as reported usage; do not describe it as free or as billing.
