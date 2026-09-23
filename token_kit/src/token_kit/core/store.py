@@ -15,6 +15,7 @@ import socket
 import subprocess
 import tempfile
 import uuid
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -121,7 +122,9 @@ class Store:
             raise ValueError("A workspace directory and nonempty title are required")
         if assignment is not None and not assignment.strip():
             raise ValueError("Assignment must be nonempty when supplied")
-        task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + uuid.uuid4().hex[:8]
+        normalized = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
+        slug = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")[:64].rstrip("-") or "session"
+        task_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S") + "-" + slug + "-" + uuid.uuid4().hex[:8]
         path = root.resolve() / task_id
         path.mkdir(parents=True)
         sync_directory(path.parent)

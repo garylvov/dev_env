@@ -55,6 +55,17 @@ def stop_child(child) -> None:
         child.wait()
 
 
+def startup_line(text: str, *, heading: bool = False) -> None:
+    """Purple terminal accents without escape codes in logs or NO_COLOR output."""
+    if sys.stderr.isatty() and os.environ.get("TERM") != "dumb" and "NO_COLOR" not in os.environ:
+        if heading:
+            text = "\033[1;35m" + text + "\033[0m"
+        else:
+            label, separator, value = text.partition(": ")
+            text = "\033[35m" + label + "\033[0m" + separator + value
+    print(text, file=sys.stderr)
+
+
 def run(args) -> int:
     """Create or recover a task and launch; project installation is opt-in."""
     from .project_install import configure
@@ -101,19 +112,22 @@ def run(args) -> int:
         "not authorization to investigate files or perform work. Record the user's actual objective "
         "and scope in STATE.md after receiving an instruction.")
     store = store or Store.create(args.root or default_root(), title, workspace, assignment=assignment)
-    print(f"Token Kit | {args.engine} | task: {store.path}", file=sys.stderr)
+    display_title = read_json(store.path / "task.json")["title"]
+    display_title = " ".join("".join(c for c in display_title if c.isprintable() or c.isspace()).split())
+    startup_line(f"Token Kit | {args.engine} | {display_title}", heading=True)
+    startup_line(f"Task: {store.path}")
     if idle:
-        print("New session: waiting for your first instruction; the title is only a label.", file=sys.stderr)
-    print("Guidance: session-only; existing project settings are preserved" if not args.install_project
-          else "Guidance: installed in project", file=sys.stderr)
-    print("Checkpoints: agent-maintained | automatic rollover: " +
-          (f"{args.rollover_tokens:,} context tokens (turn boundaries)" if args.rollover_tokens else "disabled"), file=sys.stderr)
-    print(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}", file=sys.stderr)
-    print(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
+        startup_line("New session: waiting for your first instruction; the title is only a label.")
+    startup_line("Guidance: session-only; existing project settings are preserved" if not args.install_project
+                 else "Guidance: installed in project")
+    startup_line("Checkpoints: agent-maintained | automatic rollover: " +
+                 (f"{args.rollover_tokens:,} context tokens (turn boundaries)" if args.rollover_tokens else "disabled"))
+    startup_line(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}")
+    startup_line(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
           f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
           + (" --yolo" if args.yolo else "")
           + (f" --rollover-tokens {args.rollover_tokens} --max-rollovers {args.max_rollovers}"
-             if args.rollover_tokens else ""), file=sys.stderr)
+             if args.rollover_tokens else ""))
     return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo,
                   rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers,
                   idle=idle, initial_prompt=args.prompt)
