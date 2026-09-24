@@ -34,11 +34,14 @@ class ProjectInstallTests(unittest.TestCase):
 
     def test_recovery_guidance_preserves_previous_owned_version(self):
         previous = project_install._LEGACY_INSTRUCTION_VERSIONS[-1]
-        self.assertTrue(project_install.INSTRUCTIONS.startswith(previous))
-        added = project_install.INSTRUCTIONS[len(previous):]
-        self.assertIn("automatically recover future structured", added)
-        self.assertIn("historical_state.md only when STATE.md", added)
-        self.assertNotIn("historical_state.md", previous)
+        self.assertIn("automatically recover future structured", previous)
+        self.assertIn("old/unmarked halts", previous)
+        current = project_install.INSTRUCTIONS
+        self.assertIn("legacy stops with exact matching run/runtime", current)
+        self.assertIn("Unknown stops, generic errors, and manual interrupts", current)
+        self.assertNotIn("old/unmarked halts", current)
+        for text in (previous, current):
+            self.assertIn("historical_state.md only when STATE.md", text)
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

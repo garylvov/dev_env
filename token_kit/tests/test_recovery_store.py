@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from token_kit.core.store import Store, read_json, write_json
+from token_kit.core.store import Store, read_json, write_json, LEGACY_COMPACTION_REASON
 
 
 class RecoveryStoreTests(unittest.TestCase):
@@ -27,6 +27,85 @@ class RecoveryStoreTests(unittest.TestCase):
                       supervisor_identity="missing", **fields)
         write_json(run / "run.json", record)
         return run
+
+    def legacy_interrupt(self):
+        run = self.interrupt()
+        record = read_json(run / "run.json")
+        record.pop("halt_kind")
+        record["rollover_error"] = LEGACY_COMPACTION_REASON
+        write_json(run / "run.json", record)
+        write_json(run / "runtime.json", {"phase": "halted", "engine": "codex",
+                                          "reason": LEGACY_COMPACTION_REASON})
+        return run
+
+    def test_legacy_detection_is_read_only_and_claim_records_provenance(self):
+        old = self.legacy_interrupt()
+        before = (old / "run.json").read_bytes()
+        self.assertEqual(self.store.recovery_candidate("worker"), old.name)
+        self.assertEqual((old / "run.json").read_bytes(), before)
+        successor = self.store.claim_run("worker", "codex", True, recovery_from=old.name)
+        old_record = read_json(old / "run.json")
+        self.assertEqual(old_record["status"], "interrupted")
+        self.assertNotIn("halt_kind", old_record)
+        self.assertEqual(old_record["recovery_source"], "legacy_compaction_corroborated")
+        self.assertEqual(read_json(successor / "run.json")["recovery_source"],
+                         old_record["recovery_source"])
+        with self.assertRaisesRegex(ValueError, "unfinished recovery reservation"):
+            self.store.recovery_candidate("worker")
+
+    def test_legacy_requires_exact_corroborating_runtime(self):
+        old = self.legacy_interrupt()
+        runtime = old / "runtime.json"
+        good = runtime.read_bytes()
+        for invalid in (b"{", b"[]", b"null", b"\xff"):
+            with self.subTest(invalid=invalid):
+                runtime.write_bytes(invalid)
+                self.assertIsNone(self.store.recovery_candidate("worker"))
+        runtime.unlink()
+        self.assertIsNone(self.store.recovery_candidate("worker"))
+        control = json.loads(good)
+        for key, value in (("phase", "running"), ("reason", "generic failure"),
+                           ("reason", LEGACY_COMPACTION_REASON + " extra"),
+                           ("halt_kind", "child_compaction"), ("halt_kind", "manual"),
+                           ("engine", "claude")):
+            with self.subTest(key=key, value=value):
+                write_json(runtime, dict(control, **{key: value}))
+                self.assertIsNone(self.store.recovery_candidate("worker"))
+        runtime.write_bytes(good)
+        record = read_json(old / "run.json")
+        for fields in ({"halt_kind": "manual"}, {"halt_kind": "child_compaction"},
+                       {"halt_kind": "generic"}, {"rollover_error": "generic failure"},
+                       {"rollover_error": "prefix " + LEGACY_COMPACTION_REASON}):
+            with self.subTest(fields=fields):
+                write_json(old / "run.json", dict(record, **fields))
+                self.assertIsNone(self.store.recovery_candidate("worker"))
+        write_json(old / "run.json", record)
+        # A record elsewhere cannot corroborate this run.
+        runtime.rename(old.parent / "runtime.json")
+        self.assertIsNone(self.store.recovery_candidate("worker"))
+
+    def test_failed_legacy_claim_leaves_no_migration_or_reservation(self):
+        old = self.legacy_interrupt()
+        record = read_json(old / "run.json")
+        record["host"] = "another-host"
+        write_json(old / "run.json", record)
+        before = (old / "run.json").read_bytes()
+        with self.assertRaisesRegex(ValueError, "Cross-host"):
+            self.store.claim_run("worker", "codex", True, recovery_from=old.name)
+        self.assertEqual((old / "run.json").read_bytes(), before)
+        self.assertEqual(len(list(old.parent.iterdir())), 1)
+        # Classification is checked again at claim, not cached from discovery.
+        self.assertEqual(self.store.recovery_candidate("worker"), old.name)
+        (old / "runtime.json").unlink()
+        with self.assertRaisesRegex(ValueError, "sole eligible"):
+            self.store.claim_run("worker", "codex", True, recovery_from=old.name)
+
+    def test_legacy_claim_retains_engine_and_unmarked_error_gates(self):
+        old = self.legacy_interrupt()
+        with self.assertRaisesRegex(ValueError, "same engine"):
+            self.store.claim_run("worker", "claude", True, recovery_from=old.name)
+        self.store.update_run("worker", old.name, unresolved_errors=True)
+        self.assertIsNone(self.store.recovery_candidate("worker"))
 
     def test_candidate_requires_compaction_and_has_no_error(self):
         run = self.interrupt()

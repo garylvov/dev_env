@@ -447,8 +447,6 @@ def _recovery_candidate(store: Store, agent: str, engine: str, bundle: dict,
     if candidate is None:
         return None, None
     record = _recovery_record(store, agent, candidate, bundle)
-    if record.get("halt_kind") != "compaction":
-        raise ValueError("Recovery candidate is not a structured parent compaction halt")
     if record.get("engine") != engine:
         raise ValueError("Recovery requires the predecessor's same engine")
     return candidate, record

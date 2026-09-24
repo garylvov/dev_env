@@ -21,6 +21,10 @@ from pathlib import Path
 
 SCHEMA = 1
 SECTIONS = ("Objective", "Completed", "Evidence", "Unresolved", "Next")
+LEGACY_COMPACTION_REASON = (
+    "Compaction requested; stopping rather than compacting. "
+    "Inspect state and use a lower rollover threshold."
+)
 
 
 def now() -> str:
@@ -508,6 +512,24 @@ class Store:
             return
         cls._assert_process_dead(old, "supervisor")
 
+    def _compaction_recovery_source(self, target: Path, record: dict) -> str | None:
+        """Classify a parent halt without mutating historical run evidence."""
+        kind = record.get("halt_kind")
+        if kind == "compaction":
+            return "structured_compaction"
+        if kind is not None or record.get("rollover_error") != LEGACY_COMPACTION_REASON:
+            return None
+        try:
+            control = read_json(self.safe(target.parent / "runtime.json"))
+        except (OSError, ValueError):
+            return None
+        if (control.get("phase") != "halted"
+                or control.get("reason") != LEGACY_COMPACTION_REASON
+                or control.get("halt_kind") not in (None, "compaction")
+                or control.get("engine", record.get("engine")) != record.get("engine")):
+            return None
+        return "legacy_compaction_corroborated"
+
     def _recovery_candidate_locked(self, agent: str) -> str | None:
         path = self.agent_path(agent)
         rows = [(owner, target, record) for owner, target, record in self._run_records_locked()
@@ -516,9 +538,9 @@ class Store:
         active = [record for _, _, record in rows
                   if record.get("status") in ("starting", "running", "interrupted")]
         candidates = []
-        for _, _, record in rows:
+        for _, target, record in rows:
             if (record.get("status") == "interrupted"
-                    and record.get("halt_kind") == "compaction"):
+                    and self._compaction_recovery_source(target, record) is not None):
                 if self._run_error_unmarked(record):
                     continue
                 if record.get("recovery_pending") or record.get("recovery_to"):
@@ -561,6 +583,7 @@ class Store:
             old = None
             old_target = None
             baseline = None
+            recovery_source = None
             if recovery_from is not None:
                 recovery_from = component(recovery_from)
                 old_entry = index.get((agent, recovery_from))
@@ -569,6 +592,11 @@ class Store:
                 old_target, old = old_entry
                 if self._recovery_candidate_locked(agent) != recovery_from:
                     raise ValueError("Requested recovery predecessor is not the sole eligible candidate")
+                recovery_source = self._compaction_recovery_source(old_target, old)
+                if recovery_source is None:
+                    raise ValueError("Recovery predecessor halt evidence changed")
+                if old.get("engine") != engine:
+                    raise ValueError("Recovery requires the predecessor's same engine")
                 if old.get("host") != socket.gethostname():
                     raise ValueError("Cross-host recovery is not supported; verify on the original host")
                 self._assert_process_dead(old, "child")
@@ -598,12 +626,13 @@ class Store:
                           "host": socket.gethostname(), "strict_no_compaction_requested": strict,
                           "usage": None, "recovery_from": recovery_from,
                           "recovery_checkpoint": baseline, "recovery_pending": recovery_from is not None,
-                          "recovery_completed": False}
+                          "recovery_completed": False, "recovery_source": recovery_source}
             # The successor record is published first. A crash before the
             # predecessor edge is written leaves an explicit incomplete link
             # that all future recovery attempts reject.
             write_json(run / "run.json", run_record)
             if old is not None:
+                old["recovery_source"] = recovery_source
                 old["recovery_to"] = run_id
                 old["recovery_pending"] = True
                 write_json(old_target, old)

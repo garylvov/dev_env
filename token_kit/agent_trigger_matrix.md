@@ -238,10 +238,11 @@ cross-engine jobs automatically share native attempt tracking.
 
 ### Managed compaction recovery
 
-Managed token-kit launches in all projects automatically recover future structured
-compaction-stop events even when no rollover flag was supplied. Only that structured
-halt is eligible: generic errors, manual interrupts, and old or unmarked halts are
-not retried automatically.
+Managed token-kit launches in all projects attempt compaction recovery even without
+rollover flags. Eligible stops have a structured compaction marker or legacy run and
+runtime records with exact matching compaction evidence. Unknown stops, generic
+errors, and manual interrupts are excluded. Process uncertainty or the managed
+restart limit can prevent recovery.
 
 Recovery starts a fresh session. Read the committed checkpoint plus any newer working
 `STATE.md`, inspect children and external operations, and verify every uncertain

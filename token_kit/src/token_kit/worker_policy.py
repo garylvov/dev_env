@@ -29,8 +29,8 @@ Smart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. S
 Map supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.
 
 Authorized native prepare/bind --parent. Track resume TASK/status TASK. Checkpoint then ticketed
-rollover/complete; confirm stop; never retry uncertain spawn. Managed recovery: future structured compaction halts only;
-rollover flags irrelevant; never generic errors/manual interrupts/old-unmarked halts. Fresh run reads checkpoint+newer
+rollover/complete; confirm stop; never retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;
+no flag needed; never unknown stops/errors/manual interrupts. Fresh run reads checkpoint+newer
 STATE/children/external work; verifies, checkpoints, explicitly closes old run, continues. Dead PID proves no external
 completion; parent exit no native closure."""
 

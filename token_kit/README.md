@@ -50,10 +50,11 @@ transcripts; reconcile workers before replacement.
 
 ## Recovery and accounting
 
-Managed launches attempt recovery from future structured compaction stops without
-rollover flags; budget/process uncertainty may stop it. Errors, manual interrupts,
-and old/unmarked stops are not retried. Recovery verifies newer state, children, and
-external operations before checkpointing, closing the prior run, and continuing.
+Launches attempt compaction recovery without rollover flags. Legacy stops
+require matching run/runtime evidence. Unknown stops, errors, and manual interrupts
+are excluded; budget/process uncertainty may stop recovery. Recovery verifies newer
+state, children, and external operations before checkpointing, closing the prior run,
+and continuing.
 
 Rollover defaults off. `--rollover-perc 80` means 80% of the reported window
 (currently Codex); absolute `--rollover-tokens 500k` is capped at 80% when known.

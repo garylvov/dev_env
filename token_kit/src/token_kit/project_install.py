@@ -304,6 +304,17 @@ history for new agents or append it at every checkpoint or recovery. Read it
 selectively when older detail is needed. Checkpoints capture this optional file when
 it exists.
 """
+# Retain the full prior block so installed projects can upgrade without conflict.
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "Managed token-kit launches in all projects automatically recover future structured\n"
+    "compaction-stop events, even without a rollover flag. They do not retry generic\n"
+    "errors, manual interrupts, or old/unmarked halts.",
+    "Managed token-kit launches in all projects attempt compaction recovery without\n"
+    "rollover flags: structured stops or legacy stops with exact matching run/runtime\n"
+    "evidence. Unknown stops, generic errors, and manual interrupts are excluded.\n"
+    "Process uncertainty or the managed restart limit can prevent recovery.",
+)
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

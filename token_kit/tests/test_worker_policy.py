@@ -37,9 +37,9 @@ class WorkerPolicyTests(unittest.TestCase):
             self.assertNotIn("Never auto-fallback to Fable", text)
 
     def test_compaction_recovery_and_history_policy_are_bounded(self):
-        self.assertIn("Managed recovery: future structured compaction halts only",
+        self.assertIn("Managed recovery: structured compaction or exact legacy run/runtime evidence",
                       policy.POLICY)
-        self.assertIn("never generic errors/manual interrupts/old-unmarked halts",
+        self.assertIn("never unknown stops/errors/manual interrupts",
                       policy.POLICY)
         self.assertIn("no initial/routine checkpoint/recovery append", policy.POLICY)
         self.assertIn("Dead PID proves no external\ncompletion; parent exit no native closure",
