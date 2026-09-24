@@ -20,20 +20,19 @@ except ImportError:  # Direct hook execution: this file's directory is on sys.pa
 
 _OPEN = "<!-- token-kit worker policy v2 -->"
 _CLOSE = "<!-- /token-kit worker policy -->"
-_BODY = """Main: orchestrator only; workers execute. If blocked, explain and ask before execution.
-Follow repo instructions. Own scoped source, in.md, STATE.md, out.md, checkpoints; never parent's identity. Resume:
-token-kit resume TASK --agent ID; verify assignment, messages, evidence before repeating.
-STATE.md: Objective/Completed/Evidence/Unresolved/Next. Before return: token-kit checkpoint TASK
---agent ID with evidence/message IDs; details in artifacts, result in out.md.
+_BODY = """Main: orchestrator only; workers execute. Blocked: explain; ask before execution. Follow repo rules.
+Own scope, not parent identity. Resume: token-kit resume TASK --agent ID; verify evidence/uncertain work.
+STATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Before compression, append dated verbatim STATE to
+historical_state.md; no initial/routine checkpoint/recovery append. Read selectively; checkpoints capture history/evidence/message IDs.
 
-Use current pyramid: lowest capable; coordinator Smart, bounded execution Mid. Announce route/tier/model/reason/changes.
-Scoped user/provider/model/effort overrides survive resume; isolate siblings.
-Map supersedes default prose, not explicit assignments. If tier is exceeded, checkpoint/report to the main thread;
-coordinator changes it. Escalate for complexity, not delay; fallback remains in tier.
+Smart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. Scoped overrides beat map; isolate siblings.
+Map supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.
 
-Use native worker prepare/bind --parent; scoped overrides; no transcripts. Spawn only when authorized.
-Track children: resume TASK and status TASK. Checkpoint, then request-rollover or complete with ticket.
-Confirm stop before replacement; never repeat uncertain spawns."""
+Authorized native prepare/bind --parent. Track resume TASK/status TASK. Checkpoint then ticketed
+rollover/complete; confirm stop; never retry uncertain spawn. Managed recovery: future structured compaction halts only;
+rollover flags irrelevant; never generic errors/manual interrupts/old-unmarked halts. Fresh run reads checkpoint+newer
+STATE/children/external work; verifies, checkpoints, explicitly closes old run, continues. Dead PID proves no external
+completion; parent exit no native closure."""
 
 # Kept as a stable base for callers and documentation. ``brief`` renders the
 # current map between these same replaceable markers.

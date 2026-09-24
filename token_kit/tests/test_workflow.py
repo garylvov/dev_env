@@ -138,8 +138,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.store.resume_bundle("parser")["runs"], [])
 
     def test_strict_codex_refusal_does_not_create_run(self):
-        with self.assertRaisesRegex(ValueError, "no-compaction"):
-            launch(self.store, "parser", "codex", dry_run=True)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(launch(self.store, "parser", "codex", dry_run=True), 0)
         self.assertEqual(self.store.resume_bundle("parser")["runs"], [])
 
     def test_cli_creates_task_and_exports_checkpoint(self):

@@ -30,9 +30,20 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertIn("TASK/trigger_pyramid.md", INSTRUCTIONS)
         self.assertIn("Map supersedes default prose, not explicit assignments", policy.POLICY)
         self.assertIn("checkpoint/report to the main thread", policy.POLICY)
+        self.assertIn("Announce route/tier/model/reason/changes", policy.POLICY)
+        self.assertIn("Escalate for complexity, not delay", policy.POLICY)
         for text in (policy.POLICY, INSTRUCTIONS):
             self.assertNotIn("Opus medium -> Astra medium", text)
             self.assertNotIn("Never auto-fallback to Fable", text)
+
+    def test_compaction_recovery_and_history_policy_are_bounded(self):
+        self.assertIn("Managed recovery: future structured compaction halts only",
+                      policy.POLICY)
+        self.assertIn("never generic errors/manual interrupts/old-unmarked halts",
+                      policy.POLICY)
+        self.assertIn("no initial/routine checkpoint/recovery append", policy.POLICY)
+        self.assertIn("Dead PID proves no external\ncompletion; parent exit no native closure",
+                      policy.POLICY)
 
     def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
         from token_kit.project_install import INSTRUCTIONS

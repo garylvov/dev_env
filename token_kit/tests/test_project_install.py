@@ -32,6 +32,14 @@ class ProjectInstallTests(unittest.TestCase):
                          "Never auto-fallback to Fable", "Smartest: Astra xhigh"):
             self.assertNotIn(obsolete, text)
 
+    def test_recovery_guidance_preserves_previous_owned_version(self):
+        previous = project_install._LEGACY_INSTRUCTION_VERSIONS[-1]
+        self.assertTrue(project_install.INSTRUCTIONS.startswith(previous))
+        added = project_install.INSTRUCTIONS[len(previous):]
+        self.assertIn("automatically recover future structured", added)
+        self.assertIn("historical_state.md only when STATE.md", added)
+        self.assertNotIn("historical_state.md", previous)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

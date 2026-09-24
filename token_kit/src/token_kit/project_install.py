@@ -285,6 +285,25 @@ native spawns, or switch providers. Use the launcher and its actual capabilities
 Cross-client usage requires instrumented transports; raw CLI calls are not automatically
 metered. Missing usage is unknown, not zero. Never infer authority for extra work.
 """
+# Preserve the previous complete installed block for ownership-safe upgrades.
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """
+Managed token-kit launches in all projects automatically recover future structured
+compaction-stop events, even without a rollover flag. They do not retry generic
+errors, manual interrupts, or old/unmarked halts. A fresh recovery session reads the
+committed checkpoint plus any newer working STATE.md, children, and external
+operations; verifies uncertain outcomes; takes a fresh checkpoint; explicitly closes
+the previous run; and continues. Never infer external completion from a dead PID or
+native closure from parent exit.
+
+Keep STATE.md near 200 words while retaining its five sections, unresolved work,
+next actions, and evidence references; the 32 KiB hard limit remains. Create or append
+historical_state.md only when STATE.md is full enough to need compression: preserve
+the prior STATE as a dated verbatim snapshot before rewriting it. Do not create
+history for new agents or append it at every checkpoint or recovery. Read it
+selectively when older detail is needed. Checkpoints capture this optional file when
+it exists.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

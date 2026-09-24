@@ -166,7 +166,7 @@ class TestSharedReadmeCommands(unittest.TestCase):
         text = (KIT_DIR / "README.md").read_text()
         for entry in ("agents/<id>/", "in.md", "STATE.md", "out.md", "checkpoints/", "assignments/"):
             self.assertIn(entry, text)
-        self.assertIn("committed checkpoints, not transcripts", text)
+        self.assertIn("committed checkpoints, not transcripts", " ".join(text.split()))
 
     def test_tier_defaults_have_one_canonical_document(self):
         text = SHIPPED.read_text()

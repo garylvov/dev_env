@@ -132,6 +132,7 @@ class PyramidIntegrationTests(unittest.TestCase):
             self.assertEqual(workflow.launch(self.store, "parser", "claude", dry_run=True), 0)
         self.assertFalse(self.file.exists())
         child = Mock(pid=99999999)
+        child.poll.return_value = 0
         child.wait.return_value = 0
         with patch("token_kit.core.store.workspace_head", return_value=None), \
                 patch.object(workflow.shutil, "which", return_value="/bin/claude"), \

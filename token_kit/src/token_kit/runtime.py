@@ -145,8 +145,15 @@ def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int 
     ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
 
 
-def halt(control: dict, reason: str) -> dict:
+def halt(control: dict, reason: str, *, halt_kind: str | None = None) -> dict:
     control.update(phase="halted", reason=reason)
+    if halt_kind is not None:
+        control["halt_kind"] = halt_kind
+    else:
+        # A cause marker is meaningful only for the terminal halt that wrote
+        # it; never let a later generic safety stop inherit compaction
+        # eligibility.
+        control.pop("halt_kind", None)
     return {"continue": False, "stopReason": reason, "systemMessage": "Token Kit: " + reason}
 
 
@@ -237,8 +244,15 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
     if event == "PreCompact":
         if native:
             lifecycle.observe_native(store, agent, run.name, native, "precompact")
+            # A child veto is a native-worker event.  Keep it explicitly
+            # distinct from a parent compaction halt so it can never qualify
+            # the parent for automatic recovery.
+            control["child_halt_kind"] = "child_compaction"
+            if control.get("phase") != "halted" or control.get("halt_kind") != "compaction":
+                control["halt_kind"] = "child_compaction"
             return {"continue": False, "stopReason": "Token Kit: child compaction vetoed; parent reconciliation required"}
-        return halt(control, "Compaction requested; stopping rather than compacting. Inspect state and use a lower rollover threshold.")
+        return halt(control, "Compaction requested; stopping rather than compacting. Inspect state and use a lower rollover threshold.",
+                    halt_kind="compaction")
     # Parent transcript fields in child hooks must not be billed to the child.
     if native and event != "SubagentStop" and not transcript:
         return {}
@@ -311,6 +325,7 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
         reason = (
             "Token Kit rollover: stop starting new work. Drain/reconcile your native children and external jobs. "
             "Update STATE.md with completed work, evidence, unresolved operations, next steps and user overrides; "
+            "if STATE needs compression, archive old detail to historical_state.md first, then write a fresh STATE.md; "
             f"then run {command} with relevant --evidence and --incorporated IDs. "
             "Return immediately afterward. A fresh same-engine session will continue from this checkpoint.")
         if event == "PostToolUse":
@@ -318,7 +333,9 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
         return {"decision": "block", "reason": reason}
     if control["active_children"]:
         return halt(control, "Native children are still active; reconcile them before restarting")
-    if bundle["checkpoint"] == control["previous_checkpoint"] or bundle["working_state_changed"]:
+    if (bundle["checkpoint"] == control["previous_checkpoint"]
+            or bundle.get("working_state_changed")
+            or bundle.get("history_changed") or bundle.get("historical_state_changed")):
         return halt(control, "No fresh committed checkpoint after rollover request; refusing restart")
     if bundle["changed_evidence"] or bundle["head_changed"]:
         return halt(control, "Checkpoint evidence changed before rollover; refusing restart")
@@ -338,7 +355,9 @@ def wait_segment(child, store: Store, agent: str, run: Path, stop_child,
             stop_child(child)
             if phase == "ready":
                 bundle = store.resume_bundle(agent)
-                if (bundle["checkpoint"] != control["checkpoint"] or bundle["working_state_changed"]
+                if (bundle["checkpoint"] != control["checkpoint"]
+                        or bundle.get("working_state_changed")
+                        or bundle.get("history_changed") or bundle.get("historical_state_changed")
                         or bundle["changed_evidence"] or bundle["head_changed"]):
                     halt(control, "Checkpoint changed while stopping the old session")
             return child.wait(), control

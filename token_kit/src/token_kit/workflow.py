@@ -21,7 +21,7 @@ import termios
 from pathlib import Path
 
 from .adapters.base import LaunchRequest
-from .core.store import Store, atomic_text, now, process_identity, read_json, write_json
+from .core.store import Store, atomic_bytes, atomic_text, now, process_identity, read_json, write_json
 from . import runtime
 from .core import ledger, lifecycle
 from .rollover import format_limit, parse_limit
@@ -266,14 +266,17 @@ def run(args) -> int:
     title = args.title or workspace.name
     # Reject unsupported clients and missing binaries before creating anything.
     adapter = importlib.import_module(f"token_kit.adapters.{args.engine}")
+    # Every managed session needs the lifecycle handshake.  The threshold
+    # still controls whether usage-based rollover is active; it does not
+    # control whether compaction and startup events are supervised.
     plan = adapter.prepare_launch(LaunchRequest(workspace, "Continue the task", True,
                                                args.model, yolo=args.yolo,
-                                               managed_hooks=bool(args.rollover_tokens)))
+                                               managed_hooks=True))
     if not args.dry_run and shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
     if args.max_rollovers < 0:
         raise ValueError("--max-rollovers must be nonnegative")
-    if args.engine == "codex" and args.rollover_tokens and not args.dry_run:
+    if args.engine == "codex" and not args.dry_run:
         runtime.ensure_codex_hooks(plan.argv[0], workspace)
     if store:
         store.resume_bundle("coordinator")  # validate recovery before changing project files
@@ -286,6 +289,7 @@ def run(args) -> int:
                           "startup": "idle" if idle else "prompt" if args.prompt is not None else "resume",
                           "initial_prompt": args.prompt,
                           "automatic_rollover": bool(args.rollover_tokens),
+                          "compaction_recovery": args.max_rollovers > 0,
                           "rollover_tokens": args.rollover_tokens,
                           "max_rollovers": args.max_rollovers}, indent=2))
         return 0
@@ -311,6 +315,10 @@ def run(args) -> int:
     else:
         rollover_display = f"{format_limit(args.rollover_tokens)} context tokens (turn boundaries)"
     startup_line("Checkpoints: agent-maintained | automatic rollover: " + rollover_display)
+    startup_line("Structured compaction recovery: " +
+                 (f"enabled (up to {args.max_rollovers} managed restart" +
+                  ("s" if args.max_rollovers != 1 else "") + ")"
+                  if args.max_rollovers else "disabled"))
     startup_line(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}")
     startup_line(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
           f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
@@ -363,17 +371,28 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         rollover_tokens = parse_limit(rollover_tokens)
     if max_rollovers < 0:
         raise ValueError("Invalid rollover limits")
-    if engine == "codex" and rollover_tokens and not dry_run:
+    if engine == "codex" and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
     for segment in range(max_rollovers + 1):
         try:
             rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
                                          idle=idle if segment == 0 else False,
-                                         initial_prompt=initial_prompt if segment == 0 else None)
+                                         initial_prompt=initial_prompt if segment == 0 else None,
+                                         allow_recovery=max_rollovers > 0)
         except (OSError, ValueError):
             if not dry_run:
                 exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {})
             raise
+        if control.get("phase") == "halted" and control.get("halt_kind") == "compaction":
+            # A structured parent compaction halt is the sole halt eligible
+            # for an automatic recovery segment.  It consumes the same
+            # restart budget as a normal threshold rollover.
+            if segment == max_rollovers:
+                return exit_summary(store, agent, engine, model, yolo, rollover_tokens,
+                                    max_rollovers, 75, control)
+            print(f"Token Kit: compaction halted the session; starting recovery "
+                  f"({segment + 1}/{max_rollovers}).", file=sys.stderr)
+            continue
         if control.get("phase") != "ready":
             return rc if dry_run else exit_summary(store, agent, engine, model, yolo,
                                                    rollover_tokens, max_rollovers, rc, control)
@@ -387,9 +406,58 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
     return 75
 
 
+def _recovery_record(store: Store, agent: str, candidate: str, bundle: dict) -> dict:
+    """Load and validate the predecessor selected by the store gate."""
+    if not isinstance(candidate, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", candidate):
+        raise ValueError("Recovery candidate is not a valid run ID")
+    for record in bundle.get("runs", []):
+        if isinstance(record, dict) and record.get("run_id") == candidate:
+            return record
+    path = store.safe(store.agent_path(agent) / "runs" / candidate / "run.json")
+    if not path.is_file():
+        raise ValueError("Recovery candidate run record is missing")
+    record = read_json(path)
+    if record.get("run_id") != candidate:
+        raise ValueError("Recovery candidate run identity mismatch")
+    return record
+
+
+def _working_state_for_recovery(store: Store, agent: str, bundle: dict) -> bytes:
+    """Capture the exact current STATE.md after accepting only a safe path."""
+    expected = store.agent_path(agent) / "STATE.md"
+    supplied = bundle.get("working_state", bundle.get("working_state_path"))
+    path = expected
+    if isinstance(supplied, str):
+        candidate = Path(supplied)
+        try:
+            candidate = candidate.resolve()
+            if candidate == expected.resolve() and candidate.is_file():
+                path = candidate
+        except OSError:
+            pass
+    return path.read_bytes()
+
+
+def _recovery_candidate(store: Store, agent: str, engine: str, bundle: dict,
+                        *, idle: bool, initial_prompt: str | None) -> tuple[str | None, dict | None]:
+    """Ask the store for recovery only on an ordinary resume segment."""
+    if idle or initial_prompt is not None:
+        return None, None
+    candidate = store.recovery_candidate(agent)
+    if candidate is None:
+        return None, None
+    record = _recovery_record(store, agent, candidate, bundle)
+    if record.get("halt_kind") != "compaction":
+        raise ValueError("Recovery candidate is not a structured parent compaction halt")
+    if record.get("engine") != engine:
+        raise ValueError("Recovery requires the predecessor's same engine")
+    return candidate, record
+
+
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     dry_run: bool, yolo: bool, rollover_tokens: int | str | None,
-                    *, idle: bool = False, initial_prompt: str | None = None) -> tuple[int, dict]:
+                    *, idle: bool = False, initial_prompt: str | None = None,
+                    allow_recovery: bool = True) -> tuple[int, dict]:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
     # A real managed launch may seed an old task's missing snapshot. Dry runs
@@ -397,11 +465,19 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     if not dry_run:
         store.trigger_pyramid(seed=True)
     bundle = store.resume_bundle(agent)
+    recovery_from = None
+    recovery_state = None
+    if not dry_run and allow_recovery:
+        recovery_from, _ = _recovery_candidate(
+            store, agent, engine, bundle, idle=idle, initial_prompt=initial_prompt)
+        if recovery_from is not None:
+            recovery_state = _working_state_for_recovery(store, agent, bundle)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
     checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
     prompt = (
         f"Continue logical agent {agent} in task {store.path}. "
-        f"Read assignment {bundle['assignment']} and committed state "
+        f"Read assignment {bundle['assignment']}, current working state "
+        f"{store.agent_path(agent) / 'STATE.md'}, and committed state "
         f"{bundle['checkpoint']}/STATE.md. The workspace is {store.workspace}. "
         f"Treat checkpoint claims as evidence to verify. Run {resume_command} to see pending "
         "messages, unresolved children, changed evidence, and prior run records. Before changing files, reconcile any changes or "
@@ -411,6 +487,33 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         f"with {checkpoint_command}; add --evidence for relevant changed files and --incorporated "
         "for each message ID addressed. Write out.md when the assignment is complete."
     )
+    if recovery_from is not None:
+        predecessor_path = store.safe(store.agent_path(agent) / "runs" / recovery_from / "run.json")
+        children = bundle.get("children", [])
+        external = bundle.get("external_operations", bundle.get("external_jobs", []))
+        prior_runs = bundle.get("runs", [])
+        historical = bundle.get("historical_state")
+        historical_hint = (f" Historical detail is available at {historical}; read it selectively only if "
+                           "needed to understand a compressed STATE." if historical else "")
+        close_command = shlex.join(["token-kit", "close-run", str(store.path), "--agent", agent,
+                                    recovery_from, "--note",
+                                    "Verified predecessor process, children, and external operations; recovery state reconciled."])
+        prompt = (
+            f"This is structured recovery of predecessor run {recovery_from}. Read the exact pre-recovery "
+            f"working STATE at {store.agent_path(agent) / 'STATE.md'} captured in the successor run's "
+            "recovery-input.md before editing "
+            "STATE.md, and compare it with the "
+            f"committed snapshot {bundle['checkpoint']}/STATE.md. Read the predecessor run record at "
+            f"{predecessor_path}, prior run metadata ({compact_text(prior_runs, 3000)}), child lifecycle records ({compact_text(children, 2000)}), "
+            f"and the bounded external-operation summary ({compact_text(external, 2000)}).{historical_hint} Verify every native "
+            "child and external operation before doing ordinary product work. Do not resubmit an external job, "
+            "replay an uncertain operation, or replace an unknown native worker. A bounded recovery-only audit "
+            "worker with a fresh logical ID is allowed if needed for verification. Reconciliation is the only "
+            "allowed work until verification is complete. Update STATE.md, commit a fresh checkpoint, then run "
+            f"{close_command}. "
+            "Only after that may you continue the assigned task."
+            f"\n\nThe normal recovery bundle remains: {resume_command}."
+        )
     from .worker_policy import brief
     if idle:
         matrix_path = Path(__file__).resolve().parents[2] / "agent_trigger_matrix.md"
@@ -432,7 +535,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
     plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
                                                worker_task=str(store.path),
-                                               managed_hooks=engine == "claude" or bool(rollover_tokens)))
+                                               managed_hooks=True))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
@@ -442,9 +545,21 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         return 0, {}
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
-    run = store.claim_run(agent, engine, True)
+    run = store.claim_run(agent, engine, True, recovery_from=recovery_from)
     store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
                      startup="idle" if idle else "prompt" if initial_prompt is not None else "resume")
+    if recovery_from is not None:
+        store.update_run(agent, run.name, recovery_from=recovery_from,
+                         recovery_status="reconciliation_required")
+        atomic_bytes(run / "recovery-input.md", recovery_state)
+        # The successor ID is only allocated by claim_run.  Rebuild the
+        # recovery launch once so the client receives the exact validated
+        # artifact path instead of a symbolic placeholder.
+        prompt = prompt.replace(
+            "the successor run's recovery-input.md",
+            f"{run / 'recovery-input.md'}")
+        plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
+                                                   worker_task=str(store.path), managed_hooks=True))
     runtime.initialize(store, agent, run, engine, rollover_tokens)
     write_json(run / "resume.json", bundle)
     atomic_text(run / "prompt.md", prompt + "\n")
@@ -465,19 +580,35 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=environment)
         store.update_run(agent, run.name, status="running", child_pid=child.pid,
                          child_identity=process_identity(child.pid))
-        if rollover_tokens:
-            rc, control = runtime.wait_segment(child, store, agent, run, stop_child)
-        else:
-            rc, control = child.wait(), {}
+        # Lifecycle hooks supervise every managed session.  A missing
+        # threshold only disables token rollover; it does not disable startup,
+        # compaction, or stop-hook supervision.
+        rc, control = runtime.wait_segment(child, store, agent, run, stop_child)
         if control.get("phase") == "halted":
             store.update_run(agent, run.name, status="interrupted", ended_at=now(),
-                             rollover_error=control.get("reason"))
+                             rollover_error=control.get("reason"),
+                             halt_kind=control.get("halt_kind"))
             print(f"Token Kit: {control.get('reason')}", file=sys.stderr)
             return 75, control
         ready = control.get("phase") == "ready"
+        if recovery_from is not None and (rc == 0 or ready):
+            predecessor_path = store.safe(store.agent_path(agent) / "runs" / recovery_from / "run.json")
+            predecessor_record = read_json(predecessor_path)
+            successor_record = read_json(store.safe(run / "run.json"))
+            if (predecessor_record.get("status") != "reconciled"
+                    or successor_record.get("recovery_completed") is not True):
+                reason = (f"Recovery client exited successfully, but predecessor run {recovery_from} "
+                          "is still not reconciled; refusing a false success")
+                store.update_run(agent, run.name, status="interrupted", ended_at=now(),
+                                 recovery_error=reason, rollover_error=reason)
+                control = {"phase": "halted", "halt_kind": "recovery_unreconciled",
+                           "reason": reason, "recovery_from": recovery_from}
+                print(f"Token Kit: {reason}", file=sys.stderr)
+                return 75, control
         # An exited process does not prove that its external jobs finished.
         store.update_run(agent, run.name, status="exited" if rc == 0 or ready else "interrupted",
-                         exit_code=rc, ended_at=now(), rollover_checkpoint=control.get("checkpoint"))
+                         exit_code=rc, ended_at=now(), rollover_checkpoint=control.get("checkpoint"),
+                         recovery_from=recovery_from)
         ledger.refresh(store)
         return (0 if ready else rc if rc >= 0 else 128 - rc), control
     except KeyboardInterrupt:

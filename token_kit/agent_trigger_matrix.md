@@ -151,8 +151,14 @@ with Objective, Completed, Evidence, Unresolved, and Next sections. Checkpoint a
 meaningful milestones and before returning, with changed-file evidence and incorporated
 message IDs. Parents read `out.md` and verification evidence, not entire transcripts.
 Keep `STATE.md` a current snapshot: replace superseded status instead of appending
-progress logs. Preserve unresolved operations, decisions, and active user overrides;
-put chronology and detailed evidence in artifacts and immutable checkpoints.
+progress logs and aim for about 200 words while retaining Objective, Completed,
+Evidence, Unresolved, and Next. Preserve unresolved operations, next actions,
+decisions, active user overrides, and evidence references; the 32 KiB hard limit
+still applies. Create or append `historical_state.md` only when STATE is full enough
+to need compression. Append the prior STATE as a dated verbatim snapshot before
+rewriting it. Do not create it for a new agent or append it at every checkpoint or
+recovery. Read older
+history selectively; checkpoints capture the optional file when it exists.
 The coordinator's state records decisions, worker ownership, dependencies, and next
 actions. The main-thread-only state rule in the legacy layout below does not apply
 to these shared per-agent records.
@@ -229,6 +235,19 @@ substituting a same-engine child. Instrumented `codex-dispatch` / `codex-job` re
 Codex usage inside managed sessions; raw CLI calls do not. A corresponding one-shot
 Claude wrapper and unified `token-kit exec` are not implemented. Do not claim that
 cross-engine jobs automatically share native attempt tracking.
+
+### Managed compaction recovery
+
+Managed token-kit launches in all projects automatically recover future structured
+compaction-stop events even when no rollover flag was supplied. Only that structured
+halt is eligible: generic errors, manual interrupts, and old or unmarked halts are
+not retried automatically.
+
+Recovery starts a fresh session. Read the committed checkpoint plus any newer working
+`STATE.md`, inspect children and external operations, and verify every uncertain
+outcome before taking a fresh checkpoint, explicitly closing the previous run, and
+continuing. A dead PID does not prove an external operation finished, and a parent
+exit does not prove a native child closed.
 
 ### CodeGraph: worktree ownership and freshness
 

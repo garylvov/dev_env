@@ -70,7 +70,7 @@ class QuickstartTests(unittest.TestCase):
         rc, _, error = self.call("Fix parser", "--workspace", self.workspace,
                                  "--root", self.tasks, "--engine", "codex")
         self.assertEqual(rc, 2)
-        self.assertIn("Strict no-compaction", error)
+        self.assertIn("Codex hooks need trust", error)
         self.assertFalse(self.tasks.exists())
         self.assertEqual(list(self.workspace.iterdir()), [])
 

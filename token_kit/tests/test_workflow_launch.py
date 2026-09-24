@@ -121,7 +121,7 @@ class WorkflowLaunchTests(unittest.TestCase):
                 self.assertEqual(flag in plan.argv, enabled)
                 self.assertEqual(plan.argv[-2:], ("--", "continue"))
 
-    def test_cli_yolo_dry_run_and_codex_compaction_refusal(self):
+    def test_cli_yolo_dry_run_includes_codex_hooks(self):
         output, errors = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output):
             rc = workflow.main(["launch", str(self.store.path), "--engine", "claude", "--yolo", "--dry-run"])
@@ -129,10 +129,13 @@ class WorkflowLaunchTests(unittest.TestCase):
         report = json.loads(output.getvalue())
         self.assertTrue(report["yolo"])
         self.assertIn("--dangerously-skip-permissions", report["argv"])
-        with contextlib.redirect_stderr(errors):
+        codex_output = io.StringIO()
+        with contextlib.redirect_stdout(codex_output), contextlib.redirect_stderr(errors):
             rc = workflow.main(["launch", str(self.store.path), "--engine", "codex", "--yolo", "--dry-run"])
-        self.assertEqual(rc, 2)
-        self.assertIn("Strict no-compaction", errors.getvalue())
+        self.assertEqual(rc, 0)
+        report = json.loads(codex_output.getvalue())
+        self.assertIn("hooks.PreCompact=", " ".join(report["argv"]))
+        self.assertEqual(errors.getvalue(), "")
         self.assertEqual(self.records(), [])
 
     def setUp(self):
@@ -146,6 +149,7 @@ class WorkflowLaunchTests(unittest.TestCase):
 
     def fake_child(self, result=0):
         child = Mock(pid=99999999)
+        child.poll.return_value = result
         child.wait.return_value = result
         return child
 
@@ -234,7 +238,8 @@ class WorkflowLaunchTests(unittest.TestCase):
     def test_interrupt_terminates_then_kills_unresponsive_child(self):
         bundle = self.store.resume_bundle("coordinator")
         child = self.fake_child()
-        child.wait.side_effect = [KeyboardInterrupt(), subprocess.TimeoutExpired("claude", 5), -9]
+        child.poll.side_effect = KeyboardInterrupt()
+        child.wait.side_effect = [subprocess.TimeoutExpired("claude", 5), -9]
         with patch.object(self.store, "resume_bundle", return_value=bundle), \
              patch.object(workflow.shutil, "which", return_value="/bin/claude"), \
              patch.object(workflow.subprocess, "Popen", return_value=child):

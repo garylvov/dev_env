@@ -7,27 +7,23 @@ Resumable Claude/Codex agents. Requires `uv` and Python >=3.11.
 From `dev_env`:
 
 ```bash
-source token_kit/add_to_bashrc.bash # Shell setup
-# "Fix parser": session name. Sessions: ~/.config/token_kit.
+source token_kit/add_to_bashrc.bash
 token-kit run "Fix parser" --engine codex --rollover-perc 80 --yolo
 ```
 
-`--rollover-perc 80` selects 80% of the reported context; legacy
-`--rollover-at 80%` remains accepted. Absolute targets use
-`--rollover-tokens 500k`. Names are labels; sessions wait for instructions.
-`--prompt "..."` starts work; `--workspace PATH` selects source.
-`--yolo` bypasses permission checks; Codex also disables sandboxing.
+Names are titles; sessions wait for instructions. Use `--prompt "..."` to start
+work and `--workspace PATH` for source. `--yolo` bypasses permission checks; Codex
+disables sandboxing. `--task PATH` resumes; `--dry-run` previews.
+`--install-project` persists instructions; add `--codegraph` for CodeGraph.
 
-`--task PATH` resumes; `--dry-run` previews. `--install-project` persists instructions;
-add `--codegraph` for CodeGraph.
-
-`token-kit pick parser` lists fuzzy matches; choose a number to resume with saved
-settings; Enter cancels. `--print` prints the command; noninteractive uses
-`--select N`. Resume commands print at startup/exit.
+`token-kit pick parser` lists resume matches; choose one, or Enter cancels.
+`--print` prints the command; scripts use `--select N`. Resume commands
+print at startup and exit.
 
 ## Delegation
 
-[Pyramid](trigger_pyramid.md): model tiers. [Matrix](agent_trigger_matrix.md): when to delegate.
+[Pyramid](trigger_pyramid.md): model tiers. [Matrix](agent_trigger_matrix.md):
+delegation and recovery policy.
 
 ## Resume files
 
@@ -39,6 +35,7 @@ settings; Enter cancels. `--print` prints the command; noninteractive uses
   agents/<id>/
     in.md
     STATE.md
+    historical_state.md  # only after STATE compression
     out.md
     lifecycle.json
     checkpoints/
@@ -46,20 +43,20 @@ settings; Enter cancels. `--print` prints the command; noninteractive uses
     messages/, artifacts/, runs/
 ```
 
-Resume reads committed checkpoints, not transcripts. Parents reconcile workers
-before replacement (`token-kit worker --help`). Keep `STATE.md` current.
+New agents have no history file. Keep five-section `STATE.md` near 200 words;
+archive a dated prior STATE before rewriting it only when compression is needed.
+Checkpoints capture optional history. Resume reads committed checkpoints, not
+transcripts; reconcile workers before replacement.
 
-## Rollover and accounting
+## Recovery and accounting
 
-Rollover defaults off. `--rollover-perc 80` uses the reported context window
-(currently Codex); absolute `--rollover-tokens 500k` is capped at 80% when a
-window is known.
-Restarts are checkpoint-gated at turn boundaries;
-`--max-rollovers` defaults to 10. Threshold measures context, not spend;
-overshoot is possible. Missing hooks/checkpoints stop recovery.
+Managed launches attempt recovery from future structured compaction stops without
+rollover flags; budget/process uncertainty may stop it. Errors, manual interrupts,
+and old/unmarked stops are not retried. Recovery verifies newer state, children, and
+external operations before checkpointing, closing the prior run, and continuing.
 
-`token-kit ledger TASK` shows reported usage.
-
-Codex opens hook review when needed: approve in `/hooks`, then exit.
-Claude requests `DISABLE_COMPACT=1`; Codex requests a compaction veto. Live behavior
-uncertified. No native-child reattachment or automatic provider failover.
+Rollover defaults off. `--rollover-perc 80` means 80% of the reported window
+(currently Codex); absolute `--rollover-tokens 500k` is capped at 80% when known.
+`--max-rollovers` defaults to 10.
+`token-kit ledger TASK` shows reported usage. No native-child reattachment or
+automatic provider failover.
