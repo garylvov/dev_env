@@ -507,7 +507,14 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
             "child and external operation before doing ordinary product work. Do not resubmit an external job, "
             "replay an uncertain operation, or replace an unknown native worker. A bounded recovery-only audit "
             "worker with a fresh logical ID is allowed if needed for verification. Reconciliation is the only "
-            "allowed work until verification is complete. Update STATE.md, commit a fresh checkpoint, then run "
+            "allowed work until verification is complete. For orphan workers whose recorded owner process is dead, "
+            "inspect external operations, preserve partial/failed outcomes in a fresh worker checkpoint, then use "
+            "token-kit worker retire TASK --agent ID --ticket T --note TEXT --operations-reconciled. "
+            "The recovery identity comes from TOKEN_KIT_AGENT/RUN. This retires execution authority without "
+            "claiming native closure or success; do not require confirmation from a dead runner. "
+            "If any operation remains live or uncertain, report the blocker without repeated checking. "
+            "Replace a retired worker only if work remains and authority permits. "
+            "Update STATE.md, commit a fresh checkpoint, then run "
             f"{close_command}. "
             "Only after that may you continue the assigned task."
             f"\n\nThe normal recovery bundle remains: {resume_command}."
@@ -693,11 +700,11 @@ def build_parser() -> argparse.ArgumentParser:
     agent.add_argument("--parent", default="coordinator", help="logical parent (default: coordinator)")
     worker = commands.add_parser("worker", help="durable worker attempts: prepare, bind, request, reconcile")
     actions = worker.add_subparsers(dest="worker_action", required=True)
-    for action in ("prepare", "bind", "request-rollover", "stopped", "complete", "status"):
+    for action in ("prepare", "bind", "request-rollover", "stopped", "retire", "complete", "status"):
         command = actions.add_parser(action)
         command.add_argument("task", type=Path)
         command.add_argument("--agent", required=True)
-        if action in ("bind", "request-rollover", "stopped", "complete"):
+        if action in ("bind", "request-rollover", "stopped", "retire", "complete"):
             command.add_argument("--ticket", required=True)
         if action == "prepare":
             assignment = command.add_mutually_exclusive_group()
@@ -716,6 +723,11 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--native-id", required=True)
         elif action == "request-rollover":
             command.add_argument("--reason", required=True)
+        elif action == "retire":
+            command.add_argument("--note", required=True, help="record inspected operations, outcomes, and no live or uncertain operations")
+            command.add_argument("--operations-reconciled", action="store_true")
+            command.add_argument("--recovery-agent", default=os.environ.get("TOKEN_KIT_AGENT"))
+            command.add_argument("--recovery-run", default=os.environ.get("TOKEN_KIT_RUN"))
         elif action == "stopped":
             command.add_argument("--note", required=True, help="confirm native closure and reconcile external operations; does not kill anything")
     for name, help_text in (("checkpoint", "commit the working STATE.md"),
@@ -807,6 +819,10 @@ def main(argv: list[str] | None = None) -> int:
                 result = lifecycle.request(store, args.agent, args.ticket, args.reason)
             elif action == "complete":
                 result = lifecycle.request(store, args.agent, args.ticket, "Assignment complete", complete=True)
+            elif action == "retire":
+                result = lifecycle.retire(store, args.agent, args.ticket, args.note,
+                                          operations_reconciled=args.operations_reconciled,
+                                          recovery_agent=args.recovery_agent, recovery_run=args.recovery_run)
             elif action == "stopped":
                 result = lifecycle.stopped(store, args.agent, args.ticket, args.note)
             else:

@@ -9,14 +9,21 @@ from __future__ import annotations
 import hashlib
 import json
 import shlex
+import socket
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from .. import rollover
-from .store import component, fingerprint, now, read_json, workspace_head, write_json
+from .store import component, fingerprint, now, process_identity, read_json, workspace_head, write_json
 
 ACTIONABLE = {"checkpoint_requested", "rollover_requested", "completion_requested",
-              "needs_reconciliation", "stopped"}
+              "needs_reconciliation"}
+
+
+def execution_reconciled(state):
+    return (state.get("phase") in ("stopped", "completed") or
+            (state.get("phase") == "retired" and state.get("operations_reconciled") is True))
 
 
 def parent_of(store, agent):
@@ -62,7 +69,7 @@ def children_locked(store, parent):
             continue
         state = read_json(path)
         if state["parent_agent"] == parent:
-            if state.get("owner_run") and state["phase"] not in ("stopped", "completed"):
+            if state.get("owner_run") and not execution_reconciled(state):
                 owner = store.safe(store.agent_path(state["owner_agent"]) / "runs"
                                    / component(state["owner_run"]) / "run.json")
                 if read_json(owner)["status"] not in ("starting", "running"):
@@ -88,6 +95,11 @@ def checkpoint_locked(store, agent):
     manifest = read_json(checkpoint / "manifest.json")
     if fingerprint(store.agent_path(agent) / "STATE.md") != manifest["state_sha256"]:
         raise ValueError("Commit the worker's current STATE.md before continuing")
+    history = store.safe(store.agent_path(agent) / "historical_state.md")
+    history_hash = manifest.get("historical_state_sha256")
+    if (history_hash is None and history.exists()) or (history_hash is not None and
+            (not history.is_file() or fingerprint(history) != history_hash)):
+        raise ValueError("Worker historical state changed; refresh the checkpoint")
     if workspace_head(store.workspace) != manifest["head"]:
         raise ValueError("Git HEAD changed; refresh the worker checkpoint")
     for item in manifest["evidence"]:
@@ -119,7 +131,8 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
         for path in (store.agent_path(agent) / "runs").glob("*/run.json"):
             if read_json(store.safe(path))["status"] in ("starting", "running", "interrupted"):
                 raise ValueError("Reconcile managed worker runs before reserving a native attempt")
-        if old and old["phase"] != "stopped":
+        if old and not (old["phase"] == "stopped" or
+                        (old["phase"] == "retired" and old.get("operations_reconciled") is True)):
             # In particular, repeating prepare after a lost native spawn response
             # NEVER grants a second spawn authorization.
             return {"spawn_authorized": False, "worker": old,
@@ -193,7 +206,7 @@ def bind(store, agent, ticket, native):
         raise ValueError("Native ID must be nonempty and at most 512 characters")
     with store.locked():
         state = current_locked(store, agent, ticket)
-        if state["phase"] in ("stopped", "completed"):
+        if state["phase"] in ("stopped", "completed", "retired"):
             raise ValueError("Cannot bind a reconciled attempt")
         if state["native_id"] and state["native_id"] != native:
             raise ValueError("Attempt already bound to a different native worker")
@@ -231,7 +244,7 @@ def request(store, agent, ticket, reason, *, complete=False):
         if state["phase"] == desired:
             deliver_locked(store, state)
             return state
-        if state["phase"] in ("stopped", "completed", "completion_requested"):
+        if state["phase"] in ("stopped", "completed", "retired", "completion_requested"):
             raise ValueError("Attempt already reconciled or complete")
         checkpoint = checkpoint_locked(store, agent)
         if checkpoint == state["started_checkpoint"]:
@@ -257,6 +270,8 @@ def stopped(store, agent, ticket, note):
             if read_json(store.safe(path))["status"] in ("starting", "running", "interrupted"):
                 raise ValueError("Reconcile managed worker runs before confirming native stop")
         checkpoint = checkpoint_locked(store, agent)
+        if state["phase"] == "retired":
+            raise ValueError("Retired attempts cannot claim native closure")
         if state["phase"] == "completed":
             return state
         if state["phase"] == "completion_requested":
@@ -274,8 +289,85 @@ def stopped(store, agent, ticket, note):
         return state
 
 
+def retire(store, agent, ticket, note, *, operations_reconciled=False,
+           recovery_agent=None, recovery_run=None):
+    """Fence an orphan's execution authority; never assert native closure or success."""
+    if operations_reconciled is not True:
+        raise ValueError("--operations-reconciled is required: inspect operations and establish none are live or uncertain")
+    if not note.strip() or len(note) > 2000:
+        raise ValueError("A reconciliation note describing inspected operations and outcomes is required")
+    if not recovery_agent or not recovery_run:
+        raise ValueError("An identifiable recovery agent and run are required")
+    with store.locked():
+        state = current_locked(store, agent, ticket)
+        if state["phase"] in ("stopped", "completed", "retired"):
+            raise ValueError("Attempt already reconciled")
+        index = store._validate_recovery_links_locked()
+        successor_entry = index.get((recovery_agent, recovery_run))
+        if successor_entry is None:
+            raise ValueError("Unknown recovery successor")
+        successor = successor_entry[1]
+        old_id = successor.get("recovery_from")
+        old_entry = index.get((recovery_agent, old_id))
+        if old_entry is None:
+            raise ValueError("An active linked recovery successor is required")
+        old = old_entry[1]
+        if (successor.get("status") not in ("starting", "running")
+                or not successor.get("recovery_pending")
+                or successor.get("recovery_completed")
+                or old.get("status") != "interrupted"
+                or old.get("recovery_to") != recovery_run
+                or not old.get("recovery_pending")):
+            raise ValueError("An active linked recovery successor is required")
+        supervisor_pid = store._pid(successor, "supervisor")
+        supervisor_identity = successor.get("supervisor_identity")
+        if (supervisor_pid is None or not supervisor_identity
+                or process_identity(supervisor_pid) != supervisor_identity
+                or store._process_dead(successor, "supervisor")):
+            raise ValueError("Recovery successor supervisor identity is not confirmed active")
+        if state.get("owner_agent") != recovery_agent or state.get("owner_run") != old_id:
+            raise ValueError("Worker does not belong to this recovery predecessor")
+        if not (state.get("engine") == old.get("engine") == successor.get("engine")):
+            raise ValueError("Recovery and orphan must use the same engine")
+        if old.get("host") != socket.gethostname() or successor.get("host") != socket.gethostname():
+            raise ValueError("Cross-host orphan retirement is not supported")
+        if store._pid(old, "child") is None:
+            raise ValueError("Recorded predecessor child PID is required")
+        store._assert_process_dead(old, "child")
+        store._assert_supervisor_close_safe(old, successor)
+        for path in (store.agent_path(agent) / "runs").glob("*/run.json"):
+            if read_json(store.safe(path))["status"] in ("starting", "running", "interrupted"):
+                raise ValueError("Reconcile managed worker runs before retirement")
+        checkpoint = checkpoint_locked(store, agent)
+        if checkpoint == state["started_checkpoint"]:
+            raise ValueError("Commit a fresh worker checkpoint recording operations and unresolved outcomes")
+        manifest = read_json(Path(checkpoint) / "manifest.json")
+        try:
+            checkpoint_time = datetime.fromisoformat(manifest["created_at"])
+            recovery_time = datetime.fromisoformat(successor["created_at"])
+            if checkpoint_time.tzinfo is None or recovery_time.tzinfo is None:
+                raise ValueError("timestamps must include timezone")
+            if checkpoint_time < recovery_time:
+                raise ValueError("checkpoint predates recovery")
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Commit a fresh worker checkpoint during this recovery") from exc
+        state.update(phase="retired", checkpoint=checkpoint, operations_reconciled=True,
+                     reconciliation=note, reconciled_at=now(),
+                     retirement={"recovery_agent": recovery_agent, "recovery_run": recovery_run,
+                                 "predecessor_run": old_id, "host": old["host"],
+                                 "child_pid": old["child_pid"],
+                                 "child_identity": old.get("child_identity"),
+                                 "proof": "recorded owner process dead; execution authority retired",
+                                 "native_closure_confirmed": False})
+        event(state, "worker_retired", f"Worker {agent}: orphan execution authority retired; "
+              "operations inspected with no live or uncertain operations. Outcomes remain in the checkpoint. "
+              "This does not imply completion, successful publication, or permission to retry.")
+        publish_locked(store, state)
+        return state
+
+
 def _apply_observation(state, kind):
-    if state["phase"] in ("stopped", "completed"):
+    if state["phase"] in ("stopped", "completed", "retired"):
         return
     if state.get("last_native_observation") == kind:
         return
@@ -309,7 +401,8 @@ def record_native_identity(store, owner_agent, owner_run, alias, native):
         write_json(target, {"native_id": native, "alias": alias})
         for directory in (store.path / "agents").iterdir():
             state = read_locked(store, directory.name)
-            if (state and state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
+            if (state and state.get("phase") != "retired"
+                    and state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
                     and state.get("native_id") == alias):
                 if state.get("hook_native_id") == native:
                     continue
@@ -399,13 +492,21 @@ def notice(store, parent):
     pending = [state for state in children if state["phase"] in ACTIONABLE]
     if not pending:
         return None
-    signature = hashlib.sha256(json.dumps(pending, sort_keys=True).encode()).hexdigest()
-    rows = [{"agent": row["agent_id"], "ticket": row["ticket"], "phase": row["phase"]} for row in pending[:8]]
+    rows = sorted(({"agent": row["agent_id"], "ticket": row["ticket"], "phase": row["phase"]}
+                   for row in pending), key=lambda row: (row["agent"], row["ticket"], row["phase"]))
+    signature = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
+    rows = rows[:8]
     text = ("Token Kit worker lifecycle needs attention: " + json.dumps(rows) + ". "
             "Run " + shlex.join(["token-kit", "resume", str(store.path), "--agent", parent]) +
             " for all child states and pending messages. For checkpoint_requested, let the worker finish its handoff. "
             "For other requests, inspect/close the old native attempt, "
-            "record worker stopped with its ticket and a reconciliation note, then worker prepare "
-            "to reserve a replacement. Spawn only when spawn_authorized is true; bind its returned native ID. "
+            "record worker stopped when native closure is confirmed. For an orphan owned by a dead predecessor, "
+            "a linked recovery session may checkpoint the worker and use " +
+            shlex.join(["token-kit", "worker", "retire", str(store.path)]) +
+            " --agent ID --ticket T --note TEXT --operations-reconciled after inspecting operations "
+            "and confirming none are live or uncertain. Recovery identity defaults to TOKEN_KIT_AGENT/RUN. "
+            "Do not ask a dead runner to confirm closure. "
+            "Retirement does not claim native closure or task success. Use worker prepare only if work remains. "
+            "Spawn only when spawn_authorized is true; bind its returned native ID. "
             "Do not acknowledge completion or blindly duplicate an uncertain worker.")
     return signature, text

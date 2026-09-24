@@ -573,7 +573,8 @@ class Store:
             path = self.agent_path(agent)
             from .lifecycle import read_locked
             worker = read_locked(self, agent)
-            if worker and worker["phase"] not in ("stopped", "completed"):
+            if worker and not (worker["phase"] in ("stopped", "completed") or
+                               (worker["phase"] == "retired" and worker.get("operations_reconciled") is True)):
                 raise ValueError("Reconcile the native worker attempt before a managed launch")
             rows = [(owner, target, record) for owner, target, record in self._run_records_locked()
                     if owner == agent]
@@ -733,5 +734,6 @@ class Store:
                 continue
             state = read_json(lifecycle)
             if (state.get("owner_agent") == owner_agent and state.get("owner_run") == owner_run
-                    and state.get("phase") not in ("stopped", "completed")):
+                    and not (state.get("phase") in ("stopped", "completed") or
+                             (state.get("phase") == "retired" and state.get("operations_reconciled") is True))):
                 raise ValueError("Native children owned by the old run remain unresolved")

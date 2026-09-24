@@ -315,6 +315,27 @@ INSTRUCTIONS = INSTRUCTIONS.replace(
     "evidence. Unknown stops, generic errors, and manual interrupts are excluded.\n"
     "Process uncertainty or the managed restart limit can prevent recovery.",
 )
+# Preserve the complete prior block for ownership-safe orphan-recovery upgrades.
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS = INSTRUCTIONS.replace(
+    "native closure and reconcile external operations before worker stopped. That command\n"
+    "records closure; it does not kill processes. A Stop hook alone is not proof of closure.",
+    "native closure and reconcile external operations before worker stopped, or use\n"
+    "the orphan retirement path below for a dead managed owner. worker stopped records\n"
+    "closure; it does not kill processes. A Stop hook alone is not proof of closure.",
+)
+INSTRUCTIONS += """
+For orphans of a verified dead managed runner, use worker retire from the valid linked
+recovery session rather than ask the vanished runner for native closure. Inspect and
+reconcile external operations, record outcomes and remaining work, and take a fresh
+worker checkpoint. Pass the exact agent/ticket, an evidence note, and explicit
+--operations-reconciled; recovery-agent/recovery-run default to the managed environment.
+The command checks ownership, recovery linkage, and checkpoint freshness. Attestation
+requires no live or uncertain operations. See agent_trigger_matrix.md for the CLI.
+The retired phase claims neither native closure nor success and authorizes no retry.
+Preserve partial or failed publication outcomes. Replace only if authorized work remains.
+Live or uncertain operations remain blockers: report once, without repeated polling.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

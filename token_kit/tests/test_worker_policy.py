@@ -39,11 +39,22 @@ class WorkerPolicyTests(unittest.TestCase):
     def test_compaction_recovery_and_history_policy_are_bounded(self):
         self.assertIn("Managed recovery: structured compaction or exact legacy run/runtime evidence",
                       policy.POLICY)
-        self.assertIn("never unknown stops/errors/manual interrupts",
+        self.assertIn("Never unknown stops/errors/manual interrupts",
                       policy.POLICY)
         self.assertIn("no initial/routine checkpoint/recovery append", policy.POLICY)
-        self.assertIn("Dead PID proves no external\ncompletion; parent exit no native closure",
+        self.assertIn("Dead PID proves no external completion; parent exit no native closure",
                       policy.POLICY)
+
+    def test_orphan_retirement_preserves_operation_uncertainty(self):
+        from token_kit.project_install import INSTRUCTIONS
+        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        for text in (policy.POLICY, INSTRUCTIONS, matrix):
+            self.assertIn("worker retire", text)
+            self.assertIn("checkpoint", text)
+        self.assertIn("Retired means neither native closure nor success/retry authority", policy.POLICY)
+        self.assertIn("--operations-reconciled", matrix)
+        self.assertIn("no live or uncertain operations", matrix)
+        self.assertIn("retirement authorizes no retry", matrix)
 
     def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
         from token_kit.project_install import INSTRUCTIONS

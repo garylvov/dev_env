@@ -179,8 +179,13 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
             key = ("worker_stop_notice:" if stopping else "worker_notice:") + recipient
             if notice and control.get(key) != notice[0]:
                 control[key] = notice[0]
-                result = ({"decision": "block", "reason": notice[1]} if stopping else
-                          {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
+                # A recursive stop is the agent's handoff after a hook already
+                # requested attention. Let that handoff finish even if the
+                # advisory changed meanwhile; safety/rollover checks above
+                # still run. Only a real JSON boolean enables this exception.
+                if not (stopping and payload.get("stop_hook_active") is True):
+                    result = ({"decision": "block", "reason": notice[1]} if stopping else
+                              {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
         if (event in ("SessionStart", "UserPromptSubmit") and not native and control.get("session_context")
                 and not control.get("context_delivered") and result.get("continue") is not False):
             output = result.setdefault("hookSpecificOutput", {"hookEventName": event})

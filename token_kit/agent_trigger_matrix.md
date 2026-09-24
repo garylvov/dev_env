@@ -222,8 +222,10 @@ Cached input still counts as reported usage; do not describe it as free or as bi
    and pending notices. `token-kit status TASK` lists all agents, parent links, and
    native attempts, including grandchildren. No transcript scanning is needed.
 5. The child checkpoints and requests rollover/completion using its ticket. The
-   parent confirms native closure and reconciles external jobs before `worker stopped`.
-   Reserve a replacement under the same logical ID, never blindly repeat a spawn.
+   parent confirms native closure and reconciles external jobs before `worker stopped`,
+   or uses verified orphan retirement below for a dead managed owner.
+   Replace only if work remains, under the same logical ID; never blindly repeat a spawn.
+   For an orphan of a dead managed runner, use the recovery retirement path below.
 
 Every nested lead follows this protocol. Hooks can notify an active parent; an idle
 parent sees durable notices on resume. Registration/binding remain agent actions,
@@ -249,6 +251,24 @@ Recovery starts a fresh session. Read the committed checkpoint plus any newer wo
 outcome before taking a fresh checkpoint, explicitly closing the previous run, and
 continuing. A dead PID does not prove an external operation finished, and a parent
 exit does not prove a native child closed.
+
+For workers orphaned by a verified dead managed runner, a linked recovery session
+uses `worker retire` instead of requesting closure from that vanished runner.
+Inspect the worker's state, evidence, and external operations; record outcomes and
+remaining work, then take a fresh worker checkpoint. Retire the exact attempt:
+
+```bash
+token-kit worker retire TASK --agent CHILD --ticket TICKET --note "Evidence and remaining work" --operations-reconciled --recovery-agent PARENT --recovery-run RUN
+```
+
+Recovery identity flags default to the managed session environment. The command
+checks the dead owner, linked recovery, and fresh checkpoint; the explicit
+`--operations-reconciled` attests that no live or uncertain operations remain.
+Its `retired` phase does not claim native closure or task success. A verified partial
+or failed publication remains partial or failed; retirement authorizes no retry.
+Only reserve a replacement when work remains and its actions are authorized.
+If an operation is live or uncertain, retain the blocker and report it once; do not
+poll unchanged evidence or repeatedly ask a vanished runner to confirm closure.
 
 ### CodeGraph: worktree ownership and freshness
 

@@ -21,18 +21,19 @@ except ImportError:  # Direct hook execution: this file's directory is on sys.pa
 _OPEN = "<!-- token-kit worker policy v2 -->"
 _CLOSE = "<!-- /token-kit worker policy -->"
 _BODY = """Main: orchestrator only; workers execute. Blocked: explain; ask before execution. Follow repo rules.
-Own scope, not parent identity. Resume: token-kit resume TASK --agent ID; verify evidence/uncertain work.
-STATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Before compression, append dated verbatim STATE to
-historical_state.md; no initial/routine checkpoint/recovery append. Read selectively; checkpoints capture history/evidence/message IDs.
+Own identity. Resume: token-kit resume TASK --agent ID.
+STATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Compression only: dated verbatim STATE in
+historical_state.md; no initial/routine checkpoint/recovery append. Read selectively; checkpoint evidence/message IDs.
 
 Smart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. Scoped overrides beat map; isolate siblings.
 Map supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.
 
-Authorized native prepare/bind --parent. Track resume TASK/status TASK. Checkpoint then ticketed
-rollover/complete; confirm stop; never retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;
-no flag needed; never unknown stops/errors/manual interrupts. Fresh run reads checkpoint+newer
-STATE/children/external work; verifies, checkpoints, explicitly closes old run, continues. Dead PID proves no external
-completion; parent exit no native closure."""
+Native prepare/bind --parent; status TASK. Checkpoint, ticketed rollover/complete, confirm stop.
+Never retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;
+Never unknown stops/errors/manual interrupts. Reconcile/checkpoint/close prior run per matrix. Dead PID proves no external completion; parent exit no native closure.
+Orphans: worker retire per agent_trigger_matrix.md.
+Retired means neither native closure nor success/retry authority. Replace remaining work only.
+Live/unknown operations block; report once, never poll."""
 
 # Kept as a stable base for callers and documentation. ``brief`` renders the
 # current map between these same replaceable markers.
