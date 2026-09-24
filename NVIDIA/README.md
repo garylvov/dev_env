@@ -2,6 +2,12 @@
 
 I'd estimate that I've installed NVIDIA drivers 100+ times. Here is the definitive guide of how to do it the right way (in my opinion).
 
+## Sep 23rd 2026 Update - Vibe Coding Comes for all?
+
+Honestly, as of late, largely out of laziness, I've worried less about the "right" way to install these drivers, and I've just had ```claude --dangerously-skip-permissions``` or ```codex --yolo``` fix things as it sees fit, after I link this guide. This, of course, is very risky, and the rest of this ```README``` is much more principled, as I can't recommend the vibe coding approach. I back up all of my codebases on GitHub, and out of an abundance of caution I also regularly clone my code onto a backup machine with no vibe coding tools installed (as I've had ``codex`` corrupt GitHub repositories lol). On corporate machines, oftentimes, secure boot, can't be disabled, which this guide suggests later. In that case, I just use the additional drivers tab, despite my condemnation of it below, and hope for the best, and usually fix a few things like Wayland with vibe-coding after. 
+
+However, I hope the following guide is still helpful, and if nothing else, maybe you can show it to your agent ;)
+
 # Overview
 
 **Make sure to disable secure boot in your computer's BIOS!**
