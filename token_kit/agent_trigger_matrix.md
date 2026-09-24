@@ -267,8 +267,11 @@ continuation does not authorize replay or release retries.
 Managed token-kit launches in all projects attempt compaction recovery even without
 rollover flags. Eligible stops have a structured compaction marker or legacy run and
 runtime records with exact matching compaction evidence. Unknown stops, generic
-errors, and manual interrupts are excluded. Process uncertainty or the managed
-restart limit can prevent recovery.
+errors, and manual interrupts are excluded. Process uncertainty or an explicitly configured
+restart limit can prevent recovery. Restarts are unlimited by default.
+`--max-rollovers N` sets a cap; `0` disables automatic restarts, and
+`--max-rollovers unlimited` removes the cap. Continuation preserves explicit new
+caps. An untagged legacy value of 10 migrates as the old default to unlimited.
 
 Recovery starts a fresh session. Read the committed checkpoint plus any newer working
 `STATE.md`, inspect children and external operations, and verify every uncertain

@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime
 from difflib import SequenceMatcher
 import importlib
+from itertools import count
 import json
 import os
 import re
@@ -26,6 +27,42 @@ from . import runtime
 from .core import ledger, lifecycle
 from .rollover import format_limit, parse_limit
 from .timefmt import human, parse_iso
+
+
+def parse_restart_budget(value: str) -> int | None:
+    if value.lower() in ("unlimited", "infinite"):
+        return None
+    if not value.isascii() or not value.isdecimal():
+        raise argparse.ArgumentTypeError("maximum rollovers must be nonnegative or unlimited")
+    return int(value)
+
+
+class RestartBudgetAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        namespace.max_rollovers_explicit = True
+
+
+def add_restart_budget(parser):
+    parser.set_defaults(max_rollovers=None, max_rollovers_explicit=False)
+    parser.add_argument("--max-rollovers", type=parse_restart_budget, action=RestartBudgetAction,
+                        help="maximum automatic restarts: nonnegative integer or unlimited (default)")
+
+
+def format_restart_budget(value):
+    return "unlimited" if value is None else str(value)
+
+
+def inherited_restart_budget(previous):
+    budget = previous.get("max_rollovers")
+    explicit = previous.get("max_rollovers_explicit")
+    if budget is not None and (type(budget) is not int or budget < 0):
+        raise ValueError("invalid recorded restart budget; specify --max-rollovers")
+    if explicit is not None and type(explicit) is not bool:
+        raise ValueError("invalid recorded restart budget provenance; specify --max-rollovers")
+    if explicit is None and budget == 10:
+        return None, False  # Previous releases recorded their default as an ordinary cap.
+    return budget, explicit if explicit is not None else budget is not None
 
 
 def default_root() -> Path:
@@ -228,10 +265,9 @@ def pick(args) -> int:
     if model is not None and not isinstance(model, str):
         raise ValueError("invalid recorded model; specify --model")
     budget = getattr(args, "max_rollovers", None)
-    if continuing and budget is None:
-        budget = previous.get("max_rollovers", 10)
-    if continuing and (type(budget) is not int or budget < 0):
-        raise ValueError("invalid recorded restart budget; specify --max-rollovers")
+    budget_explicit = getattr(args, "max_rollovers_explicit", False)
+    if continuing and not budget_explicit:
+        budget, budget_explicit = inherited_restart_budget(previous)
     command = ["token-kit", "continue" if continuing else "run", "--task", task, "--engine", engine]
     if model and model != "unknown":
         command += ["--model", str(model)]
@@ -239,15 +275,16 @@ def pick(args) -> int:
         command += _rollover_command(threshold)
     if yolo:
         command += ["--yolo"]
-    if continuing:
-        if not yolo:
-            command += ["--no-yolo"]
-        command += ["--max-rollovers", str(budget)]
+    if continuing and not yolo:
+        command += ["--no-yolo"]
+    if continuing or budget_explicit:
+        command += ["--max-rollovers", format_restart_budget(budget)]
     if args.print_command:
         print(shlex.join(command))
         return 0
     print("Resuming: " + shlex.join(command), file=sys.stderr)
     launch_args = build_parser().parse_args(["run", *[part for part in command[2:] if part != "--no-yolo"]])
+    launch_args.max_rollovers_explicit = budget_explicit
     launch_args.continue_session = continuing
     return run(launch_args)
 
@@ -299,7 +336,7 @@ def run(args) -> int:
                                                managed_hooks=True))
     if not args.dry_run and shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
-    if args.max_rollovers < 0:
+    if args.max_rollovers is not None and (type(args.max_rollovers) is not int or args.max_rollovers < 0):
         raise ValueError("--max-rollovers must be nonnegative")
     if args.engine == "codex" and not args.dry_run:
         runtime.ensure_codex_hooks(plan.argv[0], workspace)
@@ -314,7 +351,7 @@ def run(args) -> int:
                           "startup": "idle" if idle else "prompt" if args.prompt is not None else "resume",
                           "initial_prompt": args.prompt,
                           "automatic_rollover": bool(args.rollover_tokens),
-                          "compaction_recovery": args.max_rollovers > 0,
+                          "compaction_recovery": args.max_rollovers != 0,
                           "rollover_tokens": args.rollover_tokens,
                           "max_rollovers": args.max_rollovers}, indent=2))
         return 0
@@ -340,13 +377,17 @@ def run(args) -> int:
     else:
         rollover_display = f"{format_limit(args.rollover_tokens)} context tokens (turn boundaries)"
     startup_line("Checkpoints: agent-maintained | automatic rollover: " + rollover_display)
-    startup_line("Structured compaction recovery: " +
-                 (f"enabled (up to {args.max_rollovers} managed restart" +
-                  ("s" if args.max_rollovers != 1 else "") + ")"
-                  if args.max_rollovers else "disabled"))
+    if args.max_rollovers is None:
+        recovery_display = "enabled (unlimited managed restarts)"
+    elif args.max_rollovers == 0:
+        recovery_display = "disabled"
+    else:
+        recovery_display = (f"enabled (up to {args.max_rollovers} managed restart" +
+                            ("s" if args.max_rollovers != 1 else "") + ")")
+    startup_line("Structured compaction recovery: " + recovery_display)
     startup_line(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}")
     command = ["token-kit", "continue", "--task", str(store.path), "--engine", args.engine,
-               "--max-rollovers", str(args.max_rollovers)]
+               "--max-rollovers", format_restart_budget(args.max_rollovers)]
     if args.model:
         command += ["--model", args.model]
     command += ["--yolo" if args.yolo else "--no-yolo"]
@@ -354,7 +395,9 @@ def run(args) -> int:
         command += _rollover_command(args.rollover_tokens)
     startup_line("Continue later: " + shlex.join(command))
     options = dict(yolo=args.yolo, rollover_tokens=args.rollover_tokens,
-                   max_rollovers=args.max_rollovers, idle=idle, initial_prompt=args.prompt)
+                   max_rollovers=args.max_rollovers,
+                   max_rollovers_explicit=getattr(args, "max_rollovers_explicit", False),
+                   idle=idle, initial_prompt=args.prompt)
     if getattr(args, "continue_session", False):
         from .continuation import handoff
         with handoff(store, "coordinator", args.engine) as continuation:
@@ -395,33 +438,37 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
         command += ["--no-yolo"]
     if threshold is not None:
         command += _rollover_command(threshold)
-    command += ["--max-rollovers", str(max_rollovers)]
+    command += ["--max-rollovers", format_restart_budget(max_rollovers)]
     startup_line("Resume with Token Kit (checkpoints, not native transcript): " + shlex.join(command))
     return rc
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | str | None = None,
-           max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None,
-           continuation=None) -> int:
+           max_rollovers: int | None = None, *, max_rollovers_explicit: bool | None = None,
+           idle: bool = False, initial_prompt: str | None = None, continuation=None) -> int:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
-    if max_rollovers < 0:
+    if max_rollovers is not None and (type(max_rollovers) is not int or max_rollovers < 0):
         raise ValueError("Invalid rollover limits")
+    if max_rollovers_explicit is None:
+        max_rollovers_explicit = max_rollovers is not None
     if engine == "codex" and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
-    for segment in range(max_rollovers + 1):
+    for segment in count():
         try:
             rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
                                          idle=idle if segment == 0 else False,
                                          initial_prompt=initial_prompt if segment == 0 else None,
-                                         allow_recovery=max_rollovers > 0,
+                                         allow_recovery=max_rollovers != 0,
                                          max_rollovers=max_rollovers,
+                                         max_rollovers_explicit=max_rollovers_explicit,
                                          continuation=continuation if segment == 0 else None)
         except (OSError, ValueError):
             if not dry_run:
                 exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {})
             raise
+        progress = str(segment + 1) if max_rollovers is None else f"{segment + 1}/{max_rollovers}"
         if control.get("phase") == "halted" and control.get("halt_kind") == "compaction":
             # A structured parent compaction halt is the sole halt eligible
             # for an automatic recovery segment.  It consumes the same
@@ -430,7 +477,7 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
                 return exit_summary(store, agent, engine, model, yolo, rollover_tokens,
                                     max_rollovers, 75, control)
             print(f"Token Kit: compaction halted the session; starting recovery "
-                  f"({segment + 1}/{max_rollovers}).", file=sys.stderr)
+                  f"({progress}).", file=sys.stderr)
             continue
         if control.get("phase") != "ready":
             return rc if dry_run else exit_summary(store, agent, engine, model, yolo,
@@ -441,8 +488,7 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
         observed_model = (control.get("sample") or {}).get("current_model")
         if observed_model and observed_model != "unknown":
             model = observed_model
-        print(f"Token Kit: checkpoint saved; restarting {engine} ({segment + 1}/{max_rollovers}).", file=sys.stderr)
-    return 75
+        print(f"Token Kit: checkpoint saved; restarting {engine} ({progress}).", file=sys.stderr)
 
 
 def _recovery_record(store: Store, agent: str, candidate: str, bundle: dict) -> dict:
@@ -494,7 +540,8 @@ def _recovery_candidate(store: Store, agent: str, engine: str, bundle: dict,
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     dry_run: bool, yolo: bool, rollover_tokens: int | str | None,
                     *, idle: bool = False, initial_prompt: str | None = None,
-                    allow_recovery: bool = True, max_rollovers: int = 10,
+                    allow_recovery: bool = True, max_rollovers: int | None = None,
+                    max_rollovers_explicit: bool | None = None,
                     continuation=None) -> tuple[int, dict]:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
@@ -610,6 +657,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         continuation.release()
     store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
                      max_rollovers=max_rollovers,
+                     max_rollovers_explicit=(max_rollovers is not None if max_rollovers_explicit is None
+                                            else max_rollovers_explicit),
                      startup="idle" if idle else "prompt" if initial_prompt is not None else "resume")
     if recovery_from is not None:
         store.update_run(agent, run.name, recovery_from=recovery_from,
@@ -717,7 +766,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="rollover target as an integer percentage from 1 through 99")
     start.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit,
                        help="rollover target: absolute tokens (e.g. 500k) or 1-99 percent of the reported context window; default: disabled")
-    start.add_argument("--max-rollovers", type=int, default=10, help="maximum automatic restarts (default: 10)")
+    add_restart_budget(start)
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
     new.add_argument("--root", type=Path, default=default_root())
@@ -743,6 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     picker.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
     picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
                         help="override the latest run's permission setting")
+    add_restart_budget(picker)
     continuation = commands.add_parser("continue", help="safely hand off and continue a saved task")
     continuation.add_argument("words", nargs="*")
     continuation.add_argument("--task", type=Path, help="exact saved task path")
@@ -755,7 +805,7 @@ def build_parser() -> argparse.ArgumentParser:
     continuation.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None)
     continuation.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage)
     continuation.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
-    continuation.add_argument("--max-rollovers", type=int)
+    add_restart_budget(continuation)
     migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
     migrate.add_argument("source", type=Path)
     migrate.add_argument("--root", type=Path, default=default_root())
@@ -822,7 +872,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
                                  help="rollover target as an integer percentage from 1 through 99")
             command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
-            command.add_argument("--max-rollovers", type=int, default=10)
+            add_restart_budget(command)
         elif name == "send":
             command.add_argument("text", help="literal text, or - to read stdin")
         elif name == "close-run":
@@ -915,7 +965,8 @@ def main(argv: list[str] | None = None) -> int:
             store.close_run(args.agent, args.run_id, args.note)
         elif args.command == "launch":
             return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo,
-                          args.rollover_tokens, args.max_rollovers)
+                          args.rollover_tokens, args.max_rollovers,
+                          max_rollovers_explicit=args.max_rollovers_explicit)
         elif args.command == "ledger":
             print(ledger.refresh(store))
         elif args.command == "status":
