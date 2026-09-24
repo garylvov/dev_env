@@ -108,6 +108,19 @@ output is a deliberate departure.
 
 </details>
 
+## OSCAR in your Bash prompt session
+
+For an orange OSCAR banner, add this line to `~/.bashrc` (adjust the checkout path):
+
+```bash
+source /oscar/data/stellex/glvov/dev_env/motd/add_to_bashrc.bash
+```
+
+It uses the bundled TimeSpiralG art, with dark orange `#CC5500` and bright
+orange `#FF8C00`. Only interactive shells with terminal output print it; shell
+commands and redirected output stay quiet. `NO_COLOR=1` or `TERM=dumb` prints
+plain `OSCAR`. Startup needs no network, Python, or system MOTD changes.
+
 ## Installing it
 
 ```
