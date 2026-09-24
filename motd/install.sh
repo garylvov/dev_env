@@ -3,6 +3,12 @@
 # stock Ubuntu noise (help links, ESM nags, update counts) that ships with it.
 set -Eeuo pipefail
 
+# Per-user shell banners never need root or touch system MOTD configuration.
+if [[ "${1:-}" == "--user" ]]; then
+  shift
+  exec python3 "$(dirname "$(readlink -f "$0")")/install_user.py" "$@"
+fi
+
 # ===== Config =====
 BANNER="${1:-$(dirname "$(readlink -f "$0")")/minerva.ans}"
 DEST=/etc/motd.ans
@@ -16,6 +22,8 @@ MUTE=(10-help-text 50-motd-news 88-esm-announce 91-contract-ua-esm-status
 usage() {
   cat <<'USAGE'
 Usage: sudo ./install.sh [banner.ans]
+       ./install.sh --user banner.ans [--label NAME] [--bashrc PATH]
+       ./install.sh --user --remove [--bashrc PATH]
 
 Installs banner.ans (default: ./minerva.ans) as the MOTD shown on SSH login.
 Generate a banner first with ./taag2ansi.py '<patorjk taag url>' -o banner.ans
