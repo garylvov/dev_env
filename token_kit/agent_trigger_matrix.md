@@ -238,6 +238,30 @@ Codex usage inside managed sessions; raw CLI calls do not. A corresponding one-s
 Claude wrapper and unified `token-kit exec` are not implemented. Do not claim that
 cross-engine jobs automatically share native attempt tracking.
 
+### Continuing a task
+
+```bash
+token-kit continue parser
+token-kit continue /path/to/task
+token-kit continue --task /path/to/task --rollover-perc 80
+```
+
+`continue QUERY` launches a fresh continuation: one fuzzy match is selected
+automatically; multiple matches show a chooser. Use `--select N` for scripts or
+`--print` to preview without stopping or launching anything. An exact task path
+also works. Latest launch settings are inherited unless explicitly overridden.
+`resume TASK` remains a read-only state export, not a client launcher.
+
+For a live managed runner on the same host, continuation requests a cooperative
+stop and waits a bounded time for verified shutdown before starting recovery.
+It does not attach to the old native UI. Unsupported runners, uncertain process
+identity, or a shutdown timeout leave a blocker instead of launching duplicates.
+An interrupted recovery can itself be continued; reconcile pending predecessor
+runs oldest first. Preserve checkpoints and any newer working state. Never edit
+run records manually to force continuation or infer operation success from a
+runner exit. Reconcile external operations before ordinary work or replacements;
+continuation does not authorize replay or release retries.
+
 ### Managed compaction recovery
 
 Managed token-kit launches in all projects attempt compaction recovery even without

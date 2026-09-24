@@ -152,9 +152,21 @@ def _rollover_command(spec) -> list[str]:
 
 
 def pick(args) -> int:
+    continuing = args.command == "continue"
     if args.limit <= 0:
         raise ValueError("--limit must be positive")
-    rows = ranked_tasks(args.root, args.words)
+    exact = getattr(args, "task", None)
+    if exact and args.words:
+        raise ValueError("--task cannot be combined with a query")
+    if continuing and not exact and len(args.words) == 1:
+        candidate = Path(args.words[0]).expanduser()
+        if (candidate / "task.json").is_file():
+            exact = candidate
+    if exact:
+        store = Store(exact)
+        rows = [{**read_json(store.path / "task.json"), "path": str(store.path)}]
+    else:
+        rows = ranked_tasks(args.root, args.words)
     if not rows:
         print("token-kit: no matching tasks", file=sys.stderr)
         return 1
@@ -169,6 +181,8 @@ def pick(args) -> int:
     if omitted:
         print(f"{omitted} more matching tasks; narrow your query or increase --limit.", file=sys.stderr)
     selected = args.select
+    if continuing and len(rows) == 1 and not omitted and selected is None:
+        selected = 1
     if selected is None:
         if not sys.stdin.isatty():
             print("token-kit: selection required; rerun with --select N", file=sys.stderr)
@@ -213,18 +227,29 @@ def pick(args) -> int:
         raise ValueError("invalid recorded permissions; specify --yolo or --no-yolo")
     if model is not None and not isinstance(model, str):
         raise ValueError("invalid recorded model; specify --model")
-    command = ["token-kit", "run", "--task", task, "--engine", engine]
+    budget = getattr(args, "max_rollovers", None)
+    if continuing and budget is None:
+        budget = previous.get("max_rollovers", 10)
+    if continuing and (type(budget) is not int or budget < 0):
+        raise ValueError("invalid recorded restart budget; specify --max-rollovers")
+    command = ["token-kit", "continue" if continuing else "run", "--task", task, "--engine", engine]
     if model and model != "unknown":
         command += ["--model", str(model)]
     if threshold is not None:
         command += _rollover_command(threshold)
     if yolo:
         command += ["--yolo"]
+    if continuing:
+        if not yolo:
+            command += ["--no-yolo"]
+        command += ["--max-rollovers", str(budget)]
     if args.print_command:
         print(shlex.join(command))
         return 0
     print("Resuming: " + shlex.join(command), file=sys.stderr)
-    return run(build_parser().parse_args(command[1:]))
+    launch_args = build_parser().parse_args(["run", *[part for part in command[2:] if part != "--no-yolo"]])
+    launch_args.continue_session = continuing
+    return run(launch_args)
 
 
 def stop_child(child) -> None:
@@ -320,15 +345,23 @@ def run(args) -> int:
                   ("s" if args.max_rollovers != 1 else "") + ")"
                   if args.max_rollovers else "disabled"))
     startup_line(f"Token ledger: {store.path / 'TOKEN_LEDGER.md'}")
-    startup_line(f"Continue later: token-kit run --task {shlex.quote(str(store.path))} "
-          f"--engine {args.engine}" + (f" --model {shlex.quote(args.model)}" if args.model else "")
-          + (" --yolo" if args.yolo else "")
-          + (" " + shlex.join([*_rollover_command(args.rollover_tokens),
-                               "--max-rollovers", str(args.max_rollovers)])
-             if args.rollover_tokens is not None else ""))
-    return launch(store, "coordinator", args.engine, args.model, yolo=args.yolo,
-                  rollover_tokens=args.rollover_tokens, max_rollovers=args.max_rollovers,
-                  idle=idle, initial_prompt=args.prompt)
+    command = ["token-kit", "continue", "--task", str(store.path), "--engine", args.engine,
+               "--max-rollovers", str(args.max_rollovers)]
+    if args.model:
+        command += ["--model", args.model]
+    command += ["--yolo" if args.yolo else "--no-yolo"]
+    if args.rollover_tokens is not None:
+        command += _rollover_command(args.rollover_tokens)
+    startup_line("Continue later: " + shlex.join(command))
+    options = dict(yolo=args.yolo, rollover_tokens=args.rollover_tokens,
+                   max_rollovers=args.max_rollovers, idle=idle, initial_prompt=args.prompt)
+    if getattr(args, "continue_session", False):
+        from .continuation import handoff
+        with handoff(store, "coordinator", args.engine) as continuation:
+            return launch(store, "coordinator", args.engine, args.model,
+                          continuation=continuation, **options)
+    return launch(store, "coordinator", args.engine, args.model, **options)
+
 
 
 def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control):
@@ -350,7 +383,7 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
     context = sample.get("context_tokens")
     startup_line("Latest context: " + (f"{context:,} tokens" if context is not None else "unknown"))
     startup_line(f"Cumulative usage (including cached input and observed workers): {store.path / 'TOKEN_LEDGER.md'}")
-    command = ["token-kit", "run" if agent == "coordinator" else "launch"]
+    command = ["token-kit", "continue" if agent == "coordinator" else "launch"]
     command += ["--task", str(store.path)] if agent == "coordinator" else [str(store.path), "--agent", agent]
     command += ["--engine", engine]
     effective_model = sample.get("current_model") or model
@@ -358,15 +391,19 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
         command += ["--model", effective_model]
     if yolo:
         command += ["--yolo"]
+    if agent == "coordinator" and not yolo:
+        command += ["--no-yolo"]
     if threshold is not None:
-        command += [*_rollover_command(threshold), "--max-rollovers", str(max_rollovers)]
+        command += _rollover_command(threshold)
+    command += ["--max-rollovers", str(max_rollovers)]
     startup_line("Resume with Token Kit (checkpoints, not native transcript): " + shlex.join(command))
     return rc
 
 
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | str | None = None,
-           max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None) -> int:
+           max_rollovers: int = 10, *, idle: bool = False, initial_prompt: str | None = None,
+           continuation=None) -> int:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
     if max_rollovers < 0:
@@ -378,7 +415,9 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
             rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
                                          idle=idle if segment == 0 else False,
                                          initial_prompt=initial_prompt if segment == 0 else None,
-                                         allow_recovery=max_rollovers > 0)
+                                         allow_recovery=max_rollovers > 0,
+                                         max_rollovers=max_rollovers,
+                                         continuation=continuation if segment == 0 else None)
         except (OSError, ValueError):
             if not dry_run:
                 exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {})
@@ -455,7 +494,8 @@ def _recovery_candidate(store: Store, agent: str, engine: str, bundle: dict,
 def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     dry_run: bool, yolo: bool, rollover_tokens: int | str | None,
                     *, idle: bool = False, initial_prompt: str | None = None,
-                    allow_recovery: bool = True) -> tuple[int, dict]:
+                    allow_recovery: bool = True, max_rollovers: int = 10,
+                    continuation=None) -> tuple[int, dict]:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
     # A real managed launch may seed an old task's missing snapshot. Dry runs
@@ -465,7 +505,11 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     bundle = store.resume_bundle(agent)
     recovery_from = None
     recovery_state = None
-    if not dry_run and allow_recovery:
+    if not dry_run and continuation is not None:
+        recovery_from = continuation.recovery_from
+        if recovery_from is not None:
+            recovery_state = _working_state_for_recovery(store, agent, bundle)
+    elif not dry_run and allow_recovery:
         recovery_from, _ = _recovery_candidate(
             store, agent, engine, bundle, idle=idle, initial_prompt=initial_prompt)
         if recovery_from is not None:
@@ -493,11 +537,19 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         historical = bundle.get("historical_state")
         historical_hint = (f" Historical detail is available at {historical}; read it selectively only if "
                            "needed to understand a compressed STATE." if historical else "")
-        close_command = shlex.join(["token-kit", "close-run", str(store.path), "--agent", agent,
-                                    recovery_from, "--note",
-                                    "Verified predecessor process, children, and external operations; recovery state reconciled."])
+        ancestors = [*store.recovery_ancestors(agent, recovery_from), read_json(predecessor_path)]
+        unresolved = [record for record in ancestors if record.get("status") != "reconciled"]
+        close_command = " && ".join(shlex.join([
+            "token-kit", "close-run", str(store.path), "--agent", agent,
+            record["run_id"], "--note",
+            "Verified predecessor process, children, and external operations; recovery state reconciled."])
+            for record in unresolved)
+
         prompt = (
-            f"This is structured recovery of predecessor run {recovery_from}. Read the exact pre-recovery "
+            f"This is structured recovery of predecessor run {recovery_from}. "
+            f"Unresolved ancestors, oldest first: {[record['run_id'] for record in unresolved]}. "
+            "Audit workers and external operations across every ancestor; close them oldest first. "
+            "Read the exact pre-recovery "
             f"working STATE at {store.agent_path(agent) / 'STATE.md'} captured in the successor run's "
             "recovery-input.md before editing "
             "STATE.md, and compare it with the "
@@ -550,8 +602,14 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         return 0, {}
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
-    run = store.claim_run(agent, engine, True, recovery_from=recovery_from)
+    claim_options = {"recovery_from": recovery_from}
+    if continuation is not None:
+        claim_options["continuation"] = True
+    run = store.claim_run(agent, engine, True, **claim_options)
+    if continuation is not None:
+        continuation.release()
     store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
+                     max_rollovers=max_rollovers,
                      startup="idle" if idle else "prompt" if initial_prompt is not None else "resume")
     if recovery_from is not None:
         store.update_run(agent, run.name, recovery_from=recovery_from,
@@ -600,7 +658,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
             predecessor_path = store.safe(store.agent_path(agent) / "runs" / recovery_from / "run.json")
             predecessor_record = read_json(predecessor_path)
             successor_record = read_json(store.safe(run / "run.json"))
-            if (predecessor_record.get("status") != "reconciled"
+            if (any(record.get("status") != "reconciled"
+                    for record in store.recovery_ancestors(agent, run.name))
                     or successor_record.get("recovery_completed") is not True):
                 reason = (f"Recovery client exited successfully, but predecessor run {recovery_from} "
                           "is still not reconciled; refusing a false success")
@@ -684,6 +743,19 @@ def build_parser() -> argparse.ArgumentParser:
     picker.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
     picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
                         help="override the latest run's permission setting")
+    continuation = commands.add_parser("continue", help="safely hand off and continue a saved task")
+    continuation.add_argument("words", nargs="*")
+    continuation.add_argument("--task", type=Path, help="exact saved task path")
+    continuation.add_argument("--root", type=Path, default=default_root())
+    continuation.add_argument("--print", dest="print_command", action="store_true")
+    continuation.add_argument("--select", type=int)
+    continuation.add_argument("--limit", type=int, default=20)
+    continuation.add_argument("--engine", choices=("codex", "claude"))
+    continuation.add_argument("--model")
+    continuation.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None)
+    continuation.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage)
+    continuation.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
+    continuation.add_argument("--max-rollovers", type=int)
     migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
     migrate.add_argument("source", type=Path)
     migrate.add_argument("--root", type=Path, default=default_root())
@@ -779,7 +851,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in ("list", "find"):
             print(json.dumps(task_rows(args.root, getattr(args, "words", None), args.open), indent=2))
             return 0
-        if args.command == "pick":
+        if args.command in ("pick", "continue"):
             return pick(args)
         if args.command == "migrate":
             from .core.migrate import migrate_task

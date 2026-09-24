@@ -449,7 +449,76 @@ class Store:
                     raise ValueError(f"Recovery reservation for run {run_id} has inconsistent pending state")
             if record.get("recovery_pending") and not (outgoing or incoming):
                 raise ValueError(f"Unfinished recovery reservation for run {run_id}")
+        for agent, _, record in rows:
+            seen = set()
+            cursor = record
+            while cursor.get("recovery_to") is not None:
+                identity = cursor.get("run_id")
+                if identity in seen:
+                    raise ValueError("Cyclic recovery links; refusing continuation")
+                seen.add(identity)
+                cursor = index[(agent, cursor["recovery_to"])][1]
         return index
+
+    def _recovery_ancestors_locked(self, agent: str, run_id: str, index: dict) -> list[dict]:
+        if (agent, run_id) not in index:
+            raise ValueError("Unknown recovery run")
+        result = []
+        cursor = index[(agent, run_id)][1]
+        while cursor.get("recovery_from") is not None:
+            cursor = index[(agent, cursor["recovery_from"])][1]
+            result.append(cursor)
+        return list(reversed(result))
+
+    def recovery_ancestors(self, agent: str, run_id: str) -> list[dict]:
+        with self.locked():
+            index = self._validate_recovery_links_locked()
+            return self._recovery_ancestors_locked(agent, component(run_id), index)
+
+    def _active_recovery_leaf_locked(self, agent: str, run_id: str, index: dict) -> tuple[Path, dict]:
+        entry = index[(agent, run_id)]
+        while entry[1].get("recovery_to") is not None:
+            entry = index[(agent, entry[1]["recovery_to"])]
+        if entry[1].get("status") not in ("starting", "running"):
+            raise ValueError("Recovery successor is not active; refusing reconciliation")
+        if self._continuation_candidate_locked(agent, index) != entry[1]["run_id"]:
+            raise ValueError("Recovery successor is not the unique continuation tip")
+        return entry
+
+    def _continuation_candidate_locked(self, agent: str, index: dict | None = None) -> str | None:
+        index = self._validate_recovery_links_locked() if index is None else index
+        unresolved_owners = set()
+        for directory in self.safe(self.path / "agents").iterdir():
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            lifecycle = self.safe(directory / "lifecycle.json")
+            if lifecycle.is_file():
+                state = read_json(lifecycle)
+                if (state.get("owner_agent") == agent
+                        and not (state.get("phase") in ("stopped", "completed") or
+                                 (state.get("phase") == "retired" and state.get("operations_reconciled") is True))):
+                    unresolved_owners.add(state.get("owner_run"))
+        active = [record for (owner, run_id), (_, record) in index.items()
+                  if owner == agent and (record.get("status") in ("starting", "running", "interrupted")
+                                         or (record.get("continuation_requested") is True and record.get("status") != "reconciled")
+                                         or (record.get("status") == "exited" and run_id in unresolved_owners))]
+        if not active:
+            return None
+        tips = [record for record in active if record.get("recovery_to") is None]
+        if len(tips) != 1:
+            raise ValueError("Disconnected or ambiguous continuation runs")
+        tip = tips[0]
+        ancestors = self._recovery_ancestors_locked(agent, tip["run_id"], index)
+        connected = {record["run_id"] for record in ancestors} | {tip["run_id"]}
+        if any(record["run_id"] not in connected for record in active):
+            raise ValueError("Disconnected continuation runs")
+        if any(record.get("status") not in ("interrupted", "reconciled") for record in ancestors):
+            raise ValueError("Continuation ancestors must be interrupted or reconciled")
+        return tip["run_id"]
+
+    def continuation_candidate(self, agent: str) -> str | None:
+        with self.locked():
+            return self._continuation_candidate_locked(agent)
 
     @staticmethod
     def _pid(record: dict, prefix: str) -> int | None:
@@ -540,6 +609,7 @@ class Store:
         candidates = []
         for _, target, record in rows:
             if (record.get("status") == "interrupted"
+                    and not record.get("continuation_requested")
                     and self._compaction_recovery_source(target, record) is not None):
                 if self._run_error_unmarked(record):
                     continue
@@ -566,10 +636,18 @@ class Store:
         with self.locked():
             return self._recovery_candidate_locked(agent)
 
-    def claim_run(self, agent: str, engine: str, strict: bool, recovery_from: str | None = None) -> Path:
+    def claim_run(self, agent: str, engine: str, strict: bool, recovery_from: str | None = None, continuation: bool = False) -> Path:
         if engine not in ("claude", "codex"):
             raise ValueError("Unsupported engine")
         with self.locked():
+            if not continuation:
+                with self.safe(self.path / ".continue.lock").open("a") as handoff_lock:
+                    try:
+                        fcntl.flock(handoff_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError as exc:
+                        raise ValueError("A continuation handoff is in progress") from exc
+                    finally:
+                        fcntl.flock(handoff_lock, fcntl.LOCK_UN)
             path = self.agent_path(agent)
             from .lifecycle import read_locked
             worker = read_locked(self, agent)
@@ -591,28 +669,32 @@ class Store:
                 if old_entry is None:
                     raise ValueError(f"Unknown recovery predecessor: {recovery_from}")
                 old_target, old = old_entry
-                if self._recovery_candidate_locked(agent) != recovery_from:
+                candidate = (self._continuation_candidate_locked(agent, index) if continuation
+                             else self._recovery_candidate_locked(agent))
+                if candidate != recovery_from:
                     raise ValueError("Requested recovery predecessor is not the sole eligible candidate")
-                recovery_source = self._compaction_recovery_source(old_target, old)
+                if old.get("status") != "interrupted":
+                    raise ValueError("Continuation predecessor must be interrupted before claiming")
+                recovery_source = ("explicit_continuation" if continuation
+                                   else self._compaction_recovery_source(old_target, old))
                 if recovery_source is None:
                     raise ValueError("Recovery predecessor halt evidence changed")
-                if old.get("engine") != engine:
-                    raise ValueError("Recovery requires the predecessor's same engine")
-                if old.get("host") != socket.gethostname():
-                    raise ValueError("Cross-host recovery is not supported; verify on the original host")
-                self._assert_process_dead(old, "child")
-                self._assert_supervisor_takeover_safe(old)
-                predecessor_id = old.get("recovery_from")
-                if predecessor_id is not None:
-                    predecessor = index.get((agent, predecessor_id))
-                    if (predecessor is None or predecessor[1].get("status") != "reconciled"
-                            or not old.get("recovery_completed")):
-                        raise ValueError("Recovery chains require a resolved predecessor")
+                ancestors = self._recovery_ancestors_locked(agent, recovery_from, index)
+                for predecessor in [*[item for item in ancestors if item.get("status") != "reconciled"], old]:
+                    if predecessor.get("engine") != engine:
+                        raise ValueError("Recovery requires the predecessor's same engine")
+                    if predecessor.get("host") != socket.gethostname():
+                        raise ValueError("Cross-host recovery is not supported; verify on the original host")
+                    self._assert_process_dead(predecessor, "child")
+                    self._assert_supervisor_takeover_safe(predecessor)
+                if not continuation and ancestors and (ancestors[-1].get("status") != "reconciled"
+                                                       or not old.get("recovery_completed")):
+                    raise ValueError("Recovery chains require a resolved predecessor")
                 checkpoint = self.latest(agent)
                 if checkpoint is None:
                     raise ValueError("Recovery requires a committed baseline checkpoint")
                 baseline = {"checkpoint_id": checkpoint.name, "path": str(checkpoint)}
-                if any(record.get("run_id") != recovery_from for record in active):
+                if not continuation and any(record.get("run_id") != recovery_from for record in active):
                     raise ValueError("Another starting, running, or interrupted run is competing with recovery")
             elif active:
                 previous = active[0]
@@ -664,6 +746,12 @@ class Store:
                 successor_target, successor = successor_entry
                 if record.get("status") == "reconciled" and successor.get("recovery_completed"):
                     return
+                ancestors = self._recovery_ancestors_locked(agent, run_id, index)
+                if any(item.get("status") != "reconciled" for item in ancestors):
+                    raise ValueError("Recovery predecessor is unresolved; close ancestors oldest-first")
+                direct_successor = successor
+                direct_target = successor_target
+                successor_target, successor = self._active_recovery_leaf_locked(agent, run_id, index)
                 if successor.get("host") != socket.gethostname():
                     raise ValueError("Cross-host recovery reconciliation is not supported")
                 if successor.get("status") not in ("starting", "running"):
@@ -697,9 +785,9 @@ class Store:
                     raise ValueError("Historical state was created after a historyless recovery checkpoint")
                 # latest() verifies the immutable historical_state snapshot;
                 # the live file was checked above as a freshness condition.
-                successor["recovery_completed"] = True
-                successor["recovery_pending"] = False
-                write_json(successor_target, successor)
+                direct_successor["recovery_completed"] = True
+                direct_successor["recovery_pending"] = bool(direct_successor.get("recovery_to"))
+                write_json(direct_target, direct_successor)
                 record.update(status="reconciled", reconciliation=note,
                               closed_at=now(), recovery_pending=False)
                 write_json(target, record)

@@ -32,7 +32,7 @@ class WorkflowLaunchTests(unittest.TestCase):
             self.assertIn(expected, text)
             self.assertIn("Latest context: unknown", text)
             last = text.splitlines()[-1]
-            self.assertIn("token-kit run --task", last)
+            self.assertIn("token-kit continue --task", last)
             self.assertIn("--yolo --rollover-tokens 500000 --max-rollovers 10", last)
             self.assertNotIn("codex resume", last)
 

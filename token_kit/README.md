@@ -9,20 +9,23 @@ From `dev_env`:
 ```bash
 source token_kit/add_to_bashrc.bash
 token-kit run "Fix parser" --engine codex --rollover-perc 80 --yolo
+token-kit continue parser
 ```
 
-Titles start idle. Use `--prompt "..."` to start work and `--workspace PATH` for source. `--yolo` bypasses permission checks; Codex
-disables sandboxing. `--task PATH` resumes; `--dry-run` previews.
-`--install-project` persists instructions; add `--codegraph` for CodeGraph.
+Titles start idle; `--prompt "..."` starts work. `--workspace PATH` sets source.
+`--yolo` bypasses permissions and Codex sandboxing. `--dry-run` previews.
+`--install-project` persists instructions; `--codegraph` adds CodeGraph.
 
-`token-kit pick parser` lists resume matches; choose one, or Enter cancels.
-`--print` prints the command; scripts use `--select N`. Resume commands
-print at startup and exit.
+`continue QUERY` resumes one match or offers a chooser. Paths work directly or
+with `--task PATH`. Latest launch flags carry forward; explicit flags override.
+Use `--select N` for scripts, `--print` to preview.
+A live managed runner receives a cooperative stop request; verified shutdown
+precedes fresh recovery. This does not reattach the native UI.
+`pick QUERY` lists matches; `resume TASK` exports state without launching.
 
 ## Delegation
 
-[Pyramid](trigger_pyramid.md): model tiers. [Matrix](agent_trigger_matrix.md):
-delegation and recovery policy.
+[Pyramid](trigger_pyramid.md): model tiers. [Matrix](agent_trigger_matrix.md): policy.
 
 ## Resume files
 
@@ -42,20 +45,15 @@ delegation and recovery policy.
     messages/, artifacts/, runs/
 ```
 
-Keep five-section `STATE.md` near 200 words;
-archive a dated prior STATE before rewriting it only when compression is needed.
-Checkpoints capture optional history. Resume reads committed checkpoints, not
-transcripts; reconcile workers before replacement.
+Keep five-section STATE near 200 words. Archive dated prior STATE only before
+compression. Checkpoints preserve optional history. Recovery reads committed checkpoints, not transcripts,
+and preserves newer working state. Reconcile workers and operations before continuing;
+retirement never authorizes release retries.
 
-## Recovery and accounting
+## Recovery
 
-Launches attempt compaction recovery without rollover flags. Legacy stops
-require matching run/runtime evidence. Unknown stops, errors, and manual interrupts
-are excluded. Recovery reconciles state, workers, and operations before continuing.
-Dead-runner orphans use verified retirement, not presumed success. Live/uncertain
-operations remain blockers; retirement never authorizes release retries.
-
-Rollover defaults off. `--rollover-perc 80` means 80% of the reported window
-(currently Codex); absolute `--rollover-tokens 500k` is capped at 80% when known.
-`--max-rollovers` defaults to 10.
-`token-kit ledger TASK` shows reported usage. No native-child reattachment or provider failover.
+Compaction recovery is automatic; `continue` also handles interrupted recovery.
+Process uncertainty blocks restart. Rollover defaults off; `--rollover-perc 80`
+uses the reported window (currently Codex). Absolute `--rollover-tokens 500k`
+is capped at 80% when known. `--max-rollovers` defaults to 10.
+`token-kit ledger TASK` shows reported usage.

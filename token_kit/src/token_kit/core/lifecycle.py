@@ -307,16 +307,16 @@ def retire(store, agent, ticket, note, *, operations_reconciled=False,
         if successor_entry is None:
             raise ValueError("Unknown recovery successor")
         successor = successor_entry[1]
-        old_id = successor.get("recovery_from")
-        old_entry = index.get((recovery_agent, old_id))
-        if old_entry is None:
-            raise ValueError("An active linked recovery successor is required")
-        old = old_entry[1]
-        if (successor.get("status") not in ("starting", "running")
+        ancestors = store._recovery_ancestors_locked(recovery_agent, recovery_run, index)
+        old_id = state.get("owner_run")
+        old = next((record for record in ancestors if record.get("run_id") == old_id), None)
+        if old is None or state.get("owner_agent") != recovery_agent:
+            raise ValueError("Worker does not belong to this recovery predecessor")
+        leaf = store._active_recovery_leaf_locked(recovery_agent, old_id, index)[1]
+        if (leaf.get("run_id") != recovery_run
                 or not successor.get("recovery_pending")
                 or successor.get("recovery_completed")
                 or old.get("status") != "interrupted"
-                or old.get("recovery_to") != recovery_run
                 or not old.get("recovery_pending")):
             raise ValueError("An active linked recovery successor is required")
         supervisor_pid = store._pid(successor, "supervisor")
