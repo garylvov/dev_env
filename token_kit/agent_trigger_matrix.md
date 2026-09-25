@@ -236,14 +236,15 @@ For cross-engine Claude work, reserve with `worker prepare --engine claude`, the
 use its exact ticket with the managed launcher instead of native spawn/bind:
 
 ```bash
-token-kit launch TASK --agent CHILD --ticket TICKET --engine claude --model fable --rollover-tokens VERIFIED_TOKEN_LIMIT
+token-kit launch TASK --agent CHILD --ticket TICKET --engine claude --model fable --rollover-perc 80
 ```
 
 The launcher consumes the reservation once, supplies the managed run identity and
 hooks, and runs Claude in print mode. It keeps the chosen model and permission
-settings; `--yolo` is explicit. Claude does not currently report its context-window
-size to Token Kit: use an absolute threshold chosen from a verified model limit;
-inherited percentages are rejected before launch. Do not guess a window or switch models.
+settings; `--yolo` is explicit. Percentages use reported context windows or documented
+defaults for the resolved Claude model, with the source recorded. Use `--context-window N`
+to override a custom deployment's window; it changes Token Kit's calculation, not the
+model's capacity. Unknown models need that override or an absolute token threshold.
 
 The worker writes its result, checkpoints, and requests `worker complete` with its
 ticket. The supervisor confirms client exit and checks that evidence before marking

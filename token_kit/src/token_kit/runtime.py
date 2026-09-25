@@ -133,14 +133,16 @@ def review_hooks(executable: str = "codex", workspace: Path | None = None) -> in
 
 
 def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | str | None,
-               *, session_context: str | None = None) -> None:
+               *, session_context: str | None = None, context_window: int | None = None) -> None:
     # Keep the requested representation in the run record.  The effective
     # numeric threshold is filled in only after usage telemetry is observed.
     threshold = rollover.parse_limit(threshold) if threshold is not None else None
+    if context_window is not None and (type(context_window) is not int or context_window <= 0):
+        raise ValueError("context window must be a positive token count")
     store.safe(run / "usage-cursors").mkdir()
     write_json(run / "runtime.json", {"phase": "running", "engine": engine,
                "threshold": threshold, "session_id": None, "active_children": [], "sample": None,
-               "effective_threshold": None, "observed_window": None,
+               "effective_threshold": None, "observed_window": None, "context_window": context_window,
                "session_context": session_context, "awaiting_input": session_context is not None})
     ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
 
@@ -276,7 +278,9 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
         worker = lifecycle.native_worker(store, agent, run.name, native)
         if worker and event in ("PostToolUse", "SubagentStop", "Stop"):
             nudge = lifecycle.budget_nudge(store, worker["agent_id"], worker["ticket"],
-                                           sample.get("context_tokens"), sample.get("context_window"))
+                                           sample.get("context_tokens"), sample.get("context_window"),
+                                           **({"window_source": sample["context_window_source"]}
+                                              if sample.get("context_window_source") else {}))
             if nudge:
                 if event == "PostToolUse":
                     return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": nudge}}
@@ -307,16 +311,19 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
             return {}  # streaming usage may not be published until the next response
         return halt(control, "Context usage unavailable; automatic rollover cannot proceed safely")
     requested = control["threshold"]
+    observed_window = control.get("context_window") or sample.get("context_window")
+    control["context_window_source"] = ("explicit_override" if control.get("context_window") is not None
+                                        else sample.get("context_window_source", "reported" if observed_window else None))
     try:
-        threshold = rollover.effective_limit(requested, sample.get("context_window"))
+        threshold = rollover.effective_limit(requested, observed_window)
     except ValueError as exc:
         # A percentage target cannot be evaluated until the client reports its
         # context window.  At this point context usage is valid, so stopping
         # is safer than silently treating the percentage as an absolute count.
         control["effective_threshold"] = None
-        control["observed_window"] = sample.get("context_window")
-        return halt(control, f"Cannot resolve rollover target: {exc}")
-    observed_window = sample.get("context_window")
+        control["observed_window"] = observed_window
+        return halt(control, f"Cannot resolve rollover target: {exc}; set --context-window N "
+                    "for this deployment or use an absolute --rollover-tokens N")
     if (control.get("effective_threshold") != threshold
             or control.get("observed_window") != observed_window):
         control["effective_threshold"] = threshold

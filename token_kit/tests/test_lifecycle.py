@@ -33,6 +33,51 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(again["spawn_authorized"])
         self.assertEqual(first["worker"]["ticket"], again["worker"]["ticket"])
 
+    def test_worker_window_override_stays_scoped_and_survives_same_model(self):
+        parent = self.store.claim_run("coordinator", "codex", True)
+        self.store.update_run("coordinator", parent.name, context_window=1000000, rollover_tokens="80%")
+        first = self.prepare(model="fable", owner_run=parent.name, owner_agent="coordinator")
+        self.assertIsNone(first["worker"]["context_window"])
+        lifecycle.stopped(self.store, "parser", first["worker"]["ticket"], "Unlaunched")
+        second = self.prepare(model="fable", context_window=200000)
+        ticket = second["worker"]["ticket"]
+        self.assertIn("--context-window 200000", second["managed_launch_command"])
+        lifecycle.budget_nudge(self.store, "parser", ticket, 160000, 1000000)
+        self.assertEqual(lifecycle.inspect(self.store, "parser")["effective_threshold"], 160000)
+        self.store.checkpoint("parser")
+        lifecycle.stopped(self.store, "parser", ticket, "Checkpointed; no client launched")
+        third = self.prepare(model="fable")
+        self.assertEqual(third["worker"]["context_window"], 200000)
+        lifecycle.stopped(self.store, "parser", third["worker"]["ticket"], "Unlaunched")
+        self.assertIsNone(self.prepare(model="sonnet")["worker"]["context_window"])
+
+    def test_bad_window_does_not_reserve_worker(self):
+        for window in (True, 0, -1, "80%"):
+            with self.subTest(window=window), self.assertRaises(ValueError):
+                self.prepare(context_window=window)
+        self.assertIsNone(lifecycle.inspect(self.store, "parser"))
+
+    def test_claude_percentage_uses_resolved_default_without_override(self):
+        run = self.store.claim_run("coordinator", "claude", True)
+        runtime.initialize(self.store, "coordinator", run, "claude", "80%")
+        runtime.handle(self.store, "coordinator", run,
+                       {"hook_event_name": "SessionStart", "session_id": "fable-session"})
+        transcript = self.root / "fable.jsonl"
+        with patch.dict("os.environ", {}, clear=True):
+            for index, tokens in enumerate((10000, 800000)):
+                with transcript.open("a") as stream:
+                    stream.write(json.dumps({"type": "assistant", "message": {
+                        "id": f"m{index}", "model": "claude-fable-5-1",
+                        "usage": {"input_tokens": tokens, "output_tokens": 0}}}) + "\n")
+                runtime.handle(self.store, "coordinator", run, {
+                    "hook_event_name": "PostToolUse", "session_id": "fable-session",
+                    "transcript_path": str(transcript)})
+                control = json.loads((run / "runtime.json").read_text())
+                self.assertEqual(control["effective_threshold"], 800000)
+                self.assertEqual(control["observed_window"], 1000000)
+                self.assertEqual(control["sample"]["context_window_source"], "documented_default")
+                self.assertEqual(control["phase"], "running" if index == 0 else "checkpoint_requested")
+
     def test_path_binding_maps_uuid_before_or_after_bind(self):
         for early in (True, False):
             name = "early" if early else "late"

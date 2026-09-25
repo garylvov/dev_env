@@ -85,16 +85,18 @@ class ManagedWorkflowTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(client.call_count, 1)
 
-    def test_inherited_percentage_is_rejected_without_consuming_ticket(self):
+    def test_inherited_percentage_runs_with_context_override(self):
         with self.store.locked():
             state = lifecycle.read_locked(self.store, 'review')
             state['rollover_tokens'] = '80%'
             lifecycle.publish_locked(self.store, state)
-        with self.assertRaisesRegex(ValueError, 'does not report its context window'):
-            launch(self.store, 'review', 'claude', worker_ticket=self.ticket)
-        self.assertFalse(list((self.store.agent_path('review') / 'runs').glob('*/run.json')))
-        rc, _ = self.run_worker(self.complete, rollover_tokens=123456)
+        rc, _ = self.run_worker(self.complete, context_window=200000)
         self.assertEqual(rc, 0)
+        worker = lifecycle.inspect(self.store, 'review')
+        run = self.store.agent_path('review') / 'runs' / worker['managed_run_id']
+        self.assertEqual(read_json(run / 'run.json')['context_window'], 200000)
+        self.assertEqual(read_json(run / 'runtime.json')['context_window'], 200000)
+        self.assertEqual(read_json(run / 'runtime.json')['threshold'], '80%')
 
     def test_model_mismatch_does_not_consume_ticket(self):
         with self.assertRaisesRegex(ValueError, 'model must match'):

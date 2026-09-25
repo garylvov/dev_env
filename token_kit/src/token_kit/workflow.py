@@ -29,6 +29,13 @@ from .rollover import format_limit, parse_limit
 from .timefmt import human, parse_iso
 
 
+def parse_context_window(value: object) -> int:
+    parsed = parse_limit(value)
+    if type(parsed) is not int or parsed <= 0:
+        raise ValueError("context window must be a positive token count")
+    return parsed
+
+
 def parse_restart_budget(value: str) -> int | None:
     if value.lower() in ("unlimited", "infinite"):
         return None
@@ -259,6 +266,12 @@ def pick(args) -> int:
     threshold = args.rollover_tokens if args.rollover_tokens is not None else previous.get("rollover_tokens")
     if threshold is not None:
         threshold = parse_limit(threshold)
+    context_window = getattr(args, "context_window", None)
+    if (context_window is None and engine == previous.get("engine")
+            and (args.model is None or args.model == previous.get("model"))):
+        context_window = previous.get("context_window")
+    if context_window is not None:
+        context_window = parse_context_window(context_window)
     yolo = args.yolo if args.yolo is not None else previous.get("yolo", False)
     if not isinstance(yolo, bool):
         raise ValueError("invalid recorded permissions; specify --yolo or --no-yolo")
@@ -273,6 +286,8 @@ def pick(args) -> int:
         command += ["--model", str(model)]
     if threshold is not None:
         command += _rollover_command(threshold)
+    if context_window is not None:
+        command += ["--context-window", str(context_window)]
     if yolo:
         command += ["--yolo"]
     if continuing and not yolo:
@@ -353,6 +368,7 @@ def run(args) -> int:
                           "automatic_rollover": bool(args.rollover_tokens),
                           "compaction_recovery": args.max_rollovers != 0,
                           "rollover_tokens": args.rollover_tokens,
+                          "context_window": getattr(args, "context_window", None),
                           "max_rollovers": args.max_rollovers}, indent=2))
         return 0
     if args.install_project:
@@ -390,6 +406,8 @@ def run(args) -> int:
                "--max-rollovers", format_restart_budget(args.max_rollovers)]
     if args.model:
         command += ["--model", args.model]
+    if getattr(args, "context_window", None) is not None:
+        command += ["--context-window", str(args.context_window)]
     command += ["--yolo" if args.yolo else "--no-yolo"]
     if args.rollover_tokens is not None:
         command += _rollover_command(args.rollover_tokens)
@@ -398,6 +416,8 @@ def run(args) -> int:
                    max_rollovers=args.max_rollovers,
                    max_rollovers_explicit=getattr(args, "max_rollovers_explicit", False),
                    idle=idle, initial_prompt=args.prompt)
+    if getattr(args, "context_window", None) is not None:
+        options["context_window"] = args.context_window
     if getattr(args, "continue_session", False):
         from .continuation import handoff
         with handoff(store, "coordinator", args.engine) as continuation:
@@ -407,7 +427,7 @@ def run(args) -> int:
 
 
 
-def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control, *, worker_ticket=None):
+def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control, *, worker_ticket=None, context_window=None):
     """Report supervisor evidence, not a guessed explanation of client UI errors."""
     if threshold is not None:
         threshold = parse_limit(threshold)
@@ -434,6 +454,8 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
     effective_model = model if worker_ticket is not None else sample.get("current_model") or model
     if effective_model and effective_model != "unknown":
         command += ["--model", effective_model]
+    if context_window is not None:
+        command += ["--context-window", str(context_window)]
     if yolo:
         command += ["--yolo"]
     if agent == "coordinator" and not yolo:
@@ -458,7 +480,7 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | str | None = None,
            max_rollovers: int | None = None, *, max_rollovers_explicit: bool | None = None,
            idle: bool = False, initial_prompt: str | None = None, continuation=None,
-           worker_ticket: str | None = None) -> int:
+           worker_ticket: str | None = None, context_window: int | None = None) -> int:
     if worker_ticket is not None:
         if idle or initial_prompt is not None or continuation is not None:
             raise ValueError("Ticketed workers must launch their reserved assignment")
@@ -472,19 +494,25 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
             model = reserved_model
             if rollover_tokens is None:
                 rollover_tokens = reservation.get("rollover_tokens")
+            if context_window is None:
+                context_window = reservation.get("context_window")
         if engine != "claude":
             raise ValueError("Ticketed managed launch currently supports Claude workers only")
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
-    if worker_ticket is not None and isinstance(rollover_tokens, str):
-        raise ValueError("Claude does not report its context window; supply --rollover-tokens N "
-                         "from a verified model limit for this managed worker")
+    if context_window is not None:
+        context_window = parse_context_window(context_window)
     if max_rollovers is not None and (type(max_rollovers) is not int or max_rollovers < 0):
         raise ValueError("Invalid rollover limits")
     if max_rollovers_explicit is None:
         max_rollovers_explicit = max_rollovers is not None
     if engine == "codex" and not dry_run:
         runtime.ensure_codex_hooks(workspace=store.workspace)
+    launch_options = {}
+    if worker_ticket is not None:
+        launch_options["worker_ticket"] = worker_ticket
+    if context_window is not None:
+        launch_options["context_window"] = context_window
     for segment in count():
         try:
             rc, control = _launch_segment(store, agent, engine, model, dry_run, yolo, rollover_tokens,
@@ -494,10 +522,11 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
                                          max_rollovers=max_rollovers,
                                          max_rollovers_explicit=max_rollovers_explicit,
                                          continuation=continuation if segment == 0 else None,
-                                         **({"worker_ticket": worker_ticket} if worker_ticket is not None else {}))
+                                         **launch_options)
         except (OSError, ValueError):
             if not dry_run:
-                exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {}, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
+                exit_summary(store, agent, engine, model, yolo, rollover_tokens,
+                             max_rollovers, 2, {}, **launch_options)
             raise
         progress = str(segment + 1) if max_rollovers is None else f"{segment + 1}/{max_rollovers}"
         if control.get("phase") == "halted" and control.get("halt_kind") == "compaction":
@@ -506,16 +535,17 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
             # restart budget as a normal threshold rollover.
             if segment == max_rollovers:
                 return exit_summary(store, agent, engine, model, yolo, rollover_tokens,
-                                    max_rollovers, 75, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
+                                    max_rollovers, 75, control, **launch_options)
             print(f"Token Kit: compaction halted the session; starting recovery "
                   f"({progress}).", file=sys.stderr)
             continue
         if control.get("phase") != "ready":
             return rc if dry_run else exit_summary(store, agent, engine, model, yolo,
-                                                   rollover_tokens, max_rollovers, rc, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
+                                                   rollover_tokens, max_rollovers, rc, control, **launch_options)
         if segment == max_rollovers:
             print("Token Kit: rollover limit reached; checkpoint saved. Resume manually.", file=sys.stderr)
-            return exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 75, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
+            return exit_summary(store, agent, engine, model, yolo, rollover_tokens,
+                                max_rollovers, 75, control, **launch_options)
         observed_model = (control.get("sample") or {}).get("current_model")
         if worker_ticket is None and observed_model and observed_model != "unknown":
             model = observed_model
@@ -573,7 +603,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     *, idle: bool = False, initial_prompt: str | None = None,
                     allow_recovery: bool = True, max_rollovers: int | None = None,
                     max_rollovers_explicit: bool | None = None,
-                    continuation=None, worker_ticket: str | None = None) -> tuple[int, dict]:
+                    continuation=None, worker_ticket: str | None = None,
+                    context_window: int | None = None) -> tuple[int, dict]:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
     # A real managed launch may seed an old task's missing snapshot. Dry runs
@@ -688,7 +719,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
                           "strict_no_compaction_requested": True, "yolo": yolo, "resume": bundle,
                           "startup": "idle" if idle else "prompt" if initial_prompt is not None else "resume",
-                          "rollover_tokens": rollover_tokens}, indent=2))
+                          "rollover_tokens": rollover_tokens, "context_window": context_window}, indent=2))
         return 0, {}
     if shutil.which(plan.argv[0], path=plan.env.get("PATH")) is None:
         raise ValueError(f"Executable not found: {plan.argv[0]}")
@@ -701,6 +732,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     if continuation is not None:
         continuation.release()
     store.update_run(agent, run.name, yolo=yolo, model=model, rollover_tokens=rollover_tokens,
+                     context_window=context_window,
                      max_rollovers=max_rollovers,
                      max_rollovers_explicit=(max_rollovers is not None if max_rollovers_explicit is None
                                             else max_rollovers_explicit),
@@ -718,7 +750,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
                                                    worker_task=str(store.path), managed_hooks=True,
                                                    **({"non_interactive": True} if worker_ticket else {})))
-    runtime.initialize(store, agent, run, engine, rollover_tokens)
+    runtime.initialize(store, agent, run, engine, rollover_tokens,
+                       **({"context_window": context_window} if context_window is not None else {}))
     write_json(run / "resume.json", bundle)
     atomic_text(run / "prompt.md", prompt + "\n")
     child = None
@@ -837,6 +870,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="rollover target as an integer percentage from 1 through 99")
     start.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit,
                        help="rollover target: absolute tokens (e.g. 500k) or 1-99 percent of the reported context window; default: disabled")
+    start.add_argument("--context-window", type=parse_context_window, help="override context window in tokens (e.g. 200k)")
     add_restart_budget(start)
     new = commands.add_parser("new", help="create a shared task and coordinator checkpoint")
     new.add_argument("title")
@@ -863,6 +897,7 @@ def build_parser() -> argparse.ArgumentParser:
     picker.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
     picker.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None,
                         help="override the latest run's permission setting")
+    picker.add_argument("--context-window", type=parse_context_window, help="override context window in tokens (e.g. 200k)")
     add_restart_budget(picker)
     continuation = commands.add_parser("continue", help="safely hand off and continue a saved task")
     continuation.add_argument("words", nargs="*")
@@ -876,6 +911,7 @@ def build_parser() -> argparse.ArgumentParser:
     continuation.add_argument("--yolo", action=argparse.BooleanOptionalAction, default=None)
     continuation.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage)
     continuation.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
+    continuation.add_argument("--context-window", type=parse_context_window, help="override context window in tokens (e.g. 200k)")
     add_restart_budget(continuation)
     migrate = commands.add_parser("migrate", help="import a legacy task without modifying it")
     migrate.add_argument("source", type=Path)
@@ -907,6 +943,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--parent", help="parent for a new logical worker (default: coordinator)")
             command.add_argument("--engine", choices=("claude", "codex"))
             command.add_argument("--model")
+            command.add_argument("--context-window", type=parse_context_window, help="override context window in tokens")
             command.add_argument("--rollover-perc", dest="rollover_tokens", type=parse_rollover_percentage,
                                  help="rollover target as an integer percentage from 1 through 99")
             command.add_argument("--rollover-tokens", "--rollover-at", dest="rollover_tokens", type=parse_limit)
@@ -938,6 +975,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--ticket", help="consume a reserved worker attempt for a managed Claude launch")
             command.add_argument("--engine", choices=("claude", "codex"), required=True)
             command.add_argument("--model")
+            command.add_argument("--context-window", type=parse_context_window, help="override context window in tokens")
             command.add_argument("--dry-run", action="store_true")
             command.add_argument("--yolo", action="store_true",
                                  help="bypass client permission checks (Codex also disables sandboxing)")
@@ -1006,7 +1044,8 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("--parent requires --brief or --assignment-file to create a new worker")
                 result = lifecycle.prepare(store, args.agent, engine=args.engine, model=args.model,
                                            threshold=args.rollover_tokens, owner_agent=args.owner_agent,
-                                           owner_run=args.owner_run)
+                                           owner_run=args.owner_run,
+                                           **({"context_window": args.context_window} if args.context_window is not None else {}))
             elif action == "bind":
                 result = lifecycle.bind(store, args.agent, args.ticket, args.native_id)
             elif action == "request-rollover":
@@ -1038,7 +1077,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "launch":
             return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo,
                           args.rollover_tokens, args.max_rollovers,
-                          max_rollovers_explicit=args.max_rollovers_explicit, worker_ticket=args.ticket)
+                          max_rollovers_explicit=args.max_rollovers_explicit, worker_ticket=args.ticket,
+                          **({"context_window": args.context_window} if args.context_window is not None else {}))
         elif args.command == "ledger":
             print(ledger.refresh(store))
         elif args.command == "status":

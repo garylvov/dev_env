@@ -34,14 +34,15 @@ class ManagedWorkerCoreTests(unittest.TestCase):
     def checkpoint(self):
         return self.store.checkpoint("review")
 
-    def test_prepare_exposes_managed_route_and_percentage_constraint(self):
+    def test_prepare_exposes_managed_route_with_percentage(self):
         import shlex
         self.store.add_agent("other", "Other review")
         prepared = lifecycle.prepare(self.store, "other", engine="claude", model="fable", threshold="80%")
         command = shlex.split(prepared["managed_launch_command"])
         self.assertEqual(command[:3], ["token-kit", "launch", str(self.store.path)])
         self.assertEqual(command[command.index("--ticket") + 1], prepared["worker"]["ticket"])
-        self.assertIn("--rollover-tokens", prepared["managed_launch_note"])
+        self.assertNotIn("managed_launch_note", prepared)
+        self.assertEqual(prepared["worker"]["rollover_tokens"], "80%")
 
     def test_cross_engine_claim_links_and_fences_ticket(self):
         run = self.claim()

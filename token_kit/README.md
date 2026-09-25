@@ -54,7 +54,7 @@ retirement never authorizes release retries.
 
 Compaction recovery is automatic; `continue` also handles interrupted recovery.
 Process uncertainty blocks restart. Rollover defaults off; `--rollover-perc 80`
-uses the reported window (currently Codex). Absolute `--rollover-tokens 500k`
+uses reported windows or Claude defaults; `--context-window N` overrides. `--rollover-tokens 500k`
 is capped at 80% when known. Restarts default unlimited; `--max-rollovers N` caps them,
 `0` disables automatic restarts, and `unlimited` removes the cap.
 `token-kit ledger TASK` shows reported usage.

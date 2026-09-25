@@ -116,12 +116,15 @@ def current_locked(store, agent, ticket):
     return state
 
 
-def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agent=None, owner_run=None):
+def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agent=None, owner_run=None,
+            context_window=None):
     from ..worker_policy import brief
     # Normalize before entering the reservation workflow so malformed input
     # cannot leave a partially prepared attempt behind.
     if threshold is not None:
         threshold = rollover.parse_limit(threshold)
+    if context_window is not None and (type(context_window) is not int or context_window <= 0):
+        raise ValueError("Context window must be a positive integer")
     with store.locked():
         parent = parent_of(store, agent)
         if not parent:
@@ -159,6 +162,10 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
             raise ValueError("Specify --engine claude or codex for the first attempt")
         if threshold is None and old and old.get("rollover_tokens") is not None:
             threshold = rollover.parse_limit(old["rollover_tokens"])
+        # A window belongs to this worker/model, never its differently sized parent.
+        if (context_window is None and old and engine == old.get("engine")
+                and (model or old.get("model")) == old.get("model")):
+            context_window = old.get("context_window")
         # Validate the task snapshot and construct the complete spawn brief
         # before publishing a launching reservation. A malformed map or prompt
         # cannot strand a hidden ticket that claims a worker was reserved.
@@ -168,6 +175,7 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                  "generation": (old or {}).get("generation", 0) + 1,
                  "engine": engine, "model": model or (old or {}).get("model"),
                  "rollover_tokens": threshold,
+                 "context_window": context_window,
                  "effective_threshold": None, "observed_window": None,
                  "rollover_error": None,
                  "owner_agent": owner_agent, "owner_run": owner_run,
@@ -199,10 +207,9 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                        "--ticket", state["ticket"], "--engine", engine]
             if state.get("model"):
                 command += ["--model", state["model"]]
+            if context_window is not None:
+                command += ["--context-window", str(context_window)]
             result["managed_launch_command"] = shlex.join(command)
-            if isinstance(threshold, str) and threshold.endswith("%"):
-                result["managed_launch_note"] = ("Claude does not report a context window; "
-                    "supply an absolute --rollover-tokens budget.")
         return result
 
 
@@ -529,12 +536,17 @@ def native_worker(store, owner_agent, owner_run, native):
     return None
 
 
-def budget_nudge(store, agent, ticket, context, window=None):
+def budget_nudge(store, agent, ticket, context, window=None, window_source=None):
     with store.locked():
         state = current_locked(store, agent, ticket)
         requested = state.get("rollover_tokens")
         if state["phase"] not in ("running", "launching") or not requested or context is None:
             return None
+        if state.get("context_window") is not None:
+            window = state["context_window"]
+            window_source = "explicit_override"
+        source_changed = state.get("context_window_source") != window_source
+        state["context_window_source"] = window_source
         try:
             threshold = rollover.effective_limit(requested, window)
         except ValueError as exc:
@@ -543,7 +555,7 @@ def budget_nudge(store, agent, ticket, context, window=None):
             # path request reconciliation.
             reason = str(exc)
             previous_phase = state["phase"]
-            changed = (state.get("rollover_error") != reason
+            changed = (source_changed or state.get("rollover_error") != reason
                        or previous_phase != "needs_reconciliation"
                        or state.get("observed_window") != window)
             state["rollover_error"] = reason
@@ -556,7 +568,7 @@ def budget_nudge(store, agent, ticket, context, window=None):
             if changed:
                 publish_locked(store, state)
             return None
-        changed = (state.get("effective_threshold") != threshold
+        changed = (source_changed or state.get("effective_threshold") != threshold
                    or state.get("observed_window") != window
                    or state.get("rollover_error") is not None)
         state["effective_threshold"] = threshold

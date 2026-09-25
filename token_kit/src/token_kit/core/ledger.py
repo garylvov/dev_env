@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 
+from .context_window import claude_window
 from .store import atomic_text, now, read_json, write_json
 
 FIELDS = ("input", "cached", "cache_write", "output", "reasoning", "total")
@@ -54,13 +55,16 @@ def summarize(path: Path, engine: str, *, sidechain: bool = False, cache: Path |
                 if record.get("type") != "assistant" or (record.get("isSidechain") and not sidechain):
                     continue
                 message = record.get("message") or {}
+                observed_model = str(message.get("model") or "unknown")
+                if observed_model != model:
+                    model = observed_model
+                    context, window = None, None
                 usage = message.get("usage")
                 if not isinstance(usage, dict) or not usage:
                     continue
                 identifier = message.get("id")
                 if not identifier:
                     raise ValueError("Usage record without message ID; cannot deduplicate")
-                model = str(message.get("model") or "unknown")
                 cached = count(usage.get("cache_read_input_tokens", 0))
                 written = count(usage.get("cache_creation_input_tokens", 0))
                 input_tokens = count(usage["input_tokens"]) + cached + written
@@ -103,12 +107,18 @@ def summarize(path: Path, engine: str, *, sidechain: bool = False, cache: Path |
         bucket = models.setdefault(model_name, empty())
         for key in FIELDS:
             bucket[key] += values[key]
+    # Re-resolve on every read, including cached reads: model changes and the
+    # effective Claude hook environment must never inherit a stale model window.
+    window_source = "reported" if window is not None else None
+    if engine == "claude":
+        window, window_source = claude_window(model)
     if cache is not None:
         write_json(cache, {"identity": identity, "offset": offset, "models": models,
                           "messages": messages, "context": context, "window": window,
                           "previous": previous, "model": model, "seen": seen})
     return {"status": "reported" if seen else "unavailable", "models": models,
             "context_tokens": context, "context_window": window, "current_model": model,
+            "context_window_source": window_source,
             "source": str(path), "updated_at": now()}
 
 
