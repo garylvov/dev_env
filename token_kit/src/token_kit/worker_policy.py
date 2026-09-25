@@ -20,7 +20,7 @@ except ImportError:  # Direct hook execution: this file's directory is on sys.pa
 
 _OPEN = "<!-- token-kit worker policy v2 -->"
 _CLOSE = "<!-- /token-kit worker policy -->"
-_BODY = """Main: orchestrator only; workers execute. Blocked: explain; ask before execution. Follow repo rules.
+_BODY = """Main orchestrates; workers execute. Diagnose read-only; self-heal verified handoffs. Ask for new authority. Follow repo rules.
 Own identity. Resume: token-kit resume TASK --agent ID.
 STATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Compression only: dated verbatim STATE in
 historical_state.md; no initial/routine checkpoint/recovery append. Read selectively; checkpoint evidence/message IDs.

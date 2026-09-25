@@ -809,6 +809,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         store.update_run(agent, run.name, status="exited" if rc == 0 or ready else "interrupted",
                          exit_code=rc, ended_at=now(), rollover_checkpoint=control.get("checkpoint"),
                          recovery_from=recovery_from)
+        if ready and worker_ticket is None:
+            store.reconcile_planned_rollover(agent, run.name)
         if worker_ticket is not None:
             worker = lifecycle.finish_managed(store, agent, worker_ticket, run.name,
                                                returncode=rc, rollover_ready=ready)

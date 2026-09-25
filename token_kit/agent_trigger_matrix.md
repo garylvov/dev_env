@@ -134,6 +134,9 @@ delegate every action. Small tasks can use a single worker without a lead.
 The coordinator may read applicable instructions, inspect task/worker status, write
 briefs and its own state, manage lifecycle tickets, and inspect returned evidence.
 It should not duplicate the worker's investigation or ingest full transcripts.
+Read-only lifecycle diagnosis, scoped diagnostic workers, and verified handoff
+recovery are authorized coordination: proceed without another permission request.
+Pause only work requiring new authority or resolution of uncertain live operations.
 For complex work, split bounded audit, design, implementation, review, validation,
 and documentation workstreams when their dependencies allow. Parallelize ready
 work with disjoint source ownership; bound worker count by useful independent work,
@@ -217,7 +220,9 @@ Cached input still counts as reported usage; do not describe it as free or as bi
    `spawn_prompt` and scoped model preferences. Bind the returned native ID with
    `token-kit worker bind TASK --agent CHILD --ticket TICKET --native-id NATIVE_ID`.
 3. Use native messaging/completion tools for live interaction. For durable messages,
-   use `token-kit send TASK --agent CHILD "message"`; queueing does not mean live delivery.
+   use `token-kit send TASK --agent CHILD "message"`. Claude and Codex share this inbox.
+   Active recipients receive bounded notices at their next lifecycle hook; checkpoint
+   with `--incorporated ID` after acting. Delivery is not acknowledgment or an idle wake.
 4. Parent recovery: `token-kit resume TASK --agent PARENT` includes direct children
    and pending notices. `token-kit status TASK` lists all agents, parent links, and
    native attempts, including grandchildren. No transcript scanning is needed.
@@ -254,6 +259,12 @@ does not appear as a native Codex subagent or promise to wake an idle parent.
 Use native prepare/bind for Codex workers. Raw CLI calls do not supply this tracking.
 
 ### Continuing a task
+
+A planned checkpoint rollover closes the stopped client segment automatically;
+its supervisor normally remains alive to launch the next segment. Legacy `close-run`
+recognizes that handoff using checkpoint, process identity, and child-state evidence.
+Do not kill the shared supervisor or request permission merely to diagnose this state.
+Segment closure does not claim task completion or authorize replaying external work.
 
 ```bash
 token-kit continue parser

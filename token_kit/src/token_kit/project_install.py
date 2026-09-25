@@ -336,6 +336,16 @@ The retired phase claims neither native closure nor success and authorizes no re
 Preserve partial or failed publication outcomes. Replace only if authorized work remains.
 Live or uncertain operations remain blockers: report once, without repeated polling.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """
+Read-only lifecycle diagnosis, scoped diagnostic workers, and verified handoff recovery
+are authorized coordination. Proceed without another permission request; ask only for
+new authority. A shared supervisor surviving a planned rollover is normal; use Token
+Kit's verified handoff reconciliation, never kill it merely to close an old segment.
+This does not authorize repeating uncertain external operations or claiming task success.
+Claude and Codex share token-kit send inboxes. Active hooks deliver bounded messages;
+checkpoint --incorporated acknowledges them. Delivery does not wake an idle client.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

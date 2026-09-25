@@ -738,6 +738,95 @@ class Store:
             record.update(fields)
             write_json(target, record)
 
+    def _reconcile_planned_rollover_locked(self, agent: str, target: Path,
+                                           record: dict, note: str, *, supervisor: bool = False) -> bool:
+        """Close a checkpointed client segment, never infer external task completion."""
+        if record.get("status") == "reconciled" and record.get("planned_rollover"):
+            return True
+        runtime_path = self.safe(target.parent / "runtime.json")
+        checkpoint_path = record.get("rollover_checkpoint")
+        if (record.get("status") != "exited" or not checkpoint_path
+                or not runtime_path.is_file()):
+            return False
+        control = read_json(runtime_path)
+        if (control.get("phase") != "ready" or not checkpoint_path
+                or control.get("checkpoint") != checkpoint_path
+                or not control.get("previous_checkpoint")
+                or control.get("previous_checkpoint") == checkpoint_path
+                or control.get("active_children") != []
+                or control.get("engine") != record.get("engine")
+                or record.get("halt_kind") or record.get("unresolved_errors")):
+            return False
+        if record.get("host") != socket.gethostname():
+            raise ValueError("Cross-host planned rollover reconciliation is not supported")
+        if record.get("recovery_from") and not record.get("recovery_completed"):
+            raise ValueError("Recovery predecessor is unresolved; close the predecessor first")
+        if self._pid(record, "child") is None:
+            raise ValueError("Planned rollover requires the recorded child PID")
+        self._assert_process_dead(record, "child")
+        self._assert_no_unresolved_native_children_locked(agent, record["run_id"])
+        if supervisor:
+            if (self._pid(record, "supervisor") != os.getpid()
+                    or not record.get("supervisor_identity")
+                    or process_identity(os.getpid()) != record["supervisor_identity"]):
+                raise ValueError("Planned rollover requires its original supervisor identity")
+        successor_id = None
+        if not supervisor and not self._process_dead(record, "supervisor"):
+            candidates = [row for owner, _, row in self._run_records_locked()
+                          if owner == agent and row.get("status") in ("starting", "running")
+                          and row.get("host") == record["host"]
+                          and row.get("engine") == record.get("engine")
+                          and row.get("created_at", "") > record.get("ended_at", "")
+                          and row.get("supervisor_pid") == record.get("supervisor_pid")
+                          and row.get("supervisor_identity") == record.get("supervisor_identity")]
+            if len(candidates) != 1:
+                raise ValueError("Planned rollover requires one matching active supervisor segment")
+            self._assert_supervisor_close_safe(record, candidates[0])
+            successor_id = candidates[0]["run_id"]
+        checkpoint = self.safe(Path(checkpoint_path))
+        if checkpoint.parent != self.agent_path(agent) / "checkpoints":
+            raise ValueError("Planned rollover checkpoint belongs to another agent")
+        manifest = read_json(self.safe(checkpoint / "manifest.json"))
+        if (manifest.get("task_id") != self.task_id or manifest.get("agent_id") != agent
+                or manifest.get("checkpoint_id") != checkpoint.name
+                or manifest.get("workspace") != str(self.workspace)
+                or manifest.get("created_at", "") < record.get("created_at", "")
+                or record["run_id"] not in manifest.get("run_ids", [])
+                or manifest.get("state_sha256") != fingerprint(self.safe(checkpoint / "STATE.md"))):
+            raise ValueError("Planned rollover checkpoint identity or content changed")
+        assignment = self.safe(self.agent_path(agent) / "assignments" /
+                               f'{manifest["assignment_revision"]:04d}.md')
+        if manifest.get("assignment_sha256") != fingerprint(assignment):
+            raise ValueError("Planned rollover assignment changed")
+        history_hash = manifest.get("historical_state_sha256")
+        if history_hash and fingerprint(self.safe(checkpoint / "historical_state.md")) != history_hash:
+            raise ValueError("Planned rollover historical snapshot changed")
+        from .lifecycle import checkpoint_locked
+        current_checkpoint = checkpoint_locked(self, agent)
+        current_manifest = read_json(self.safe(Path(current_checkpoint) / "manifest.json"))
+        if (current_manifest.get("created_at", "") < manifest.get("created_at", "")
+                or (successor_id and successor_id not in current_manifest.get("run_ids", []))):
+            raise ValueError("Planned rollover needs a fresh successor checkpoint")
+        if supervisor and current_checkpoint != checkpoint_path:
+            raise ValueError("Planned rollover checkpoint changed before segment closure")
+        record.update(status="reconciled", reconciliation=note, closed_at=now(),
+                      planned_rollover={"checkpoint": checkpoint_path,
+                                        "reconciled_checkpoint": current_checkpoint,
+                                        "proof": "ready checkpoint and stopped client segment",
+                                        "supervisor_pid": record.get("supervisor_pid"),
+                                        "supervisor_identity": record.get("supervisor_identity"),
+                                        "external_completion_inferred": False})
+        write_json(target, record)
+        return True
+
+    def reconcile_planned_rollover(self, agent: str, run_id: str) -> None:
+        with self.locked():
+            target = self.safe(self.agent_path(agent) / "runs" / component(run_id) / "run.json")
+            if not self._reconcile_planned_rollover_locked(
+                    agent, target, read_json(target),
+                    "Supervisor verified planned checkpoint rollover; client segment closed", supervisor=True):
+                raise ValueError("Planned rollover evidence is incomplete")
+
     def close_run(self, agent: str, run_id: str, note: str) -> None:
         if not note.strip():
             raise ValueError("A reconciliation note is required")
@@ -747,6 +836,8 @@ class Store:
             record = read_json(target)
             if record.get("host") != socket.gethostname():
                 raise ValueError("Cross-host run reconciliation is not supported; verify on the original host")
+            if self._reconcile_planned_rollover_locked(agent, target, record, note):
+                return
             rows = self._run_records_locked()
             index = self._validate_recovery_links_locked(rows)
             if record.get("recovery_to") is not None:

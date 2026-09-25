@@ -22,8 +22,9 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertIn("orchestrator, not an execution worker", matrix)
         self.assertIn("before substantial execution", matrix)
         self.assertIn("Every logical agent, including workers", matrix)
-        self.assertIn("orchestrator only", policy.POLICY)
-        self.assertIn("ask before execution", policy.POLICY)
+        self.assertIn("Main orchestrates; workers execute", policy.POLICY)
+        self.assertIn("Diagnose read-only; self-heal verified handoffs", policy.POLICY)
+        self.assertIn("Ask for new authority", policy.POLICY)
 
     def test_session_map_is_the_only_model_source(self):
         from token_kit.project_install import INSTRUCTIONS

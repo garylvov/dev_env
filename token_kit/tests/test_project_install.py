@@ -35,7 +35,9 @@ class ProjectInstallTests(unittest.TestCase):
     def test_recovery_guidance_preserves_previous_owned_version(self):
         previous = project_install._LEGACY_INSTRUCTION_VERSIONS[-1]
         self.assertIn("legacy stops with exact matching run/runtime", previous)
-        self.assertNotIn("worker retire", previous)
+        self.assertIn("worker retire", previous)
+        self.assertNotIn("Read-only lifecycle diagnosis", previous)
+        self.assertIn("Read-only lifecycle diagnosis", project_install.INSTRUCTIONS)
         current = project_install.INSTRUCTIONS
         self.assertIn("legacy stops with exact matching run/runtime", current)
         self.assertIn("Unknown stops, generic errors, and manual interrupts", current)

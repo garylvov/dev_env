@@ -217,7 +217,9 @@ class RuntimeTests(unittest.TestCase):
                 self.assertEqual(workflow.launch(store, "coordinator", engine, rollover_tokens=100), 0)
             runs = [read_json(path) for path in store.agent_path("coordinator").glob("runs/*/run.json")]
             self.assertEqual(len(runs), 2)
-            self.assertTrue(all(row["status"] == "exited" for row in runs))
+            self.assertEqual(sorted(row["status"] for row in runs), ["exited", "reconciled"])
+            closed = next(row for row in runs if row["status"] == "reconciled")
+            self.assertIs(closed["planned_rollover"]["external_completion_inferred"], False)
             self.assertEqual(sum(bool(row.get("rollover_checkpoint")) for row in runs), 1)
             self.assertIn("**230**", (store.path / "TOKEN_LEDGER.md").read_text())
 

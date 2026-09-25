@@ -22,7 +22,7 @@ if __package__ in (None, ""):
 
 from token_kit.core import ledger, lifecycle
 from token_kit.core.store import Store, read_json, write_json
-from token_kit import rollover
+from token_kit import inbox, rollover
 
 EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "Stop",
           "SubagentStart", "SubagentStop", "PreCompact")
@@ -188,6 +188,20 @@ def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
                 if not (stopping and payload.get("stop_hook_active") is True):
                     result = ({"decision": "block", "reason": notice[1]} if stopping else
                               {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
+        # Inbox delivery never overrides lifecycle/rollover responses and never
+        # acknowledges messages. An idle client is not woken by file delivery.
+        if (recipient and not result and control["phase"] == "running"
+                and event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SubagentStop")
+                and not (event in ("Stop", "SubagentStop") and payload.get("stop_hook_active") is True)):
+            key = "inbox_delivered:" + recipient
+            delivered = control.get(key, [])
+            identifiers, context = inbox.pending_batch(store, recipient, delivered)
+            if identifiers:
+                control[key] = delivered + identifiers
+            if context:
+                result = ({"decision": "block", "reason": context}
+                          if event in ("Stop", "SubagentStop") else
+                          {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}})
         if (event in ("SessionStart", "UserPromptSubmit") and not native and control.get("session_context")
                 and not control.get("context_delivered") and result.get("continue") is not False):
             output = result.setdefault("hookSpecificOutput", {"hookEventName": event})
