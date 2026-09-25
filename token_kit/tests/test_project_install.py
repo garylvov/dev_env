@@ -36,7 +36,8 @@ class ProjectInstallTests(unittest.TestCase):
         previous = project_install._LEGACY_INSTRUCTION_VERSIONS[-1]
         self.assertIn("legacy stops with exact matching run/runtime", previous)
         self.assertIn("worker retire", previous)
-        self.assertNotIn("Read-only lifecycle diagnosis", previous)
+        self.assertNotIn("Bookkeeping drift is", previous)
+        self.assertIn("Bookkeeping drift is", project_install.INSTRUCTIONS)
         self.assertIn("Read-only lifecycle diagnosis", project_install.INSTRUCTIONS)
         current = project_install.INSTRUCTIONS
         self.assertIn("legacy stops with exact matching run/runtime", current)

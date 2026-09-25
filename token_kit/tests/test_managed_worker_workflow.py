@@ -64,10 +64,10 @@ class ManagedWorkflowTests(unittest.TestCase):
         self.assertEqual(record['worker_ticket'], self.ticket)
         self.assertEqual(record['status'], 'exited')
 
-    def test_zero_exit_without_completion_is_not_success(self):
+    def test_zero_exit_without_completion_records_stop(self):
         rc, _ = self.run_worker(lambda *a: (0, {'phase': 'active', 'session_id': 'session'}))
-        self.assertEqual(rc, 75)
-        self.assertEqual(lifecycle.inspect(self.store, 'review')['phase'], 'needs_reconciliation')
+        self.assertEqual(rc, 0)
+        self.assertEqual(lifecycle.inspect(self.store, 'review')['phase'], 'stopped')
 
     def test_zero_exit_without_hook_handshake_is_not_success(self):
         def no_handshake(*args):

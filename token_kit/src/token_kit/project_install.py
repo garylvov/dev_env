@@ -346,6 +346,16 @@ This does not authorize repeating uncertain external operations or claiming task
 Claude and Codex share token-kit send inboxes. Active hooks deliver bounded messages;
 checkpoint --incorporated acknowledges them. Delivery does not wake an idle client.
 """
+_LEGACY_INSTRUCTION_VERSIONS += (INSTRUCTIONS,)
+INSTRUCTIONS += """
+Token Kit is a record and guide, not an approval authority. Bookkeeping drift is
+advisory: repair it and continue authorized work without asking. This supersedes
+Token Kit's earlier blocked-work permission rules. Completion records the latest
+saved result and revisions, not artifact approval. Lifecycle notices do not block
+continuation. Verify uncertain external operations before retrying those operations;
+they do not freeze unrelated work. Actual live-worker and duplicate-spawn checks,
+repository/site restrictions, and explicit user constraints still apply.
+"""
 MCP = {"type": "stdio", "command": "codegraph", "args": ["serve", "--mcp"]}
 
 

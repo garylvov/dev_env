@@ -23,8 +23,9 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertIn("before substantial execution", matrix)
         self.assertIn("Every logical agent, including workers", matrix)
         self.assertIn("Main orchestrates; workers execute", policy.POLICY)
-        self.assertIn("Diagnose read-only; self-heal verified handoffs", policy.POLICY)
-        self.assertIn("Ask for new authority", policy.POLICY)
+        self.assertIn("Token Kit is guidance, not approval", policy.POLICY)
+        self.assertIn("Bookkeeping drift is advisory", policy.POLICY)
+        self.assertIn("without asking", policy.POLICY)
 
     def test_session_map_is_the_only_model_source(self):
         from token_kit.project_install import INSTRUCTIONS
@@ -40,9 +41,9 @@ class WorkerPolicyTests(unittest.TestCase):
     def test_compaction_recovery_and_history_policy_are_bounded(self):
         self.assertIn("Managed recovery: structured compaction or exact legacy run/runtime evidence",
                       policy.POLICY)
-        self.assertIn("Never unknown stops/errors/manual interrupts",
+        self.assertIn("Auto-restart excludes unknown stops/errors/manual interrupts",
                       policy.POLICY)
-        self.assertIn("no initial/routine checkpoint/recovery append", policy.POLICY)
+        self.assertIn("no routine append", policy.POLICY)
         self.assertIn("Dead PID proves no external completion; parent exit no native closure",
                       policy.POLICY)
 

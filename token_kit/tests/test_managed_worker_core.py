@@ -68,8 +68,8 @@ class ManagedWorkerCoreTests(unittest.TestCase):
 
     def test_exit_without_completion_is_not_success_or_retry_authority(self):
         run = self.claim()
-        self.assertEqual(self.exit(run)["phase"], "needs_reconciliation")
-        with self.assertRaisesRegex(ValueError, "consumed"):
+        self.assertEqual(self.exit(run)["phase"], "stopped")
+        with self.assertRaisesRegex(ValueError, "reconciled"):
             self.claim()
 
     def test_completion_verified_and_no_replay(self):
@@ -88,7 +88,7 @@ class ManagedWorkerCoreTests(unittest.TestCase):
         lifecycle.request(self.store, "review", self.ticket, "Done", complete=True)
         self.assertEqual(self.exit(run, rc=2)["phase"], "needs_reconciliation")
 
-    def test_changed_output_and_live_process_refused(self):
+    def test_changed_output_recorded_and_live_process_refused(self):
         import os
         run = self.claim()
         output = self.store.agent_path("review") / "out.md"
@@ -96,11 +96,26 @@ class ManagedWorkerCoreTests(unittest.TestCase):
         self.checkpoint()
         lifecycle.request(self.store, "review", self.ticket, "Done", complete=True)
         output.write_text("Changed")
-        with self.assertRaisesRegex(ValueError, "result changed"):
-            self.exit(run)
+        self.checkpoint()
+        result = self.exit(run)
+        self.assertEqual(result["phase"], "completed")
+        self.assertIn("revised", result["completion_advisory"])
+        self.assertNotEqual(result["completion_requested_checkpoint"], result["completion_final_checkpoint"])
         self.store.update_run("review", run.name, child_pid=os.getpid())
         with self.assertRaisesRegex(ValueError, "alive"):
             self.exit(run)
+
+    def test_missing_saved_output_reconciles_managed_stop_without_completion(self):
+        run = self.claim()
+        output = self.store.agent_path("review") / "out.md"
+        output.write_text("Findings")
+        self.checkpoint()
+        lifecycle.request(self.store, "review", self.ticket, "Done", complete=True)
+        output.unlink()
+        result = self.exit(run)
+        self.assertEqual(result["phase"], "stopped")
+        self.assertIsNone(result["completion_final_output_sha256"])
+        self.assertIn("missing or empty", result["completion_advisory"])
 
     def test_rollover_segment_requires_checkpoint_and_can_claim_once(self):
         run = self.claim()

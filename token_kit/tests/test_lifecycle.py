@@ -158,8 +158,8 @@ class LifecycleTests(unittest.TestCase):
     def test_rollover_requires_checkpoint_and_explicit_reconciliation(self):
         ticket = self.prepare()["worker"]["ticket"]
         lifecycle.bind(self.store, "parser", ticket, "native1")
-        with self.assertRaisesRegex(ValueError, "fresh checkpoint"):
-            lifecycle.request(self.store, "parser", ticket, "budget")
+        initial = lifecycle.request(self.store, "parser", ticket, "budget")
+        self.assertIn("No new checkpoint", initial["checkpoint_advisories"][0])
         self.store.checkpoint("parser")
         lifecycle.request(self.store, "parser", ticket, "budget")
         lifecycle.observe_native(self.store, "coordinator", None, "native1", "stop")
@@ -194,28 +194,86 @@ class LifecycleTests(unittest.TestCase):
         state = lifecycle.bind(Store(self.store.path), "parser", ticket, "early")
         self.assertEqual(state["phase"], "needs_reconciliation")
 
-    def test_complete_is_terminal_and_output_is_pinned(self):
+    def test_revised_output_records_completion_without_artifact_approval(self):
         ticket = self.prepare()["worker"]["ticket"]
         self.store.checkpoint("parser")
         output = self.store.agent_path("parser") / "out.md"
         output.write_text("Done")
-        lifecycle.request(self.store, "parser", ticket, "done", complete=True)
+        requested = lifecycle.request(self.store, "parser", ticket, "done", complete=True)
         output.write_text("Changed")
-        with self.assertRaisesRegex(ValueError, "result changed"):
-            lifecycle.stopped(self.store, "parser", ticket, "closed")
-        output.write_text("Done")
-        lifecycle.stopped(self.store, "parser", ticket, "closed")
+        result = lifecycle.stopped(self.store, "parser", ticket, "Native stopped")
+        self.assertEqual(result["phase"], "completed")
+        self.assertEqual(result["completion_requested_output_sha256"], requested["output_sha256"])
+        self.assertNotEqual(result["completion_final_output_sha256"], requested["output_sha256"])
+        self.assertIn("revised", result["completion_advisory"])
         self.assertFalse(self.prepare()["spawn_authorized"])
         self.store.update_task(status="done")
 
-    def test_completion_checkpoint_is_pinned(self):
+    def test_newer_completion_checkpoint_keeps_both_snapshots(self):
         ticket = self.prepare()["worker"]["ticket"]
         self.store.checkpoint("parser")
         (self.store.agent_path("parser") / "out.md").write_text("Done")
+        requested = lifecycle.request(self.store, "parser", ticket, "done", complete=True)
+        latest = self.store.checkpoint("parser")
+        result = lifecycle.stopped(self.store, "parser", ticket, "closed")
+        self.assertEqual(result["phase"], "completed")
+        self.assertEqual(result["completion_requested_checkpoint"], requested["checkpoint"])
+        self.assertEqual(result["completion_final_checkpoint"], str(latest))
+
+    def test_working_state_and_evidence_drift_are_advisory_at_stop(self):
+        ticket = self.prepare()["worker"]["ticket"]
+        output = self.store.agent_path("parser") / "out.md"
+        output.write_text("Done")
+        self.store.checkpoint("parser", evidence=[str(output)])
         lifecycle.request(self.store, "parser", ticket, "done", complete=True)
+        output.write_text("Final clarification")
+        state = self.store.agent_path("parser") / "STATE.md"
+        state.write_text(state.read_text() + "\nClarified validation.\n")
+        result = lifecycle.stopped(self.store, "parser", ticket, "Native stopped")
+        self.assertEqual(result["phase"], "completed")
+        self.assertEqual(len(result["checkpoint_advisories"]), 2)
+
+    def test_missing_or_empty_output_records_stop_without_saved_result(self):
+        for missing in (True, False):
+            with self.subTest(missing=missing):
+                name = "missing" if missing else "empty"
+                self.store.add_agent(name, "Work")
+                ticket = lifecycle.prepare(self.store, name, engine="claude")["worker"]["ticket"]
+                output = self.store.agent_path(name) / "out.md"
+                output.write_text("Done")
+                self.store.checkpoint(name)
+                lifecycle.request(self.store, name, ticket, "done", complete=True)
+                output.unlink() if missing else output.write_text("   ")
+                result = lifecycle.stopped(self.store, name, ticket, "Native stopped")
+                self.assertEqual(result["phase"], "stopped")
+                self.assertIn("missing or empty", result["completion_advisory"])
+
+    def test_prepare_and_completion_request_accept_routine_checkpoint_drift(self):
+        state = self.store.agent_path("parser") / "STATE.md"
+        state.write_text(state.read_text() + "\nWorking note.\n")
+        reservation = self.prepare()["worker"]
+        self.assertTrue(reservation["checkpoint_advisories"])
+        output = self.store.agent_path("parser") / "out.md"
+        output.write_text("Done")
+        requested = lifecycle.request(self.store, "parser", reservation["ticket"], "done", complete=True)
+        self.assertEqual(requested["phase"], "completion_requested")
+        self.assertTrue(requested["checkpoint_advisories"])
+        self.assertEqual(lifecycle.stopped(self.store, "parser", reservation["ticket"], "Native stopped")["phase"], "completed")
+
+    def test_checkpoint_after_stop_does_not_block_next_reservation(self):
+        ticket = self.prepare()["worker"]["ticket"]
+        lifecycle.stopped(self.store, "parser", ticket, "Unlaunched")
         self.store.checkpoint("parser")
-        with self.assertRaisesRegex(ValueError, "checkpoint changed"):
-            lifecycle.stopped(self.store, "parser", ticket, "closed")
+        result = self.prepare()
+        self.assertTrue(result["spawn_authorized"])
+        self.assertIn("Checkpoint advanced", result["worker"]["checkpoint_advisories"][0])
+
+    def test_corrupt_checkpoint_still_refuses_stop(self):
+        ticket = self.prepare()["worker"]["ticket"]
+        checkpoint = self.store.latest("parser")
+        (checkpoint / "STATE.md").write_text("Corrupt")
+        with self.assertRaisesRegex(ValueError, "modified"):
+            lifecycle.stopped(self.store, "parser", ticket, "Native stopped")
 
     def test_native_and_managed_attempts_are_mutually_exclusive(self):
         self.prepare()
@@ -276,7 +334,7 @@ class LifecycleTests(unittest.TestCase):
         response = self.hook("PostToolUse")
         self.assertIn("rollover_requested", response["hookSpecificOutput"]["additionalContext"])
         self.assertEqual(self.hook("PostToolUse"), {})
-        self.assertEqual(self.hook("Stop")["decision"], "block")
+        self.assertIn("systemMessage", self.hook("Stop"))
         self.assertEqual(self.hook("Stop"), {})
 
     def test_child_precompact_does_not_halt_parent(self):

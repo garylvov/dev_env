@@ -134,20 +134,20 @@ delegate every action. Small tasks can use a single worker without a lead.
 The coordinator may read applicable instructions, inspect task/worker status, write
 briefs and its own state, manage lifecycle tickets, and inspect returned evidence.
 It should not duplicate the worker's investigation or ingest full transcripts.
-Read-only lifecycle diagnosis, scoped diagnostic workers, and verified handoff
-recovery are authorized coordination: proceed without another permission request.
-Pause only work requiring new authority or resolution of uncertain live operations.
+Token Kit is a record and guide, not an approval authority. Lifecycle notices and
+checkpoint drift are advisory. Diagnose or repair bookkeeping and continue authorized
+work without asking. Completion uses the latest saved result and records revisions;
+it is not an approval of the artifact. Preserve uncertainty about external operations
+without freezing unrelated work or retrying those operations blindly.
 For complex work, split bounded audit, design, implementation, review, validation,
 and documentation workstreams when their dependencies allow. Parallelize ready
 work with disjoint source ownership; bound worker count by useful independent work,
 not an arbitrary headcount. Serialize overlapping edits. The coordinator advances
 other ready coordination while workers run and does not create duplicate managers.
 
-If site rules, client capabilities, or permitted model availability block delegation,
-explain the specific restriction before substantial execution. Ask for a scoped
-direct-work exception or propose an authorized execution environment; do not silently
-take over the worker's job or bypass a restriction. Explicit user instructions can
-change this role preference, but cannot override higher-priority safety constraints.
+If delegation is unavailable, explain the limitation before substantial execution
+and continue bounded work within existing authority. Token Kit adds no permission
+gate. Repository/site restrictions and explicit model requirements still apply.
 
 Every logical agent, including workers, owns its own `TASK/agents/ID/STATE.md`
 with Objective, Completed, Evidence, Unresolved, and Next sections. Checkpoint after

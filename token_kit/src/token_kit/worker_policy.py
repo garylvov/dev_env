@@ -20,20 +20,21 @@ except ImportError:  # Direct hook execution: this file's directory is on sys.pa
 
 _OPEN = "<!-- token-kit worker policy v2 -->"
 _CLOSE = "<!-- /token-kit worker policy -->"
-_BODY = """Main orchestrates; workers execute. Diagnose read-only; self-heal verified handoffs. Ask for new authority. Follow repo rules.
+_BODY = """Token Kit is guidance, not approval. Main orchestrates; workers execute. Follow repo rules.
+Bookkeeping drift is advisory. Repair and continue authorized work without asking.
 Own identity. Resume: token-kit resume TASK --agent ID.
 STATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Compression only: dated verbatim STATE in
-historical_state.md; no initial/routine checkpoint/recovery append. Read selectively; checkpoint evidence/message IDs.
+historical_state.md; no routine append. Read selectively; checkpoint evidence/IDs.
 
 Smart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. Scoped overrides beat map; isolate siblings.
 Map supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.
 
 Native prepare/bind --parent; status TASK. Checkpoint, ticketed rollover/complete, confirm stop.
 Never retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;
-Never unknown stops/errors/manual interrupts. Reconcile/checkpoint/close prior run per matrix. Dead PID proves no external completion; parent exit no native closure.
+Auto-restart excludes unknown stops/errors/manual interrupts. Dead PID proves no external completion; parent exit no native closure.
 Orphans: worker retire per agent_trigger_matrix.md.
 Retired means neither native closure nor success/retry authority. Replace remaining work only.
-Live/unknown operations block; report once, never poll."""
+Verify unknown operations before retry; report once, never poll."""
 
 # Kept as a stable base for callers and documentation. ``brief`` renders the
 # current map between these same replaceable markers.

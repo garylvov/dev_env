@@ -438,7 +438,7 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
     elif rc == 130:
         outcome = "interrupted (130); reconcile unfinished operations"
     elif worker_ticket is not None and control.get("phase") == "completed":
-        outcome = "worker completed; checkpoint and result verified"
+        outcome = "worker finished; latest result recorded"
     elif rc == 0:
         outcome = "client exited normally (0); this does not prove the task is complete"
     else:
@@ -467,6 +467,9 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
         command += ["--ticket", worker_ticket]
         if control.get("phase") == "completed":
             startup_line("Worker completion recorded and delivered to parent.")
+            return rc
+        if control.get("phase") == "stopped":
+            startup_line("Worker stopped; bookkeeping notes saved. Continue authorized work.")
             return rc
         if control.get("phase") != "ready":
             startup_line("Worker needs reconciliation; inspect " + shlex.join([
@@ -816,6 +819,10 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                                                returncode=rc, rollover_ready=ready)
             if worker.get("phase") == "completed":
                 control = {**control, "phase": "completed"}
+            elif worker.get("phase") == "stopped" and rc == 0 and not ready:
+                control = {**control, "phase": "stopped"}
+                ledger.refresh(store)
+                return 0, control
             elif worker.get("segment_ready") is True:
                 control = {**control, "phase": "ready", "checkpoint": worker["checkpoint"]}
                 ready = True

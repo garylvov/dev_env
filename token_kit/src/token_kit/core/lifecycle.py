@@ -109,6 +109,48 @@ def checkpoint_locked(store, agent):
     return str(checkpoint)
 
 
+def stop_checkpoint_locked(store, agent, state):
+    """Keep stop bookkeeping usable when working files outgrow their snapshot."""
+    checkpoint = store.latest(agent)  # Corrupt or foreign immutable records still fail.
+    advisories = []
+    if checkpoint is None:
+        advisories.append("No committed checkpoint; review working files.")
+    else:
+        manifest = read_json(checkpoint / "manifest.json")
+        for name, expected in (("STATE.md", manifest["state_sha256"]),
+                               ("historical_state.md", manifest.get("historical_state_sha256"))):
+            path = store.safe(store.agent_path(agent) / name)
+            actual = fingerprint(path) if path.is_file() else None
+            if actual != expected:
+                advisories.append(f"Working {name} differs from the checkpoint.")
+        if workspace_head(store.workspace) != manifest["head"]:
+            advisories.append("Git HEAD differs from the checkpoint.")
+        for item in manifest["evidence"]:
+            path = Path(item["path"])
+            if not path.is_file() or fingerprint(path) != item["sha256"]:
+                advisories.append(f"Checkpoint evidence changed: {path}")
+    if advisories:
+        state["checkpoint_advisories"] = advisories
+    return str(checkpoint) if checkpoint is not None else None
+
+
+def completion_phase_locked(store, agent, state, checkpoint):
+    """Record reported completion and later revisions without implying approval."""
+    state.setdefault("completion_requested_checkpoint", state["checkpoint"])
+    state.setdefault("completion_requested_output_sha256", state["output_sha256"])
+    output = store.safe(store.agent_path(agent) / "out.md")
+    digest = fingerprint(output) if output.is_file() else None
+    state.update(completion_final_checkpoint=checkpoint, completion_final_output_sha256=digest)
+    if checkpoint != state["completion_requested_checkpoint"]:
+        state.setdefault("checkpoint_advisories", []).append("Checkpoint advanced after completion request.")
+    present = output.is_file() and bool(output.read_text().strip())
+    if not present:
+        state["completion_advisory"] = "Saved output is missing or empty; native execution stopped without a saved result."
+    elif digest != state["completion_requested_output_sha256"]:
+        state["completion_advisory"] = "Saved result revised after completion request; completion records reported work, not artifact approval."
+    return "completed" if present else "stopped"
+
+
 def current_locked(store, agent, ticket):
     state = read_locked(store, agent)
     if not state or state["ticket"] != ticket:
@@ -140,9 +182,10 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
             # NEVER grants a second spawn authorization.
             return {"spawn_authorized": False, "worker": old,
                     "instruction": "Do not spawn again. Inspect/reconcile the current attempt first."}
-        checkpoint = checkpoint_locked(store, agent)
+        bookkeeping = {}
+        checkpoint = stop_checkpoint_locked(store, agent, bookkeeping)
         if old and old.get("checkpoint") != checkpoint:
-            raise ValueError("Checkpoint changed since stop reconciliation; reconcile the stopped attempt again")
+            bookkeeping.setdefault("checkpoint_advisories", []).append("Checkpoint advanced since prior stop.")
         owner_agent = owner_agent or parent
         ancestor = parent
         while ancestor and ancestor != owner_agent:
@@ -182,6 +225,7 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                  "native_id": None, "checkpoint": checkpoint, "started_checkpoint": checkpoint,
                  "created_at": now(), "events": (old or {}).get("events", []),
                  "history": (old or {}).get("history", [])}
+        state.update(bookkeeping)
         if old:
             state["history"] = state["history"] + [{key: value for key, value in old.items()
                                                    if key not in ("history", "events")}]
@@ -270,12 +314,9 @@ def finish_managed(store, agent, ticket, run_id, *, returncode, rollover_ready=F
             return state
         phase = "needs_reconciliation"
         if (returncode == 0 or rollover_ready) and record.get("status") == "exited" and state.get("phase") == "completion_requested":
-            checkpoint = checkpoint_locked(store, agent)
-            if checkpoint != state["checkpoint"]:
-                raise ValueError("Worker checkpoint changed after completion request")
-            if fingerprint(store.safe(store.agent_path(agent) / "out.md")) != state["output_sha256"]:
-                raise ValueError("Worker result changed after completion request")
-            phase = "completed"
+            checkpoint = stop_checkpoint_locked(store, agent, state)
+            phase = completion_phase_locked(store, agent, state, checkpoint)
+            state["checkpoint"] = checkpoint
         elif (rollover_ready or (returncode == 0 and state.get("phase") == "rollover_requested")) and record.get("status") == "exited":
             checkpoint = checkpoint_locked(store, agent)
             if checkpoint == state["started_checkpoint"]:
@@ -284,9 +325,13 @@ def finish_managed(store, agent, ticket, run_id, *, returncode, rollover_ready=F
                 raise ValueError("Worker checkpoint changed after rollover request")
             state.update(checkpoint=checkpoint, started_checkpoint=checkpoint, segment_ready=True)
             phase = "rollover_requested"
+        elif returncode == 0 and record.get("status") == "exited":
+            phase = "stopped"
+            state["completion_advisory"] = "Managed client stopped; no completion request recorded."
         state.update(phase=phase, managed_exit_code=returncode, managed_exited_at=now())
-        if phase == "completed":
-            state.update(reconciled_at=now(), reconciliation="Managed client exited after verified completion request")
+        if phase in ("completed", "stopped"):
+            state.update(reconciled_at=now(), reconciliation=("Managed client exited; "
+                         + ("reported completion recorded" if phase == "completed" else state["completion_advisory"])))
         event(state, "worker_" + phase, f"Worker {agent}: managed client exited; phase {phase}.")
         publish_locked(store, state)
         return state
@@ -344,9 +389,9 @@ def request(store, agent, ticket, reason, *, complete=False):
             return state
         if state["phase"] in ("stopped", "completed", "retired", "completion_requested"):
             raise ValueError("Attempt already reconciled or complete")
-        checkpoint = checkpoint_locked(store, agent)
+        checkpoint = stop_checkpoint_locked(store, agent, state)
         if checkpoint == state["started_checkpoint"]:
-            raise ValueError("Commit a fresh checkpoint for this worker attempt")
+            state.setdefault("checkpoint_advisories", []).append("No new checkpoint since this attempt started.")
         if complete:
             output = store.safe(store.agent_path(agent) / "out.md")
             if not output.is_file() or not output.read_text().strip():
@@ -367,22 +412,19 @@ def stopped(store, agent, ticket, note):
         for path in (store.agent_path(agent) / "runs").glob("*/run.json"):
             if read_json(store.safe(path))["status"] in ("starting", "running", "interrupted"):
                 raise ValueError("Reconcile managed worker runs before confirming native stop")
-        checkpoint = checkpoint_locked(store, agent)
+        checkpoint = stop_checkpoint_locked(store, agent, state)
         if state["phase"] == "retired":
             raise ValueError("Retired attempts cannot claim native closure")
         if state["phase"] == "completed":
             return state
         if state["phase"] == "completion_requested":
-            if checkpoint != state["checkpoint"]:
-                raise ValueError("Worker checkpoint changed after completion request")
-            if fingerprint(store.safe(store.agent_path(agent) / "out.md")) != state["output_sha256"]:
-                raise ValueError("Worker result changed after completion request")
-            phase = "completed"
+            phase = completion_phase_locked(store, agent, state, checkpoint)
         else:
             phase = "stopped"
         state.update(phase=phase, checkpoint=checkpoint, reconciliation=note, reconciled_at=now())
         event(state, "worker_" + phase, f"Worker {agent}: native stop explicitly reconciled. "
-              + ("Result is complete." if phase == "completed" else "A fresh attempt may now be reserved."))
+              + ("Result is complete." if phase == "completed" else
+                 state.get("completion_advisory", "A fresh attempt may now be reserved.")))
         publish_locked(store, state)
         return state
 
@@ -599,7 +641,7 @@ def notice(store, parent):
                    for row in pending), key=lambda row: (row["agent"], row["ticket"], row["phase"]))
     signature = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
     rows = rows[:8]
-    text = ("Token Kit worker lifecycle needs attention: " + json.dumps(rows) + ". "
+    text = ("Token Kit worker bookkeeping (advisory; continue authorized work): " + json.dumps(rows) + ". "
             "Run " + shlex.join(["token-kit", "resume", str(store.path), "--agent", parent]) +
             " for all child states and pending messages. For checkpoint_requested, let the worker finish its handoff. "
             "For other requests, inspect/close the old native attempt, "
@@ -611,5 +653,5 @@ def notice(store, parent):
             "Do not ask a dead runner to confirm closure. "
             "Retirement does not claim native closure or task success. Use worker prepare only if work remains. "
             "Spawn only when spawn_authorized is true; bind its returned native ID. "
-            "Do not acknowledge completion or blindly duplicate an uncertain worker.")
+            "Do not blindly duplicate an uncertain worker. These notes require no new permission.")
     return signature, text
