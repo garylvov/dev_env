@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# codex-job -- a codex job you can start in the background and then message.
+# See token_kit/codex/job.py.  `start` returns at once; `wait` is the thing you
+# run as a background command so the harness tells you when the job ends.
+set -euo pipefail
+# This shim is LINKED into ~/.config/token_kit/bin, so its own path must be
+# resolved before anything is computed relative to it: dirname of the SYMLINK
+# points at the bin dir, not at the clone, and the import would fail there.
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SRC="$(cd "$(dirname "$SELF")/../../.." && pwd)"   # .../token_kit/src
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python 3.11 --no-project python -m token_kit.codex.job "$@"

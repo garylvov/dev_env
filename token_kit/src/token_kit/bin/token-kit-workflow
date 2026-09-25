@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+exec "$(dirname "$SELF")/token-kit" "$@"

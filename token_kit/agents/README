@@ -1,0 +1,6 @@
+Agent files are GENERATED, not checked in.
+
+The installer runs `python -m token_kit.router.gen_agents <agents-dir>`, which reads
+the chart in ../agent_trigger_matrix.md and writes one thin agent file per
+(kind, distinct claude candidate) plus one generic codex runner. Nothing here is
+hand-written, and nothing here carries a persona: the chart holds the judgement.
