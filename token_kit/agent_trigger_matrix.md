@@ -223,9 +223,11 @@ Cached input still counts as reported usage; do not describe it as free or as bi
    use `token-kit send TASK --agent CHILD "message"`. Claude and Codex share this inbox.
    Active recipients receive bounded notices at their next lifecycle hook; checkpoint
    with `--incorporated ID` after acting. Delivery is not acknowledgment or an idle wake.
-4. Parent recovery: `token-kit resume TASK --agent PARENT` includes direct children
-   and pending notices. `token-kit status TASK` lists all agents, parent links, and
-   native attempts, including grandchildren. No transcript scanning is needed.
+4. Parent recovery: `token-kit resume TASK --agent PARENT` summarizes unresolved children,
+   pending messages, changed evidence, and relevant runs. `token-kit status TASK` lists
+   concise agent/parent/attempt rows, including grandchildren. Add `--full` for full
+   records and history. Read full truncated messages before acting or acknowledging them.
+   Compact output is a display filter; it never changes stored recovery state.
 5. The child checkpoints and requests rollover/completion using its ticket. The
    parent confirms native closure and reconciles external jobs before `worker stopped`,
    or uses verified orphan retirement below for a dead managed owner.

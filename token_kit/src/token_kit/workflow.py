@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .adapters.base import LaunchRequest
 from .core.store import Store, atomic_bytes, atomic_text, now, process_identity, read_json, write_json
-from . import runtime
+from . import runtime, display
 from .core import ledger, lifecycle
 from .rollover import format_limit, parse_limit
 from .timefmt import human, parse_iso
@@ -973,6 +973,8 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "checkpoint":
             command.add_argument("--evidence", action="append", default=None)
             command.add_argument("--incorporated", action="append", default=[])
+        elif name == "resume":
+            command.add_argument("--full", action="store_true", help="include full recovery records")
         elif name == "launch":
             command.add_argument("--ticket", help="consume a reserved worker attempt for a managed Claude launch")
             command.add_argument("--engine", choices=("claude", "codex"), required=True)
@@ -992,6 +994,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--note", required=True)
     status = commands.add_parser("status", help="show agents and their runs without loading transcripts")
     status.add_argument("task", type=Path)
+    status.add_argument("--full", action="store_true", help="include full run and worker history")
     report = commands.add_parser("ledger", help="show reported token accounting without loading transcripts")
     report.add_argument("task", type=Path)
     return parser
@@ -1071,7 +1074,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "checkpoint":
             print(store.checkpoint(args.agent, args.evidence, args.incorporated))
         elif args.command == "resume":
-            print(json.dumps(store.resume_bundle(args.agent), indent=2))
+            bundle = store.resume_bundle(args.agent)
+            print(json.dumps(bundle, indent=2) if args.full else display.dumps(display.resume_view(bundle, store.path)))
         elif args.command == "send":
             print(store.send(args.agent, sys.stdin.read() if args.text == "-" else args.text))
         elif args.command == "close-run":
@@ -1089,10 +1093,10 @@ def main(argv: list[str] | None = None) -> int:
                 if (path / "agent.json").is_file():
                     worker = lifecycle.inspect(store, path.name)
                     agents.append({"agent": read_json(path / "agent.json"),
-                                   "worker": {key: value for key, value in worker.items()
-                                              if key not in ("events", "history")} if worker else None,
+                                   "worker": worker,
                                    "runs": [read_json(p) for p in sorted((path / "runs").glob("*/run.json"))]})
-            print(json.dumps({"task": read_json(store.path / "task.json"), "agents": agents}, indent=2))
+            bundle = {"task": read_json(store.path / "task.json"), "agents": agents}
+            print(json.dumps(bundle, indent=2) if args.full else display.dumps(display.status_view(bundle, store.path)))
         return 0
     except (OSError, ValueError, KeyError) as exc:
         print(f"token-kit: {exc}", file=sys.stderr)

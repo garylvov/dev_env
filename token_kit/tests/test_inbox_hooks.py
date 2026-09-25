@@ -100,6 +100,7 @@ class InboxHookTests(unittest.TestCase):
         response = self.context(self.hook("PostToolUse"))
         self.assertLess(len(response.encode()), 6500)
         self.assertIn("excerpt; read full message before acting", response)
+        self.assertIn("--agent coordinator --full", response)
         control = read_json(self.run / "runtime.json")
         self.assertEqual(len(control["inbox_delivered:coordinator"]), inbox.MAX_MESSAGES)
         self.hook("PostToolUse")

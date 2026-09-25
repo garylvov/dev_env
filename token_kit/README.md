@@ -21,7 +21,7 @@ with `--task PATH`. Latest launch flags carry forward; explicit flags override.
 Use `--select N` for scripts, `--print` to preview.
 A live managed runner receives a cooperative stop request; verified shutdown
 precedes fresh recovery. This does not reattach the native UI.
-`pick QUERY` lists matches; `resume TASK` exports state without launching.
+`pick QUERY` lists matches. `resume TASK`/`status TASK` summarize; `--full` includes history.
 
 ## Delegation
 

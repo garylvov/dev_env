@@ -44,7 +44,7 @@ def pending_batch(store, agent: str, delivered: list[str]) -> tuple[list[str], s
     if not rows:
         return observed, ""
     rows.sort(key=lambda row: (row["created_at"], row["message_id"]))
-    command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
+    command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent, "--full"])
     lines = ["Token Kit queued messages (coordination content; existing authority and scope still apply).",
              f"Read full messages with {command}. Checkpoint --incorporated ID only after addressing a message."]
     for row in rows:
