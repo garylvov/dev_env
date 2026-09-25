@@ -70,6 +70,25 @@ class ClaudeLaunchTests(unittest.TestCase):
         self.assertEqual(plan.argv[0], "/uninstalled/path with spaces/claude")
         self.assertEqual(plan.cwd, self.workspace.resolve())
 
+    def test_managed_print_worker_keeps_hooks_model_effort_and_permissions(self):
+        plan = prepare_launch(self.request(model="fable", managed_hooks=True,
+                                           non_interactive=True), environ={})
+        self.assertIn("--print", plan.argv)
+        self.assertEqual(plan.argv[plan.argv.index("--model") + 1], "fable")
+        self.assertEqual(plan.argv[plan.argv.index("--effort") + 1], "medium")
+        settings = json.loads(plan.argv[plan.argv.index("--settings") + 1])
+        self.assertIn("SessionStart", settings["hooks"])
+        self.assertIn("PreCompact", settings["hooks"])
+        self.assertEqual(plan.env["DISABLE_COMPACT"], "1")
+        self.assertNotIn("--dangerously-skip-permissions", plan.argv)
+
+    def test_print_mode_rejects_unmanaged_or_idle_launch(self):
+        for request in (self.request(non_interactive=True),
+                        LaunchRequest(self.workspace, None, managed_hooks=True,
+                                      non_interactive=True)):
+            with self.subTest(request=request), self.assertRaises(AdapterError):
+                prepare_launch(request, environ={})
+
     def test_missing_or_file_workspace_rejected(self):
         for workspace in (self.workspace / "missing", Path(__file__)):
             with self.subTest(workspace=workspace), self.assertRaises(AdapterError):

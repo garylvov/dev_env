@@ -63,7 +63,8 @@ class WorkerPolicyTests(unittest.TestCase):
             self.assertIn("native", text)
             self.assertIn("--parent", text)
             self.assertIn("status TASK", text)
-        self.assertIn("not implemented", matrix)
+        self.assertIn("--ticket TICKET --engine claude", matrix)
+        self.assertIn("does not appear as a native Codex subagent", matrix)
 
     def test_matrix_separates_worktree_indexes_and_source_integration(self):
         matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()

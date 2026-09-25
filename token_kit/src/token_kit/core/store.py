@@ -636,7 +636,8 @@ class Store:
         with self.locked():
             return self._recovery_candidate_locked(agent)
 
-    def claim_run(self, agent: str, engine: str, strict: bool, recovery_from: str | None = None, continuation: bool = False) -> Path:
+    def claim_run(self, agent: str, engine: str, strict: bool, recovery_from: str | None = None, continuation: bool = False,
+                  worker_ticket: str | None = None, worker_model: str | None = None) -> Path:
         if engine not in ("claude", "codex"):
             raise ValueError("Unsupported engine")
         with self.locked():
@@ -649,9 +650,11 @@ class Store:
                     finally:
                         fcntl.flock(handoff_lock, fcntl.LOCK_UN)
             path = self.agent_path(agent)
-            from .lifecycle import read_locked
+            from .lifecycle import read_locked, claim_managed_locked, publish_locked
             worker = read_locked(self, agent)
-            if worker and not (worker["phase"] in ("stopped", "completed") or
+            if worker_ticket is not None:
+                worker = claim_managed_locked(self, agent, worker_ticket, engine, worker_model, recovery_from)
+            if worker_ticket is None and worker and not (worker["phase"] in ("stopped", "completed") or
                                (worker["phase"] == "retired" and worker.get("operations_reconciled") is True)):
                 raise ValueError("Reconcile the native worker attempt before a managed launch")
             rows = [(owner, target, record) for owner, target, record in self._run_records_locked()
@@ -713,7 +716,14 @@ class Store:
             # The successor record is published first. A crash before the
             # predecessor edge is written leaves an explicit incomplete link
             # that all future recovery attempts reject.
+            if worker_ticket is not None:
+                run_record["worker_ticket"] = worker_ticket
+                run_record["model"] = worker_model
             write_json(run / "run.json", run_record)
+            if worker_ticket is not None:
+                worker.update(managed_run_id=run_id, execution_mode="managed", phase="running",
+                              segment_ready=False, managed_claimed_at=now())
+                publish_locked(self, worker)
             if old is not None:
                 old["recovery_source"] = recovery_source
                 old["recovery_to"] = run_id

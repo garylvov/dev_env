@@ -24,6 +24,7 @@ class LaunchRequest:
     yolo: bool = False
     worker_task: str | None = None
     managed_hooks: bool = False
+    non_interactive: bool = False
 
 
 @dataclass(frozen=True)

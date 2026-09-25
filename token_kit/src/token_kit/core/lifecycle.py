@@ -191,9 +191,98 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
                   "Never start your own replacement or use a sibling/parent identity.")
         spawn_prompt = brief(prompt, str(store.path), agent, pyramid=trigger_pyramid)
         publish_locked(store, state)
-        return {"spawn_authorized": True, "worker": state,
-                "native_task_name": f"{agent}_{state['ticket'][:8]}",
-                "spawn_prompt": spawn_prompt}
+        result = {"spawn_authorized": True, "worker": state,
+                  "native_task_name": f"{agent}_{state['ticket'][:8]}",
+                  "spawn_prompt": spawn_prompt}
+        if engine == "claude":
+            command = ["token-kit", "launch", str(store.path), "--agent", agent,
+                       "--ticket", state["ticket"], "--engine", engine]
+            if state.get("model"):
+                command += ["--model", state["model"]]
+            result["managed_launch_command"] = shlex.join(command)
+            if isinstance(threshold, str) and threshold.endswith("%"):
+                result["managed_launch_note"] = ("Claude does not report a context window; "
+                    "supply an absolute --rollover-tokens budget.")
+        return result
+
+
+def claim_managed_locked(store, agent, ticket, engine, model, recovery_from=None):
+    """Validate a reservation before Store publishes its managed run under the same lock."""
+    state = current_locked(store, agent, ticket)
+    if state.get("phase") in ("stopped", "completed", "retired"):
+        raise ValueError("Managed worker attempt is already reconciled")
+    if state.get("engine") != engine or state.get("model") != model:
+        raise ValueError("Managed launch engine/model must match the reserved worker")
+    if state.get("native_id") or state.get("hook_native_id"):
+        raise ValueError("Worker reservation is already bound to a native worker")
+    if state.get("owner_run"):
+        owner = read_json(store.safe(store.agent_path(state["owner_agent"]) / "runs"
+                                    / component(state["owner_run"]) / "run.json"))
+        if owner.get("status") not in ("starting", "running"):
+            raise ValueError("Managed worker owner run is no longer active")
+    previous = state.get("managed_run_id")
+    if previous:
+        record = read_json(store.safe(store.agent_path(agent) / "runs" / component(previous) / "run.json"))
+        if record.get("worker_ticket") != ticket:
+            raise ValueError("Managed worker run/ticket linkage is inconsistent")
+        if recovery_from == previous:
+            # Store subsequently validates exact structured recovery evidence,
+            # process closure, and all recovery-chain invariants.
+            if record.get("status") != "interrupted":
+                raise ValueError("Managed worker recovery predecessor is not interrupted")
+        elif not (recovery_from is None and state.get("segment_ready") is True
+                  and record.get("status") == "exited"):
+            raise ValueError("Managed worker ticket was already consumed; reconcile its run")
+        store._assert_process_dead(record, "child")
+    elif state.get("phase") != "launching":
+        raise ValueError("Managed launch requires a fresh launching worker reservation")
+    elif recovery_from is not None:
+        raise ValueError("Fresh worker reservation cannot claim another attempt's recovery")
+    if recovery_from is None:
+        checkpoint_locked(store, agent)
+    return state
+
+
+def finish_managed(store, agent, ticket, run_id, *, returncode, rollover_ready=False):
+    """Record a supervised client's exit, never infer external-operation completion.
+
+    The launcher must wait for the child and persist its terminal run record first.
+    Only a worker's committed completion request proves logical task completion.
+    """
+    with store.locked():
+        state = current_locked(store, agent, ticket)
+        if state.get("managed_run_id") != run_id:
+            raise ValueError("Managed worker exit does not match its current run")
+        record = read_json(store.safe(store.agent_path(agent) / "runs" / component(run_id) / "run.json"))
+        if record.get("worker_ticket") != ticket or record.get("status") not in ("exited", "interrupted"):
+            raise ValueError("Managed worker needs a matching terminal run record")
+        if record.get("host") != socket.gethostname():
+            raise ValueError("Managed worker exit must be confirmed on its original host")
+        store._assert_process_dead(record, "child")
+        if execution_reconciled(state):
+            return state
+        phase = "needs_reconciliation"
+        if (returncode == 0 or rollover_ready) and record.get("status") == "exited" and state.get("phase") == "completion_requested":
+            checkpoint = checkpoint_locked(store, agent)
+            if checkpoint != state["checkpoint"]:
+                raise ValueError("Worker checkpoint changed after completion request")
+            if fingerprint(store.safe(store.agent_path(agent) / "out.md")) != state["output_sha256"]:
+                raise ValueError("Worker result changed after completion request")
+            phase = "completed"
+        elif (rollover_ready or (returncode == 0 and state.get("phase") == "rollover_requested")) and record.get("status") == "exited":
+            checkpoint = checkpoint_locked(store, agent)
+            if checkpoint == state["started_checkpoint"]:
+                raise ValueError("Managed rollover requires a fresh checkpoint")
+            if state.get("phase") == "rollover_requested" and checkpoint != state["checkpoint"]:
+                raise ValueError("Worker checkpoint changed after rollover request")
+            state.update(checkpoint=checkpoint, started_checkpoint=checkpoint, segment_ready=True)
+            phase = "rollover_requested"
+        state.update(phase=phase, managed_exit_code=returncode, managed_exited_at=now())
+        if phase == "completed":
+            state.update(reconciled_at=now(), reconciliation="Managed client exited after verified completion request")
+        event(state, "worker_" + phase, f"Worker {agent}: managed client exited; phase {phase}.")
+        publish_locked(store, state)
+        return state
 
 
 def _observation_path(store, owner_agent, owner_run, native):
@@ -206,6 +295,8 @@ def bind(store, agent, ticket, native):
         raise ValueError("Native ID must be nonempty and at most 512 characters")
     with store.locked():
         state = current_locked(store, agent, ticket)
+        if state.get("managed_run_id"):
+            raise ValueError("Managed worker attempt cannot bind a native worker")
         if state["phase"] in ("stopped", "completed", "retired"):
             raise ValueError("Cannot bind a reconciled attempt")
         if state["native_id"] and state["native_id"] != native:

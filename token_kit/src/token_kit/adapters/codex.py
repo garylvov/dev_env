@@ -26,6 +26,8 @@ def prepare_launch(
     through ``environ``. Existing authentication and permission settings remain
     the client's responsibility. No native thread history is resumed.
     """
+    if request.non_interactive:
+        raise AdapterError("Managed print-mode workers currently require Claude; use native prepare/bind for Codex")
     if request.strict_no_compaction and not request.managed_hooks:
         raise AdapterError(
             "Strict no-compaction is not verified for Codex; refusing to launch. "

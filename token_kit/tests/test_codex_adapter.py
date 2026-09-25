@@ -32,6 +32,10 @@ class CodexAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, "Strict no-compaction is not verified"):
             prepare_launch(request)
 
+    def test_print_workers_require_the_supported_claude_route(self):
+        with self.assertRaisesRegex(AdapterError, "native prepare/bind"):
+            prepare_launch(self.request(non_interactive=True, managed_hooks=True))
+
     def test_fresh_launch_preserves_arbitrary_prompt_as_one_argument(self):
         prompt = '--resume "thread"\n$(touch /nope); `echo nope`'
         plan = prepare_launch(self.request(prompt=prompt), environ={})

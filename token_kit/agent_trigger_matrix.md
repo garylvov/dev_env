@@ -232,11 +232,25 @@ parent sees durable notices on resume. Registration/binding remain agent actions
 not automatic interception of every native spawn. Lifecycle visibility and token
 accounting are separate: missing client usage is unknown, not zero.
 
-For cross-engine work, respect the user's model/provider choice rather than silently
-substituting a same-engine child. Instrumented `codex-dispatch` / `codex-job` report
-Codex usage inside managed sessions; raw CLI calls do not. A corresponding one-shot
-Claude wrapper and unified `token-kit exec` are not implemented. Do not claim that
-cross-engine jobs automatically share native attempt tracking.
+For cross-engine Claude work, reserve with `worker prepare --engine claude`, then
+use its exact ticket with the managed launcher instead of native spawn/bind:
+
+```bash
+token-kit launch TASK --agent CHILD --ticket TICKET --engine claude --model fable --rollover-tokens VERIFIED_TOKEN_LIMIT
+```
+
+The launcher consumes the reservation once, supplies the managed run identity and
+hooks, and runs Claude in print mode. It keeps the chosen model and permission
+settings; `--yolo` is explicit. Claude does not currently report its context-window
+size to Token Kit: use an absolute threshold chosen from a verified model limit;
+inherited percentages are rejected before launch. Do not guess a window or switch models.
+
+The worker writes its result, checkpoints, and requests `worker complete` with its
+ticket. The supervisor confirms client exit and checks that evidence before marking
+completion. An exit alone is not success. Failures remain visible for reconciliation;
+never replay an uncertain launch. Parent notices remain durable; this CLI worker
+does not appear as a native Codex subagent or promise to wake an idle parent.
+Use native prepare/bind for Codex workers. Raw CLI calls do not supply this tracking.
 
 ### Continuing a task
 

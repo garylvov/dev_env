@@ -1,4 +1,4 @@
-"""Build fresh interactive Claude Code launches without executing them.
+"""Build fresh interactive or managed print-mode Claude Code launches.
 
 Compaction controls follow https://code.claude.com/docs/en/env-vars and
 https://code.claude.com/docs/en/cli-reference. The inline settings protect the
@@ -42,6 +42,10 @@ def prepare_launch(
 
     env = dict(os.environ if environ is None else environ)
     argv = [executable, "--effort", default_effort(request.model)]
+    if request.non_interactive:
+        if not request.managed_hooks or request.prompt is None:
+            raise AdapterError("Non-interactive Claude workers require managed hooks and a prompt")
+        argv.append("--print")
     if request.yolo:
         argv.append("--dangerously-skip-permissions")
     settings = {}

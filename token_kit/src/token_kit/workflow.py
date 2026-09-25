@@ -407,7 +407,7 @@ def run(args) -> int:
 
 
 
-def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control):
+def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc, control, *, worker_ticket=None):
     """Report supervisor evidence, not a guessed explanation of client UI errors."""
     if threshold is not None:
         threshold = parse_limit(threshold)
@@ -417,6 +417,8 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
         outcome = "rollover limit reached; checkpoint saved"
     elif rc == 130:
         outcome = "interrupted (130); reconcile unfinished operations"
+    elif worker_ticket is not None and control.get("phase") == "completed":
+        outcome = "worker completed; checkpoint and result verified"
     elif rc == 0:
         outcome = "client exited normally (0); this does not prove the task is complete"
     else:
@@ -429,7 +431,7 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
     command = ["token-kit", "continue" if agent == "coordinator" else "launch"]
     command += ["--task", str(store.path)] if agent == "coordinator" else [str(store.path), "--agent", agent]
     command += ["--engine", engine]
-    effective_model = sample.get("current_model") or model
+    effective_model = model if worker_ticket is not None else sample.get("current_model") or model
     if effective_model and effective_model != "unknown":
         command += ["--model", effective_model]
     if yolo:
@@ -439,6 +441,15 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
     if threshold is not None:
         command += _rollover_command(threshold)
     command += ["--max-rollovers", format_restart_budget(max_rollovers)]
+    if worker_ticket is not None:
+        command += ["--ticket", worker_ticket]
+        if control.get("phase") == "completed":
+            startup_line("Worker completion recorded and delivered to parent.")
+            return rc
+        if control.get("phase") != "ready":
+            startup_line("Worker needs reconciliation; inspect " + shlex.join([
+                "token-kit", "resume", str(store.path), "--agent", agent]))
+            return rc
     startup_line("Resume with Token Kit (checkpoints, not native transcript): " + shlex.join(command))
     return rc
 
@@ -446,9 +457,28 @@ def exit_summary(store, agent, engine, model, yolo, threshold, max_rollovers, rc
 def launch(store: Store, agent: str, engine: str, model: str | None = None,
            dry_run: bool = False, yolo: bool = False, rollover_tokens: int | str | None = None,
            max_rollovers: int | None = None, *, max_rollovers_explicit: bool | None = None,
-           idle: bool = False, initial_prompt: str | None = None, continuation=None) -> int:
+           idle: bool = False, initial_prompt: str | None = None, continuation=None,
+           worker_ticket: str | None = None) -> int:
+    if worker_ticket is not None:
+        if idle or initial_prompt is not None or continuation is not None:
+            raise ValueError("Ticketed workers must launch their reserved assignment")
+        with store.locked():
+            reservation = lifecycle.current_locked(store, agent, worker_ticket)
+            if reservation.get("engine") != engine:
+                raise ValueError("Managed worker engine must match its reservation")
+            reserved_model = reservation.get("model")
+            if model is not None and model != reserved_model:
+                raise ValueError("Managed worker model must match its reservation")
+            model = reserved_model
+            if rollover_tokens is None:
+                rollover_tokens = reservation.get("rollover_tokens")
+        if engine != "claude":
+            raise ValueError("Ticketed managed launch currently supports Claude workers only")
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
+    if worker_ticket is not None and isinstance(rollover_tokens, str):
+        raise ValueError("Claude does not report its context window; supply --rollover-tokens N "
+                         "from a verified model limit for this managed worker")
     if max_rollovers is not None and (type(max_rollovers) is not int or max_rollovers < 0):
         raise ValueError("Invalid rollover limits")
     if max_rollovers_explicit is None:
@@ -463,10 +493,11 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
                                          allow_recovery=max_rollovers != 0,
                                          max_rollovers=max_rollovers,
                                          max_rollovers_explicit=max_rollovers_explicit,
-                                         continuation=continuation if segment == 0 else None)
+                                         continuation=continuation if segment == 0 else None,
+                                         **({"worker_ticket": worker_ticket} if worker_ticket is not None else {}))
         except (OSError, ValueError):
             if not dry_run:
-                exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {})
+                exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 2, {}, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
             raise
         progress = str(segment + 1) if max_rollovers is None else f"{segment + 1}/{max_rollovers}"
         if control.get("phase") == "halted" and control.get("halt_kind") == "compaction":
@@ -475,18 +506,18 @@ def launch(store: Store, agent: str, engine: str, model: str | None = None,
             # restart budget as a normal threshold rollover.
             if segment == max_rollovers:
                 return exit_summary(store, agent, engine, model, yolo, rollover_tokens,
-                                    max_rollovers, 75, control)
+                                    max_rollovers, 75, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
             print(f"Token Kit: compaction halted the session; starting recovery "
                   f"({progress}).", file=sys.stderr)
             continue
         if control.get("phase") != "ready":
             return rc if dry_run else exit_summary(store, agent, engine, model, yolo,
-                                                   rollover_tokens, max_rollovers, rc, control)
+                                                   rollover_tokens, max_rollovers, rc, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
         if segment == max_rollovers:
             print("Token Kit: rollover limit reached; checkpoint saved. Resume manually.", file=sys.stderr)
-            return exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 75, control)
+            return exit_summary(store, agent, engine, model, yolo, rollover_tokens, max_rollovers, 75, control, **({"worker_ticket": worker_ticket} if worker_ticket else {}))
         observed_model = (control.get("sample") or {}).get("current_model")
-        if observed_model and observed_model != "unknown":
+        if worker_ticket is None and observed_model and observed_model != "unknown":
             model = observed_model
         print(f"Token Kit: checkpoint saved; restarting {engine} ({progress}).", file=sys.stderr)
 
@@ -542,7 +573,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                     *, idle: bool = False, initial_prompt: str | None = None,
                     allow_recovery: bool = True, max_rollovers: int | None = None,
                     max_rollovers_explicit: bool | None = None,
-                    continuation=None) -> tuple[int, dict]:
+                    continuation=None, worker_ticket: str | None = None) -> tuple[int, dict]:
     if rollover_tokens is not None:
         rollover_tokens = parse_limit(rollover_tokens)
     # A real managed launch may seed an old task's missing snapshot. Dry runs
@@ -635,11 +666,23 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                   "Reply briefly: 'Token Kit trigger matrix loaded. Waiting for your instructions.' Then wait.")
     elif initial_prompt is not None:
         prompt = f"User's explicit task:\n{initial_prompt}\n\nDo not compact. Token Kit record: {resume_command}."
+    if worker_ticket is not None:
+        complete_command = shlex.join(["token-kit", "worker", "complete", str(store.path),
+                                       "--agent", agent, "--ticket", worker_ticket])
+        rollover_command = shlex.join(["token-kit", "worker", "request-rollover", str(store.path),
+                                       "--agent", agent, "--ticket", worker_ticket,
+                                       "--reason", "Context budget reached"])
+        prompt += (f"\n\nThis managed worker owns ticket {worker_ticket}. "
+                   "When finished, write out.md, checkpoint with evidence, then run "
+                   f"{complete_command} and return. Before exhausting context, checkpoint, run "
+                   f"{rollover_command}, and return. Never launch your own replacement. "
+                   "The managed launcher confirms process exit and delivers your result to the parent.")
     prompt = brief(prompt, str(store.path), agent, pyramid=bundle["trigger_pyramid"])
     adapter = importlib.import_module(f"token_kit.adapters.{engine}")
     plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
                                                worker_task=str(store.path),
-                                               managed_hooks=True))
+                                               managed_hooks=True,
+                                               **({"non_interactive": True} if worker_ticket else {})))
     if dry_run:
         # Never print inherited auth-bearing environment values.
         print(json.dumps({"engine": engine, "argv": plan.argv, "cwd": str(plan.cwd),
@@ -652,6 +695,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
     claim_options = {"recovery_from": recovery_from}
     if continuation is not None:
         claim_options["continuation"] = True
+    if worker_ticket is not None:
+        claim_options.update(worker_ticket=worker_ticket, worker_model=model)
     run = store.claim_run(agent, engine, True, **claim_options)
     if continuation is not None:
         continuation.release()
@@ -671,7 +716,8 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
             "the successor run's recovery-input.md",
             f"{run / 'recovery-input.md'}")
         plan = adapter.prepare_launch(LaunchRequest(store.workspace, prompt, True, model, yolo=yolo,
-                                                   worker_task=str(store.path), managed_hooks=True))
+                                                   worker_task=str(store.path), managed_hooks=True,
+                                                   **({"non_interactive": True} if worker_ticket else {})))
     runtime.initialize(store, agent, run, engine, rollover_tokens)
     write_json(run / "resume.json", bundle)
     atomic_text(run / "prompt.md", prompt + "\n")
@@ -689,17 +735,23 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         environment["TOKEN_KIT_RUN"] = run.name
         bin_directory = str(Path(__file__).resolve().parent / "bin")
         environment["PATH"] = bin_directory + os.pathsep + environment.get("PATH", os.defpath)
-        child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=environment)
+        child = subprocess.Popen(plan.argv, cwd=plan.cwd, env=environment,
+                                 **({"stdin": subprocess.DEVNULL} if worker_ticket else {}))
         store.update_run(agent, run.name, status="running", child_pid=child.pid,
                          child_identity=process_identity(child.pid))
         # Lifecycle hooks supervise every managed session.  A missing
         # threshold only disables token rollover; it does not disable startup,
         # compaction, or stop-hook supervision.
         rc, control = runtime.wait_segment(child, store, agent, run, stop_child)
+        if worker_ticket is not None and not control.get("session_id"):
+            control = {**control, "phase": "halted", "halt_kind": "hook_unconfirmed",
+                       "reason": "Managed worker exited without a confirmed lifecycle handshake"}
         if control.get("phase") == "halted":
             store.update_run(agent, run.name, status="interrupted", ended_at=now(),
                              rollover_error=control.get("reason"),
                              halt_kind=control.get("halt_kind"))
+            if worker_ticket is not None:
+                lifecycle.finish_managed(store, agent, worker_ticket, run.name, returncode=rc)
             print(f"Token Kit: {control.get('reason')}", file=sys.stderr)
             return 75, control
         ready = control.get("phase") == "ready"
@@ -716,25 +768,44 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
                                  recovery_error=reason, rollover_error=reason)
                 control = {"phase": "halted", "halt_kind": "recovery_unreconciled",
                            "reason": reason, "recovery_from": recovery_from}
+                if worker_ticket is not None:
+                    lifecycle.finish_managed(store, agent, worker_ticket, run.name, returncode=rc)
                 print(f"Token Kit: {reason}", file=sys.stderr)
                 return 75, control
         # An exited process does not prove that its external jobs finished.
         store.update_run(agent, run.name, status="exited" if rc == 0 or ready else "interrupted",
                          exit_code=rc, ended_at=now(), rollover_checkpoint=control.get("checkpoint"),
                          recovery_from=recovery_from)
+        if worker_ticket is not None:
+            worker = lifecycle.finish_managed(store, agent, worker_ticket, run.name,
+                                               returncode=rc, rollover_ready=ready)
+            if worker.get("phase") == "completed":
+                control = {**control, "phase": "completed"}
+            elif worker.get("segment_ready") is True:
+                control = {**control, "phase": "ready", "checkpoint": worker["checkpoint"]}
+                ready = True
+            if worker.get("phase") != "completed" and worker.get("segment_ready") is not True:
+                control = {**control, "phase": "halted", "halt_kind": "worker_incomplete",
+                           "reason": "Managed worker exited without a verified completed handoff"}
+                ledger.refresh(store)
+                return 75, control
         ledger.refresh(store)
         return (0 if ready else rc if rc >= 0 else 128 - rc), control
     except KeyboardInterrupt:
         if child is not None:
             stop_child(child)
         store.update_run(agent, run.name, status="interrupted", ended_at=now())
+        if worker_ticket is not None:
+            lifecycle.finish_managed(store, agent, worker_ticket, run.name, returncode=130)
         return 130, {}
     except (OSError, ValueError):
         if child is not None:
             stop_child(child)
         try:
             store.update_run(agent, run.name, status="interrupted", ended_at=now())
-        except OSError:
+            if worker_ticket is not None:
+                lifecycle.finish_managed(store, agent, worker_ticket, run.name, returncode=2)
+        except (OSError, ValueError):
             pass  # The original starting/running record still blocks another run.
         raise
     finally:
@@ -864,6 +935,7 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument("--evidence", action="append", default=None)
             command.add_argument("--incorporated", action="append", default=[])
         elif name == "launch":
+            command.add_argument("--ticket", help="consume a reserved worker attempt for a managed Claude launch")
             command.add_argument("--engine", choices=("claude", "codex"), required=True)
             command.add_argument("--model")
             command.add_argument("--dry-run", action="store_true")
@@ -966,7 +1038,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "launch":
             return launch(store, args.agent, args.engine, args.model, args.dry_run, args.yolo,
                           args.rollover_tokens, args.max_rollovers,
-                          max_rollovers_explicit=args.max_rollovers_explicit)
+                          max_rollovers_explicit=args.max_rollovers_explicit, worker_ticket=args.ticket)
         elif args.command == "ledger":
             print(ledger.refresh(store))
         elif args.command == "status":
