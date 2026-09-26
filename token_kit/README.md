@@ -1,60 +1,64 @@
 # Token Kit
 
-Resumable Claude/Codex agents. Requires `uv` and Python >=3.11.
+Token Kit keeps work in plain folders and continues managed sessions when their
+context fills. Start or continue a task, save useful notes, and keep working.
 
-## Run
+The simplified implementation is a separate candidate release. Keep the original
+checkout intact while existing sessions still depend on it. See the
+[cutover guide](docs/SIMPLE-CUTOVER.md) before changing an installed command.
 
-From `dev_env`:
+## Everyday use
 
-```bash
-source token_kit/add_to_bashrc.bash
-token-kit run "Fix parser" --engine codex --rollover-perc 80 --yolo
-token-kit continue parser
-```
+Use the candidate `token-kit run` to start, `token-kit continue` to continue, or
+`token-kit pick` to select an existing task. `status` displays records. The old
+`resume` spelling remains read-only; use `continue` to launch a session.
+Run `token-kit --help` for exact arguments.
 
-Titles start idle; `--prompt "..."` starts work. `--workspace PATH` sets source.
-`--yolo` bypasses permissions and Codex sandboxing. `--dry-run` previews.
-`--install-project` persists instructions; `--codegraph` adds CodeGraph.
-
-`continue QUERY` resumes one match or offers a chooser. Paths work directly or
-with `--task PATH`. Latest launch flags carry forward; explicit flags override.
-Use `--select N` for scripts, `--print` to preview.
-A live managed runner receives a cooperative stop request; verified shutdown
-precedes fresh recovery. This does not reattach the native UI.
-`pick QUERY` lists matches. `resume TASK`/`status TASK` summarize; `--full` includes history.
-
-## Delegation
-
-[Pyramid](trigger_pyramid.md): model tiers. [Matrix](agent_trigger_matrix.md): policy.
-
-## Resume files
+Plain launch does not require project installation. Client trust and permissions
+remain in effect; Token Kit does not enable `--yolo` automatically.
 
 ```text
-<task>/
-  task.json
-  trigger_pyramid.md
-  TOKEN_LEDGER.md
-  agents/<id>/
-    in.md
-    STATE.md
-    historical_state.md  # only after STATE compression
-    out.md
-    lifecycle.json
-    checkpoints/
-    assignments/
-    messages/, artifacts/, runs/
+task/
+  task.md
+  STATE.md
+  out.md                  optional
+  artifacts/              optional
+  agents/                 optional worker folders
+  .token-kit/             launcher records
 ```
 
-Keep five-section STATE near 200 words. Archive dated prior STATE only before
-compression. Checkpoints preserve optional history. Recovery reads committed checkpoints, not transcripts,
-and preserves newer working state. Reconcile workers and operations before continuing;
-retirement never authorizes release retries.
+Existing task layouts remain readable in place. Write STATE in any format and
+length. Save results directly. No registration, checkpoint command, completion
+ticket, or folder closure is required. Optional model preferences remain ordinary
+text; explicit user instructions take precedence.
 
-## Recovery
+## Rollover
 
-Compaction recovery is automatic; `continue` also handles interrupted recovery.
-Process uncertainty blocks restart. Rollover defaults off; `--rollover-perc 80`
-uses reported windows or Claude defaults; `--context-window N` overrides. `--rollover-tokens 500k`
-is capped at 80% when known. Restarts default unlimited; `--max-rollovers N` caps them,
-`0` disables automatic restarts, and `unlimited` removes the cap.
-`token-kit ledger TASK` shows reported usage.
+The default threshold is 80% of the known context window, with unlimited successful
+rollovers. A finite restart limit is optional. `--rollover off` disables all automatic
+restarts. Normal completion, manual interruption, and arbitrary errors do not restart.
+
+Before rollover, the client is asked to save current notes. After verifying that the
+old client stopped, the launcher starts its successor with the latest saved files.
+Missing fresh notes produce a recovery limitation, not a checkpoint requirement.
+If the client cannot provide trustworthy context and safe-stop events, the launcher
+reports that automatic rollover is unavailable. Native worker compaction remains
+available; a child event never authorizes restarting its parent.
+
+Process ownership checks prevent overlapping launches. They do not judge whether
+results are complete or correct. Check uncertain external operations before retrying
+them; continue unrelated authorized work.
+
+## Existing installations
+
+Old global Token Kit caps or lifecycle hooks can still affect new launches. The
+candidate reports these conflicts; disabling every client hook is not a remedy.
+The optional cleanup helper previews exact owned changes and creates backups with
+an executable rollback recipe. User-edited guidance and unrelated hooks survive.
+Policy cleanup affecting old sessions waits until those sessions exit.
+
+The old installer, runtime, and lifecycle commands remain pinned for existing
+consumers. New obsolete worker commands fail without mutating records; workers can
+save their result and report back normally. Historical documentation is in
+[docs/legacy-guide.md](docs/legacy-guide.md) and the dated handoffs. It describes the
+old installation, not the simplified workflow.
