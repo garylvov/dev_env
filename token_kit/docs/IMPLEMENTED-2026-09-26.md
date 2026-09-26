@@ -4,12 +4,17 @@ The folder-first implementation is active for new `token-kit` launches.
 
 - Source/worktree: `/oscar/data/stellex/glvov/dev_env-token-kit-simple`.
 - Branch: `token-kit-simplify`; implementation and activation tooling through `a72b722`.
-- Original runtime retained unchanged at `/oscar/data/stellex/glvov/dev_env`.
+- Original Python runtime retained at `/oscar/data/stellex/glvov/dev_env`; its command
+  and installer entrypoints now forward to this release, with sibling legacy backups.
 - User command: `/users/glvov/.local/bin/token-kit` points to a small release dispatcher.
 - Shell startup has a scoped PATH block for that dispatcher. Existing managed legacy
-  sessions retain their old command path; the dispatcher also recognizes legacy
-  `TOKEN_KIT_RUN` environments and routes them to the original runtime.
-- Rollback: `python3.11 /users/glvov/.local/share/token-kit/activation-20260926-163133/rollback.py`.
+  sessions retain access to their old runtime for hooks and protocol utilities.
+  Explicit launch/continue/search commands use the new runtime even when legacy
+  environment variables are inherited.
+- Latest installer rollback: `python3.11 /users/glvov/.local/share/token-kit/launcher-20260926-172630-456737/rollback.py`.
+  This restores the earlier dispatcher and original launcher/installer paths. To undo
+  the earlier activation too, run its rollback afterward:
+  `python3.11 /users/glvov/.local/share/token-kit/activation-20260926-163133/rollback.py`.
   This restores the exact earlier command link and shell configuration, and refuses
   to overwrite changes made after activation. It does not delete task data or stop
   sessions. Stop candidate sessions normally before reverting their command selection.
@@ -68,3 +73,16 @@ Historical runtime/install modules remain for pinned compatibility and exact-own
 configuration cleanup, not as dependencies of the new worker lifecycle. Do not replace
 the original checkout or delete captured hook paths while old sessions reference them.
 The reviewed design and its red-team record are next to this document.
+
+## Installer follow-up
+
+`install.sh` now installs the simplified launcher; the historical installer is
+archived in `install-legacy.sh`. The original checkout's installer forwards here
+with its legacy root supplied. Existing shells caching the original executable
+now reach the new runtime directly through that path, without refreshing PATH.
+The installer was applied and a repeat preview reported no changes. A real Bash
+cached-path dry run of `continue retread --select 1` selected the latest task and
+its saved workspace. All 17 CLI/release tests passed, including cached-path
+routing, inherited legacy variables, legacy utility routing and exact rollback.
+No model was launched. Bare task-name searches now take precedence over incidental
+same-named project directories; use `./folder` for an explicit relative task path.
