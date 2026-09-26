@@ -1,7 +1,9 @@
 # Simplified release cutover
 
 Build and test the candidate in a separate release path. Do not replace the original
-checkout while existing launchers or installed hooks reference it. The source switch
+runtime modules while existing launchers or installed hooks reference them. The installer
+may replace its command entrypoint with a forwarding shim after preserving the original
+as the sibling `token-kit-legacy`; both still load the same old Python source. The source switch
 and installed-policy cleanup are separate operations.
 
 1. Preview the exact command/PATH switch, explicitly selected project guidance and

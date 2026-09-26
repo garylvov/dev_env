@@ -11,6 +11,41 @@ from token_kit.simple_release import activation_plan, apply_activation
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_installer_upgrades_cached_path_preserves_legacy_and_is_repeatable(self):
+        with tempfile.TemporaryDirectory(prefix='token kit install ') as temporary:
+            root = Path(temporary)
+            for name in ('new', 'old'):
+                path = root/name/'token_kit/src/token_kit/bin/token-kit'
+                path.parent.mkdir(parents=True)
+                path.write_text('#!/bin/bash\ncase "$0" in */old/*) echo old;; *) echo new;; esac\n')
+                path.chmod(0o755)
+                (root/name/'token_kit/install.sh').write_text('#!/bin/bash\necho installer\n')
+            home = root/'home'
+            home.mkdir()
+            old = root/'old/token_kit/src/token_kit/bin/token-kit'
+            original = old.read_bytes()
+            # Reproduce the previous activation, then upgrade it with the installer.
+            apply_activation(activation_plan(root/'new', root/'old', home), root/'first-backup')
+            rc_before = (home/'.bashrc').read_bytes()
+            plan = simple_release.launcher_install_plan(root/'new', root/'old', home)
+            rollback = apply_activation(plan, root/'second-backup')
+            env = {key: value for key, value in os.environ.items() if not key.startswith('TOKEN_KIT_')}
+            def launch(path, args, extra=None):
+                return subprocess.check_output([str(path), *args], env={**env, **(extra or {})}, text=True).strip()
+            for command in (old, home/'.local/bin/token-kit'):
+                self.assertEqual(launch(command, ['continue','retread','--workspace','/tmp']), 'new')
+                self.assertEqual(launch(command, ['continue','retread'], {'TOKEN_KIT_RUN':'inherited'}), 'new')
+                self.assertEqual(launch(command, ['hook']), 'old')
+                self.assertEqual(launch(command, ['checkpoint'], {'TOKEN_KIT_RUN':'inherited'}), 'old')
+            cached = subprocess.check_output(['bash','--noprofile','--norc','-c',
+                'hash -p "$1" token-kit; token-kit continue retread','test',str(old)], env=env,text=True).strip()
+            self.assertEqual(cached, 'new')
+            self.assertEqual(simple_release.launcher_install_plan(root/'new',root/'old',home), [])
+            subprocess.run([sys.executable,str(rollback)],check=True,capture_output=True)
+            self.assertEqual(old.read_bytes(), original)
+            self.assertEqual((home/'.bashrc').read_bytes(), rc_before)
+            self.assertFalse(old.with_name('token-kit-legacy').exists())
+
     def test_post_publication_failure_restores_current_row(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

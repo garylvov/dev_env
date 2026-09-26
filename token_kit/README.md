@@ -67,3 +67,21 @@ consumers. New obsolete worker commands fail without mutating records; workers c
 save their result and report back normally. Historical documentation is in
 [docs/legacy-guide.md](docs/legacy-guide.md) and the dated handoffs. It describes the
 old installation, not the simplified workflow.
+
+## Installing the launcher
+
+From the new checkout, run:
+
+```bash
+bash token_kit/install.sh --legacy-root /path/to/previous/checkout
+```
+
+Use `--dry-run` to list changes first. The installer updates the user command and
+shell startup, and forwards the previous executable path to the new launcher so
+existing shells with a cached path work immediately. It retains a sibling legacy
+launcher for old hooks and managed-session utilities. Explicit new launches and
+continuations use the simplified launcher even with inherited legacy variables.
+The previous installer path forwards here too. Repeating installation is a no-op;
+each changed installation prints a standalone rollback command. Task files and
+client hook configuration are untouched. Historical hook installation is archived
+in `install-legacy.sh`.
