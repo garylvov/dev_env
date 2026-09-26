@@ -31,7 +31,9 @@ class SimpleAdaptersTest(unittest.TestCase):
         with patch.object(adapters.subprocess, 'run') as run:
             plan = self.prepare(rollover='off')
         run.assert_not_called()
-        self.assertEqual(plan.argv, ('claude', '--', '-prompt\n$(not shell)'))
+        self.assertEqual(plan.argv[-2:], ('--', '-prompt\n$(not shell)'))
+        self.assertIn('--append-system-prompt', plan.argv)
+        self.assertIn('--add-dir', plan.argv)
         self.assertNotIn('TOKEN_KIT_RUN', plan.env)
         self.assertNotIn('TOKEN_KIT_SIMPLE_SESSION_ID', plan.env)
         self.assertNotIn('DISABLE_COMPACT', plan.env)
@@ -119,6 +121,38 @@ class SimpleAdaptersTest(unittest.TestCase):
             plan = self.prepare(engine='codex')
         self.assertIn('--no-daemon', plan.argv)
         self.assertNotIn('--dangerously-bypass-hook-trust', plan.argv)
+
+    def test_codex_existing_hooks_are_not_overwritten(self):
+        config = self.root/'.codex/config.toml'
+        config.parent.mkdir()
+        body = '[hooks]\nStop = [{ hooks = [{ type = "command", command = "site-policy" }] }]\n'
+        config.write_text(body)
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            plan = self.prepare(engine='codex')
+        self.assertNotIn('--enable', plan.argv)
+        self.assertIn('preserved', plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])
+        self.assertEqual(config.read_text(), body)
+
+    def test_idle_guidance_and_explicit_codex_prompt(self):
+        for engine in ('claude', 'codex'):
+            plan = adapters.prepare(self.view, LaunchOptions(engine=engine, rollover='off'),
+                                    None, self.root/'run')
+            self.assertNotIn('--', plan.argv)
+            self.assertIn('--add-dir', plan.argv)
+            if engine == 'claude':
+                self.assertIn('--append-system-prompt', plan.argv)
+            else:
+                self.assertIn('no injected folder guidance', plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])
+        explicit = self.prepare(engine='codex', rollover='off')
+        self.assertIn(str(self.view.assignment), explicit.argv[-1])
+        self.assertTrue(explicit.argv[-1].endswith('-prompt\n$(not shell)'))
+
+    def test_unrelated_token_kit_named_hook_not_legacy(self):
+        config = self.root/'.claude/settings.json'
+        config.parent.mkdir()
+        config.write_text(json.dumps({'hooks': {'Stop': [{'hooks': [
+            {'command': 'python /custom/token_kit_metrics.py'}]}]}}))
+        self.prepare(rollover='off')
 
     def test_bad_argv_values_rejected(self):
         for kwargs in ({'model': '--bad'}, {'effort': 'x\0y'}, {'executable': '-bad'}):

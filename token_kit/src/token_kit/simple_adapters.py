@@ -49,7 +49,7 @@ def _argument(value: str, label: str) -> None:
         raise AdapterError(f"{label} must be nonempty and cannot be an option")
 
 
-def _legacy_conflicts(workspace: Path, engine: str, env: dict[str, str]) -> list[str]:
+def _settings_paths(workspace: Path, engine: str, env: dict[str, str]) -> list[Path]:
     """Inspect only known configuration locations; never scan session history.
 
     Detection is deliberately conservative. No settings are removed or rewritten.
@@ -64,8 +64,12 @@ def _legacy_conflicts(workspace: Path, engine: str, env: dict[str, str]) -> list
         home = Path(env.get("CODEX_HOME", str(Path(env.get("HOME", "~")).expanduser() / ".codex")))
         paths = [home / "config.toml"]
         paths.extend(directory / ".codex/config.toml" for directory in (workspace, *workspace.parents))
+    return list(dict.fromkeys(paths))
+
+
+def _legacy_conflicts(workspace: Path, engine: str, env: dict[str, str]) -> list[str]:
     conflicts = []
-    for path in dict.fromkeys(paths):
+    for path in _settings_paths(workspace, engine, env):
         if not path.is_file():
             continue
         try:
@@ -79,11 +83,50 @@ def _legacy_conflicts(workspace: Path, engine: str, env: dict[str, str]) -> list
                 import tomllib
                 config = tomllib.loads(content)
                 content = json.dumps(config.get("hooks", {}))
-            if re.search(r"token[_-]kit|(?:router|respawn)[/\\]+(?:hook|hooks)\.py", content):
+            if re.search(r"(?:token_kit[/\\]+(?:runtime|worker_policy)\.py|token[_-]kit[/\\]+(?:router|respawn)[/\\]+(?:hook|hooks)\.py|token-kit\s+(?:hook|worker-hook)\b)", content):
                 conflicts.append(str(path))
         except (OSError, ValueError, AttributeError) as exc:
             conflicts.append(f"Cannot inspect settings {path}: {exc}")
     return conflicts
+
+
+
+def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
+    """Any existing hook table makes session flag replacement unsafe.
+
+    Include nested profile tables. Do not attempt to reproduce client merging or
+    overwrite site/user policy hooks with an incomplete effective-config snapshot.
+    """
+    import tomllib
+    result = []
+    paths = _settings_paths(workspace, "codex", env)
+    paths.extend((Path("/etc/codex/config.toml"), Path("/etc/codex/requirements.toml")))
+    def has_hooks(value):
+        if isinstance(value, dict):
+            return bool(value.get("hooks")) or any(has_hooks(item) for item in value.values())
+        if isinstance(value, list):
+            return any(has_hooks(item) for item in value)
+        return False
+    for path in dict.fromkeys(paths):
+        if not path.is_file():
+            continue
+        try:
+            if path.stat().st_size > 2_000_000:
+                result.append(str(path))
+            elif has_hooks(tomllib.loads(path.read_text())):
+                result.append(str(path))
+        except (OSError, ValueError):
+            result.append(str(path))
+    return result
+
+
+def folder_guidance(view: TaskView) -> str:
+    return ("Task folder: " + str(view.root.resolve()) + "\n"
+            "Read the assignment when work begins: " + str(view.assignment.resolve()) + "\n"
+            "Keep useful continuation notes in " + str(view.state.resolve()) +
+            "; save results in " + str(view.output.resolve()) + ". "
+            "These are ordinary editable files; no registration, completion command, "
+            "or folder closure is required. Follow the user's instructions and site rules.")
 
 
 def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
@@ -115,13 +158,27 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     env["TOKEN_KIT_SIMPLE_RUN"] = str(Path(run_dir).resolve())
     env["TOKEN_KIT_TASK"] = str(view.root.resolve())
     env["TOKEN_KIT_AGENT"] = agent
+    guidance = folder_guidance(view)
+    env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
     enabled = options.rollover not in (None, 0, "off")
     cap = capabilities(options) if enabled else Capabilities(False, ())
+    if options.engine == "codex" and cap.managed_hooks:
+        existing = _codex_hook_settings(workspace, env)
+        if existing:
+            cap = Capabilities(False, ("Automatic rollover unavailable: existing Codex hook "
+                "tables are preserved; session overrides could replace them: " + "; ".join(existing),))
+    if options.engine == "codex" and prompt is None:
+        cap = Capabilities(cap.managed_hooks, cap.diagnostics + (
+            "Task assignment: " + str(view.assignment.resolve()) +
+            (". Folder guidance is delivered on the first verified prompt hook."
+             if cap.managed_hooks else ". Native idle session has no injected folder guidance; "
+             "ask the agent to read this file when starting work."),))
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
         "diagnostics": cap.diagnostics})
-    argv = [executable]
+    argv = [executable, "--add-dir", str(view.root.resolve())]
     if options.engine == "claude":
+        argv.extend(("--append-system-prompt", guidance))
         if options.non_interactive:
             argv.append("--print")
         if options.yolo:
@@ -146,6 +203,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     if options.model is not None:
         argv.extend(("--model", options.model))
     if prompt is not None:
+        if options.engine == "codex":
+            prompt = guidance + "\n\n" + prompt
         argv.extend(("--", prompt))
     return LaunchPlan(options.engine, tuple(argv), workspace, env, False)
 
