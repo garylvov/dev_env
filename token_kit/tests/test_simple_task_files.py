@@ -52,10 +52,11 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_wrapper_removed_only_from_view(self):
         view = self.plain()
-        raw = '<!-- token-kit worker policy v2 -->\nDo obsolete things\n<!-- /token-kit worker policy -->\nToken Kit record: {"task": "/old"}\n\nKeep the actual assignment and checkpoint terminology.'
+        from token_kit.task_files import _LEGACY_POLICY_BODY
+        raw = '<!-- token-kit worker policy v2 -->\n' + _LEGACY_POLICY_BODY + '\n<!-- /token-kit worker policy -->\nToken Kit record: {"task": "/old"}\n\nKeep the actual assignment and checkpoint terminology.'
         view.assignment.write_text(raw)
         recovery = recovery_input(view)
-        self.assertNotIn('Do obsolete things', recovery.text)
+        self.assertNotIn(_LEGACY_POLICY_BODY, recovery.text)
         self.assertIn('Keep the actual assignment and checkpoint terminology.', recovery.text)
         self.assertEqual(raw, view.assignment.read_text())
 
@@ -77,6 +78,32 @@ class TaskFilesTests(unittest.TestCase):
             self.assertEqual(recovered.message_ids, ())
             self.assertNotIn('new steering', recovered.text)
             self.assertNotIn('old steering', recovered.text)
+
+    def test_customized_wrappers_and_preferences_are_preserved(self):
+        from token_kit.task_files import _LEGACY_POLICY_BODY
+        view = self.plain()
+        for content in ('User change: never deploy', _LEGACY_POLICY_BODY + '\nUser preference: use chosen model'):
+            raw = '<!-- token-kit worker policy v2 -->\n' + content + '\n<!-- /token-kit worker policy -->\nTask assignment'
+            view.assignment.write_text(raw)
+            self.assertIn(raw, recovery_input(view).text)
+
+    def test_worker_settings_do_not_replace_coordinator_settings(self):
+        view = self.plain()
+        save_settings(view, {'engine': 'claude', 'model': 'coordinator', 'yolo': False})
+        worker = load_task(view.root, agent='editor')
+        save_settings(worker, {'engine': 'codex', 'model': 'worker', 'yolo': True})
+        self.assertEqual(load_settings(view), {'engine': 'claude', 'model': 'coordinator', 'yolo': False})
+        self.assertEqual(load_settings(worker), {'engine': 'codex', 'model': 'worker', 'yolo': True})
+        self.assertEqual(load_settings(view, agent='editor'), load_settings(worker))
+
+    def test_legacy_worker_settings_come_from_worker_runs(self):
+        root, coordinator = self.legacy()
+        for name, engine in (('coordinator', 'claude'), ('editor', 'codex')):
+            run = root / 'agents' / name / 'runs/one'
+            run.mkdir(parents=True)
+            (run / 'run.json').write_text(json.dumps({'engine': engine, 'model': name}))
+        self.assertEqual(load_settings(load_task(root))['model'], 'coordinator')
+        self.assertEqual(load_settings(load_task(root, agent='editor'))['model'], 'editor')
 
     def test_root_messages_and_label_title(self):
         view = self.plain()

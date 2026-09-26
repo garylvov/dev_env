@@ -23,6 +23,9 @@ PREFACE = ("Token Kit uses ordinary editable files. Historical Token Kit checkpo
            "outcomes before repeating an action. Saved results are reports, not independently verified facts.")
 
 
+# Exact frozen legacy generated text. Marker presence alone never proves ownership.
+_LEGACY_POLICY_BODY = 'Token Kit is guidance, not approval. Main orchestrates; workers execute. Follow repo rules.\nBookkeeping drift is advisory. Repair and continue authorized work without asking.\nOwn identity. Resume: token-kit resume TASK --agent ID.\nSTATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Compression only: dated verbatim STATE in\nhistorical_state.md; no routine append. Read selectively; checkpoint evidence/IDs.\n\nSmart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. Scoped overrides beat map; isolate siblings.\nMap supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.\n\nNative prepare/bind --parent; status TASK. Checkpoint, ticketed rollover/complete, confirm stop.\nNever retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;\nAuto-restart excludes unknown stops/errors/manual interrupts. Dead PID proves no external completion; parent exit no native closure.\nOrphans: worker retire per agent_trigger_matrix.md.\nRetired means neither native closure nor success/retry authority. Replace remaining work only.\nVerify unknown operations before retry; report once, never poll.'
+
 def _inside(root: Path, path: Path) -> Path:
     resolved = path.resolve()
     if not resolved.is_relative_to(root):
@@ -74,6 +77,11 @@ def _strip_wrapper(text: str) -> str:
     while opening.match(text):
         end = text.find(closing)
         if end < 0 or '<!-- token-kit worker policy' in text[opening.match(text).end():end]:
+            break
+        wrapped = text[opening.match(text).end():end].rstrip('\n')
+        if wrapped != _LEGACY_POLICY_BODY:
+            # Unknown versions, task-specific preferences, and user edits remain
+            # intact. The recovery preface supersedes only obsolete protocol.
             break
         rest = text[end + len(closing):].lstrip('\n')
         if rest.startswith('Token Kit record: '):
@@ -184,22 +192,38 @@ def _metadata(view: TaskView):
                 os.unlink(temporary)
 
 
-def save_settings(view: TaskView, settings: dict) -> None:
+def _view_agent(view: TaskView) -> str:
+    """Agent selection is encoded by the TaskView working STATE location."""
+    parent = view.state.parent.relative_to(view.root)
+    if len(parent.parts) == 2 and parent.parts[0] in ('agents', 'lanes'):
+        return _component(parent.parts[1])
+    return 'coordinator'
+
+
+def save_settings(view: TaskView, settings: dict, *, agent: str | None = None) -> None:
+    selected = _component(agent) if agent is not None else _view_agent(view)
     with _metadata(view) as metadata:
-        previous = metadata.get('settings', {})
-        metadata['settings'] = {**(previous if isinstance(previous, dict) else {}), **settings}
+        container = metadata if selected == 'coordinator' else metadata.setdefault('agent_settings', {}).setdefault(selected, {})
+        previous = container.get('settings', {})
+        container['settings'] = {**(previous if isinstance(previous, dict) else {}), **settings}
 
 
-def load_settings(view: TaskView) -> dict:
+def load_settings(view: TaskView, *, agent: str | None = None) -> dict:
+    selected = _component(agent) if agent is not None else _view_agent(view)
     data = _json(view.root, view.root / '.token-kit/session.json', [])
+    if selected != 'coordinator':
+        per_agent = data.get('agent_settings', {})
+        data = per_agent.get(selected, {}) if isinstance(per_agent, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
     # A saved new settings object is the direct pointer; never enumerate historical
     # runs after the first successful continuation has persisted resolved settings.
     if isinstance(data.get('settings'), dict):
         return dict(data['settings'])
     old = _json(view.root, view.root / 'task.json', []) if (view.root / 'task.json').exists() else {}
-    if isinstance(old.get('settings'), dict):
+    if selected == 'coordinator' and isinstance(old.get('settings'), dict):
         return dict(old['settings'])
-    directory = _agent_dir(view.root, 'coordinator') / 'runs'
+    directory = _agent_dir(view.root, selected) / 'runs'
     candidates = []
     for folder in _entries(view.root, directory, []):
         record = _json(view.root, folder / 'run.json', [])
