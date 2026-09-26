@@ -8,7 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from token_kit.simple_process import Slot, read, write, identity
 from token_kit.simple_runtime import handle, initialize
@@ -268,6 +268,64 @@ p.write_text(json.dumps(s))
         slot.close()
         successor = Slot(self.root, 'coordinator').acquire()
         successor.close()
+
+    def test_nonzero_exit_racing_owned_stop_is_not_success(self):
+        from token_kit.simple_runner import _stop
+        child = Mock(returncode=7)
+        child.poll.return_value = 7
+        self.assertFalse(_stop(child, {}))
+        child.send_signal.assert_not_called()
+
+    def test_child_start_revokes_ready_boundary(self):
+        run = self.root / 'run'
+        run.mkdir()
+        initialize(run, LaunchOptions(), 'parent', self.state)
+        base = {'session_id': 'parent'}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        handle(run, dict(base, hook_event_name='PreCompact'), run.name)
+        self.assertEqual(read(run / 'control.json')['phase'], 'ready')
+        handle(run, dict(base, hook_event_name='SubagentStart', agent_id='worker'), run.name)
+        self.assertNotEqual(read(run / 'control.json')['phase'], 'ready')
+
+    def test_continue_timeout_cancels_exact_request(self):
+        owner = Slot(self.root, 'coordinator').acquire()
+        run = owner.claim('claude')
+        initialize(run, LaunchOptions(), 'parent', self.state)
+        current = read(run / 'control.json')
+        current['armed'] = True
+        write(run / 'control.json', current)
+        child = owner.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
+        try:
+            with self.assertRaisesRegex(ValueError, 'safe stop boundary'):
+                Slot(self.root, 'coordinator').acquire(resume=True, timeout=.01)
+            self.assertFalse((owner.directory / 'continue.json').exists())
+            current['threshold'] = None
+            write(run / 'control.json', current)
+            with self.assertRaisesRegex(ValueError, 'original terminal'):
+                Slot(self.root, 'coordinator').acquire(resume=True)
+        finally:
+            child.terminate()
+            child.wait()
+            owner.close()
+
+    def test_corrupt_optional_observation_degrades_once(self):
+        from token_kit.simple_runner import _observe
+        target = self.root / 'control.json'
+        target.write_text('invalid JSON')
+        notices = set()
+        self.assertEqual(_observe(target, notices), {})
+        self.assertEqual(_observe(target, notices), {})
+        self.assertEqual(len(notices), 1)
+
+    def test_stale_startup_usage_does_not_request_handoff(self):
+        run = self.root / 'run'
+        run.mkdir()
+        initialize(run, LaunchOptions(rollover=10), 'parent', self.state)
+        transcript = self.root / 'transcript.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 11}}}) + '\n')
+        for event in ('SessionStart', 'UserPromptSubmit'):
+            handle(run, {'session_id': 'parent', 'hook_event_name': event, 'transcript_path': str(transcript)}, run.name)
+            self.assertEqual(read(run / 'control.json')['phase'], 'running')
 
     def test_three_plain_rollovers_then_normal_exit(self):
         code, launched = self._run_fake()

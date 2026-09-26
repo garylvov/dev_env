@@ -119,6 +119,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         event = payload.get('hook_event_name')
         if event in ('SubagentStart', 'SubagentStop'):
             native = payload.get('agent_id')
+            if event == 'SubagentStart' and control['phase'] == 'ready':
+                control['phase'] = 'requested'
             children = set(control.get('children', []))
             if not native and event == 'SubagentStart':
                 control['unknown_children'] = True
@@ -179,7 +181,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 control['phase'] = 'ready'
                 control['reason'] = 'parent_compaction'
                 # Do not veto native compaction. Supervisor handles verified shutdown.
-            elif crossed and control['phase'] == 'running':
+            elif crossed and control['phase'] == 'running' and event in ('PostToolUse', 'Stop'):
                 control['phase'] = 'requested'
                 note = ('Please briefly update ' + control['state'] +
                         ' with useful context, remaining work, constraints, and uncertain external work. '

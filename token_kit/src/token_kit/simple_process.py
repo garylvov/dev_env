@@ -115,16 +115,28 @@ class Slot:
                     raise ValueError('Continue on the original host; process identity is uncertain')
                 if dead(previous, 'supervisor'):
                     raise ValueError('Session owner unavailable; cannot request cooperative shutdown')
-                write(self.directory / 'continue.json', {'run_id': previous.get('run_id')})
+                target = self.root / '.token-kit' / 'runs' / str(previous.get('run_id')) / 'control.json'
+                control = read(target)
+                if not control.get('armed') or control.get('threshold') is None:
+                    raise ValueError('Safe continuation unavailable for this session; stop it in its original terminal, then continue')
+                request = {'run_id': previous.get('run_id'), 'request_id': uuid.uuid4().hex}
+                request_path = self.directory / 'continue.json'
+                write(request_path, request)
                 deadline = time.monotonic() + timeout
-                while True:
-                    try:
-                        fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                        break
-                    except BlockingIOError:
-                        if time.monotonic() >= deadline:
-                            raise ValueError('Session has not reached a safe stop boundary; no duplicate launched')
-                        time.sleep(.1)
+                try:
+                    while True:
+                        try:
+                            fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            break
+                        except BlockingIOError:
+                            if time.monotonic() >= deadline:
+                                raise ValueError('Session has not reached a safe stop boundary; no duplicate launched')
+                            time.sleep(.1)
+                finally:
+                    with locked(self.directory / 'request.lock'):
+                        current_request = read(request_path)
+                        if current_request.get('request_id') == request['request_id']:
+                            request_path.unlink(missing_ok=True)
             previous = read(self.current)
             if previous and previous.get('status') != 'exited' and not dead(previous, 'child'):
                 raise ValueError('Previous client is alive or its launch outcome is uncertain; no duplicate launched')
