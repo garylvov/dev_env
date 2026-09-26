@@ -33,6 +33,13 @@ task files and does not depend on this launcher for native continuation. A bound
 last-saved STATE fallback survives missing working notes without imposing a checkpoint
 protocol. Process records and snapshots never certify external operations or results.
 
+Startup and recovery prompts explicitly carry the user's bounded-parallelism
+preference, overriding only the blanket concurrency/global-lock restrictions in
+`/oscar/AGENTS.md`. Scoped ownership, compute-allocation requirements, job-submission
+approval and remaining site rules still apply. The optional installation guidance
+uses the same wording. After this addition, all 39 affected tests passed and the
+active release's startup, recovery and installation text were checked directly.
+
 ## Validation and limits
 
 115 selected Python 3.11 tests passed together in the isolated `/tmp` checkout.
