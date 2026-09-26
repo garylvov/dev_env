@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 from dataclasses import asdict, replace
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -130,8 +131,6 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
         options = replace(options, rollover=parse_limit(options.rollover))
     if options.context_window is not None:
         options = replace(options, context_window=_window(str(options.context_window)))
-    if options.max_rollovers == 0:
-        options = replace(options, rollover=None)
     return options
 
 
@@ -288,7 +287,7 @@ def main(argv=None) -> int:
         if command in ("list", "find"):
             _show_candidates(task_candidates(parsed.root, parsed.words, max(1, parsed.limit)))
             return 0
-        from .task_files import load_task, recovery_input
+        from .task_files import load_task, recovery_input, safe_task_path
         view = load_task(parsed.task, agent=getattr(parsed, "agent", "coordinator"))
         if command in ("status", "resume"):
             print(f"{view.title}\nWorkspace: {view.workspace or 'unknown'}\nState: {view.state}\nAssignment: {view.assignment}")
@@ -300,6 +299,7 @@ def main(argv=None) -> int:
             from .core.store import atomic_text
             state = view.state.read_text() if view.state.is_file() else ""
             target = view.root / ".token-kit" / "snapshots" / (datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".md")
+            safe_task_path(view, target)
             atomic_text(target, state)
             print(target)
             return 0
@@ -314,22 +314,22 @@ def main(argv=None) -> int:
             if parsed.agent == "coordinator" and not view.legacy:
                 recipient = view.root
             target = recipient / "messages" / (uuid.uuid4().hex + ".json")
+            safe_task_path(view, target)
             atomic_text(target, json.dumps({"message_id": target.stem, "text": text,
                         "created_at": datetime.now().astimezone().isoformat(), "source": "user"}))
             print(target)
             return 0
         from .core.store import atomic_text
-        target = view.root / ".token-kit" / "labels.json"
-        labels = {}
-        if target.is_file():
-            try:
-                labels = json.loads(target.read_text())
-            except (ValueError, OSError):
-                pass
-        if not isinstance(labels, dict):
-            labels = {}
-        labels.update({"title": parsed.title} if command == "retitle" else {"status": "done" if command == "done" else "open"})
-        atomic_text(target, json.dumps(labels, indent=2) + "\n")
+        target = safe_task_path(view, view.root / ".token-kit" / "labels.json")
+        lock = safe_task_path(view, target.parent / "metadata.lock")
+        lock.parent.mkdir(exist_ok=True)
+        with lock.open('a') as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+            labels = json.loads(target.read_text()) if target.exists() else {}
+            if not isinstance(labels, dict):
+                raise ValueError("Saved labels must be an object; existing bytes were preserved")
+            labels.update({"title": parsed.title} if command == "retitle" else {"status": "done" if command == "done" else "open"})
+            atomic_text(target, json.dumps(labels, indent=2) + "\n")
         return 0
     except (OSError, ValueError) as exc:
         print("Token Kit: " + str(exc), file=sys.stderr)

@@ -89,7 +89,7 @@ class CLITests(unittest.TestCase):
         args = parser.parse_args(['X', '--no-rollover'])
         self.assertIsNone(cli.resolve_options(args).rollover)
         args = parser.parse_args(['X', '--max-rollovers', '0'])
-        self.assertIsNone(cli.resolve_options(args).rollover)
+        self.assertEqual(cli.resolve_options(args).max_rollovers, 0)
         args = parser.parse_args(['X', '--no-rollover', '--max-rollovers', '5'])
         with self.assertRaises(ValueError):
             cli.resolve_options(args)
@@ -103,7 +103,7 @@ class CLITests(unittest.TestCase):
 
     def test_saved_zero_and_explicit_unlimited(self):
         args = cli.parser_for('continue').parse_args(['X'])
-        self.assertIsNone(cli.resolve_options(args, {'max_rollovers': 0}).rollover)
+        self.assertEqual(cli.resolve_options(args, {'max_rollovers': 0}).max_rollovers, 0)
         args = cli.parser_for('continue').parse_args(['X', '--max-rollovers', 'unlimited'])
         self.assertIsNone(cli.resolve_options(args, {'max_rollovers': 5}).max_rollovers)
 
@@ -112,6 +112,23 @@ class CLITests(unittest.TestCase):
         self.assertEqual(code, 0)
         for old in ('prepare', 'close-run', 'checkpoint', 'retire'):
             self.assertNotIn(old, out)
+
+    def test_send_cannot_write_through_external_symlink(self):
+        task = self.create()
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (task / 'messages').symlink_to(outside)
+        code, out, err = self.call('send', task, 'Steering')
+        self.assertEqual(code, 2)
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_malformed_labels_preserved(self):
+        task = self.create()
+        labels = task / '.token-kit/labels.json'
+        labels.write_text('{my unfinished edit')
+        code, out, err = self.call('done', task)
+        self.assertEqual(code, 2)
+        self.assertEqual(labels.read_text(), '{my unfinished edit')
 
 
 if __name__ == '__main__':
