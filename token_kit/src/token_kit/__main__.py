@@ -1,58 +1,34 @@
-"""One Token Kit command surface for both coding clients."""
+"""The small public launcher; old installed hook utilities retain explicit entrypoints."""
 from __future__ import annotations
-
 import sys
-
-HELP = """usage: token-kit COMMAND [OPTIONS]
-
-Shared tasks and checkpoints for Claude Code and Codex.
-
-Project setup:
-  install, uninstall       Project instructions and optional CodeGraph configuration
-
-Work:
-  run                     Open an idle named session; --prompt starts work, --task resumes
-  new, list, find          Create and locate tasks
-  pick                    Fuzzy-select and resume a task (--print for command only)
-  agent                   Add a logical agent with an assignment
-  worker                  Reserve, bind, hand off and reconcile durable worker attempts
-  checkpoint, resume      Commit state or inspect recovery information
-  launch                  Start a fresh client session (--engine claude|codex)
-  send, status            Queue messages or inspect tasks and runs
-  ledger                  Show reported token usage by agent, run and model
-  hooks                   Open Codex's lifecycle-hook review (no task launch)
-  done, reopen, retitle    Update task status or display title
-  close-run               Reconcile an interrupted execution
-  migrate                 Import an old task folder without changing the original
-
-Compatibility:
-  task, workflow          Aliases for this same task interface
-  legacy                  Explicit access to the old global hook installer and task tools
-
-Use token-kit COMMAND --help for command options.
-"""
 
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if not args or args[0] in ("-h", "--help"):
-        print(HELP)
-        return 0
-    command = args[0]
-    if command in ("task", "workflow"):
-        return main(args[1:])
-    if command in ("install", "init", "uninstall"):
-        from .project_install import main as install
-        return install(args)
-    if command == "legacy":
+    if args and args[0] == "legacy":
         from .cli import legacy_main
         return legacy_main(args[1:])
-    if command in ("hook", "config", "census", "probe", "prompts"):
-        # Existing installed utility/hook shims still call these paths.
+    if args and args[0] in ("hook", "config", "census", "probe", "prompts"):
+        # Captured global hook shims remain resolvable until explicit cleanup.
         from .cli import legacy_main
         return legacy_main(args)
-    from .workflow import main as workflow
-    return workflow(args)
+    if args and args[0] in ("install", "init", "uninstall"):
+        import argparse
+        from pathlib import Path
+        from .simple_install import preview
+        import json
+        parser = argparse.ArgumentParser(prog="token-kit " + args[0])
+        parser.add_argument("--project", type=Path, default=Path.cwd())
+        parser.add_argument("--dry-run", action="store_true")
+        parser.add_argument("--engine", choices=("both", "claude", "codex"), default="both")
+        parsed = parser.parse_args(args[1:])
+        if not parsed.dry_run:
+            print("Token Kit needs no project install. Existing configuration cleanup is release-specific; use --dry-run to inspect owned guidance without changing it.", file=sys.stderr)
+            return 2
+        print(json.dumps(preview(parsed.project).as_dict(), indent=2))
+        return 0
+    from .simple_cli import main as launch
+    return launch(args)
 
 
 if __name__ == "__main__":
