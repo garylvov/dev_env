@@ -180,11 +180,16 @@ def select_task(args) -> Path:
     if args.task is not None:
         return args.task
     words = args.words
-    if len(words) == 1:
-        candidate = Path(words[0]).expanduser()
-        if candidate.is_dir():
-            return candidate
+    candidate = Path(words[0]).expanduser() if len(words) == 1 else None
+    # A bare name is a search query, even when a project directory shares it.
+    explicit_path = len(words) == 1 and ("/" in words[0] or words[0] in (".", "..") or words[0].startswith("~"))
+    if explicit_path:
+        if not candidate.is_dir():
+            raise ValueError(f"Task folder does not exist: {candidate}")
+        return candidate
     rows = task_candidates(args.root, words, max(1, args.limit))
+    if not rows and candidate is not None and candidate.is_dir():
+        return candidate
     if not rows:
         raise ValueError("No matching task. Use token-kit run \"Title\" to create one.")
     if args.select is not None:

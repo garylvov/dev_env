@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -73,6 +74,24 @@ class CLITests(unittest.TestCase):
         code, out, err = self.call('continue', 'parser', '--root', self.tasks)
         self.assertEqual(code, 2)
         self.assertIn('--select', err)
+
+    def test_bare_query_beats_same_named_project_directory(self):
+        task = self.create('Finish retread')
+        (self.work / 'retread').mkdir()
+        previous = Path.cwd()
+        try:
+            os.chdir(self.work)
+            args = cli.parser_for('continue').parse_args(['retread', '--root', str(self.tasks)])
+            self.assertEqual(cli.select_task(args), task)
+            args.words = ['./retread']
+            self.assertEqual(cli.select_task(args).resolve(), self.work / 'retread')
+            args.words = ['retr ead']
+            self.assertEqual(cli.select_task(args), task)
+            args.words = ['./missing']
+            with self.assertRaisesRegex(ValueError, 'does not exist'):
+                cli.select_task(args)
+        finally:
+            os.chdir(previous)
 
     def test_run_task_is_resume_alias(self):
         task = self.create()
