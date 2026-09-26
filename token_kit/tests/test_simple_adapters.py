@@ -131,6 +131,16 @@ class SimpleAdaptersTest(unittest.TestCase):
             plan = self.prepare(engine='codex')
         self.assertNotIn('--enable', plan.argv)
         self.assertIn('preserved', plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])
+
+    def test_nonoverlapping_policy_hook_does_not_disable_rollover(self):
+        config = self.root/'.codex/config.toml'
+        config.parent.mkdir()
+        body = '[hooks]\nPreToolUse = [{ hooks = [{ type = "command", command = "site-policy" }] }]\n'
+        config.write_text(body)
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            plan = self.prepare(engine='codex')
+        self.assertIn('--no-daemon', plan.argv)
+        self.assertFalse(any('hooks.PreToolUse=' in arg for arg in plan.argv))
         self.assertEqual(config.read_text(), body)
 
     def test_idle_guidance_and_explicit_codex_prompt(self):

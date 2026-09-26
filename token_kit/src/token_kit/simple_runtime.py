@@ -170,6 +170,11 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['valid_usage'] = True
             control['context_tokens'] = used
         output = {}
+        if event == 'UserPromptSubmit' and not control.get('guidance_presented'):
+            guidance = os.environ.get('TOKEN_KIT_SIMPLE_GUIDANCE')
+            if guidance:
+                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': guidance}}
+                control['guidance_presented'] = True
         # Native children of unknown fate defer this segment's managed rollover.
         if control.get('children') or control.get('unknown_children'):
             control['degraded'] = 'Native workers are active; using native compaction until they stop'

@@ -328,6 +328,10 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
 
     include('Assignment', view.assignment)
     include('Working STATE (authoritative working path)', view.state)
+    if not _read(view.root, view.state, []).strip():
+        fallback = _inside(view.root, view.root / '.token-kit' / 'slots' / _component(agent) / 'state-snapshot.md')
+        if fallback.is_file():
+            include('Previous saved STATE fallback; working notes are missing or empty', fallback)
     if view.alternate_state:
         other = _read(view.root, view.alternate_state, diagnostics)
         current = _read(view.root, view.state, diagnostics)

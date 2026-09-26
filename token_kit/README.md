@@ -35,7 +35,7 @@ text; explicit user instructions take precedence.
 ## Rollover
 
 The default threshold is 80% of the known context window, with unlimited successful
-rollovers. A finite restart limit is optional. `--rollover off` disables all automatic
+rollovers. A finite restart limit is optional. `--no-rollover` disables all automatic
 restarts. Normal completion, manual interruption, and arbitrary errors do not restart.
 
 Before rollover, the client is asked to save current notes. After verifying that the
@@ -44,6 +44,11 @@ Missing fresh notes produce a recovery limitation, not a checkpoint requirement.
 If the client cannot provide trustworthy context and safe-stop events, the launcher
 reports that automatic rollover is unavailable. Native worker compaction remains
 available; a child event never authorizes restarting its parent.
+
+Codex configurations with overlapping existing hook arrays retain those hooks and
+use native compaction until managed hooks can be combined without replacing policy.
+An active session without working rollover hooks must be stopped normally before
+`continue` can launch a fresh session. Saved folders remain usable throughout.
 
 Process ownership checks prevent overlapping launches. They do not judge whether
 results are complete or correct. Check uncertain external operations before retrying

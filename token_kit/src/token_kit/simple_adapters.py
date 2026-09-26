@@ -92,7 +92,7 @@ def _legacy_conflicts(workspace: Path, engine: str, env: dict[str, str]) -> list
 
 
 def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
-    """Any existing hook table makes session flag replacement unsafe.
+    """Overlapping hook arrays make session flag replacement unsafe.
 
     Include nested profile tables. Do not attempt to reproduce client merging or
     overwrite site/user policy hooks with an incomplete effective-config snapshot.
@@ -101,9 +101,16 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
     result = []
     paths = _settings_paths(workspace, "codex", env)
     paths.extend((Path("/etc/codex/config.toml"), Path("/etc/codex/requirements.toml")))
+    controlled = {'sessionstart', 'userpromptsubmit', 'posttooluse', 'stop',
+                  'subagentstart', 'subagentstop', 'precompact'}
     def has_hooks(value):
         if isinstance(value, dict):
-            return bool(value.get("hooks")) or any(has_hooks(item) for item in value.values())
+            hooks = value.get('hooks', {})
+            if hooks and not isinstance(hooks, dict):
+                return True
+            overlap = any(re.sub(r'[^a-z]', '', str(key).lower()) in controlled and groups
+                          for key, groups in hooks.items())
+            return overlap or any(has_hooks(item) for key, item in value.items() if key != 'hooks')
         if isinstance(value, list):
             return any(has_hooks(item) for item in value)
         return False
@@ -126,7 +133,10 @@ def folder_guidance(view: TaskView) -> str:
             "Keep useful continuation notes in " + str(view.state.resolve()) +
             "; save results in " + str(view.output.resolve()) + ". "
             "These are ordinary editable files; no registration, completion command, "
-            "or folder closure is required. Follow the user's instructions and site rules.")
+            "checkpoint command, fixed STATE format or folder closure is required. "
+            "This supersedes older generated Token Kit workflow rules, not user or site instructions. "
+            "Record the user's objective in the assignment file when useful; a session title is only a label." +
+            (" Optional task preferences: " + str(view.preferences) if view.preferences else ""))
 
 
 def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,

@@ -219,6 +219,7 @@ p.write_text(json.dumps(s))
         files = types.ModuleType('token_kit.task_files')
         files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state', message_ids=('message-1',))
         files.save_settings = lambda *a, **k: None
+        files.has_work_context = lambda *a, **k: True
         files.mark_messages_presented = lambda *a, **k: marked.append(a[1]) if marked is not None else None
         adapters = types.ModuleType('token_kit.simple_adapters')
         adapters.prepare = prepare
@@ -248,6 +249,7 @@ p.write_text(json.dumps(s))
     def test_prepare_failure_allows_corrected_configuration_retry(self):
         files = types.ModuleType('token_kit.task_files')
         files.recovery_input = lambda *a, **k: RecoveryInput('notes')
+        files.has_work_context = lambda *a, **k: True
         files.save_settings = lambda *a, **k: None
         files.mark_messages_presented = lambda *a, **k: None
         adapters = types.ModuleType('token_kit.simple_adapters')

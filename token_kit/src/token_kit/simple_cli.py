@@ -72,6 +72,8 @@ def _launch_options(parser):
     parser.add_argument("--context-window", type=_window, default=argparse.SUPPRESS)
     parser.add_argument("--dry-run", "--print", dest="preview", action="store_true")
     parser.add_argument("--prompt")
+    parser.add_argument("--non-interactive", action="store_true", default=argparse.SUPPRESS,
+                        help=argparse.SUPPRESS)
 
 
 def parser_for(command: str):
@@ -110,6 +112,8 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
         # Provider-specific choices cannot be silently translated.
         values.pop("model", None)
         values.pop("effort", None)
+        values.pop("context_window", None)
+        values["yolo"] = False
     supplied = vars(args)
     if supplied.get("rollover", "absent") is None and supplied.get("max_rollovers") not in (None, 0):
         raise ValueError("--no-rollover cannot be combined with a positive restart limit")
@@ -199,14 +203,11 @@ def select_task(args) -> Path:
 
 
 def _preview(view, options, prompt):
-    from .simple_adapters import prepare
-    # A rollback recipe uses native launch without Token Kit hooks or ownership.
-    native = replace(options, rollover=None, max_rollovers=0)
-    plan = prepare(view, native, prompt, view.root / ".token-kit" / "preview")
+    from .simple_recovery import native_recipe
     print(json.dumps({"task": str(view.root), "workspace": str(view.workspace) if view.workspace else None,
                       "state": str(view.state), "assignment": str(view.assignment),
-                      "settings": asdict(options), "native_recovery": {"argv": list(plan.argv),
-                      "cwd": str(plan.cwd)}, "note": "Preview only; no files written or clients launched."}, indent=2))
+                      "settings": asdict(options), "native_recovery": native_recipe(view, options),
+                      "note": "Preview only; no files written or clients launched."}, indent=2))
 
 
 def _launch(args, path: Path | None, *, create=False, only_create=False):
@@ -234,7 +235,7 @@ def _launch(args, path: Path | None, *, create=False, only_create=False):
         raise ValueError("Workspace is unavailable; supply --workspace PATH")
     if args.prompt:
         prompt = args.prompt
-    elif create:
+    elif create or not args.preview:
         prompt = None
     else:
         prompt = recovery_input(view, agent=args.agent).text or None

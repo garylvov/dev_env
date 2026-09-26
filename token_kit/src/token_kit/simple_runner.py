@@ -42,7 +42,7 @@ def _observe(path, notices):
 
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
-    from .task_files import recovery_input, save_settings, mark_messages_presented
+    from .task_files import recovery_input, save_settings, mark_messages_presented, has_work_context
     from .simple_adapters import prepare
     slot = Slot(view.root, agent).acquire(resume=resume)
     completed = 0
@@ -50,9 +50,11 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     next_prompt = prompt
     pending_ids = ()
     try:
-        if resume and next_prompt is None:
+        if resume:
             recovered = recovery_input(view, agent=agent)
-            next_prompt = recovered.text or None
+            next_prompt = recovered.text if has_work_context(view, agent=agent) else None
+            if prompt:
+                next_prompt = ((next_prompt + '\n\n') if next_prompt else '') + 'Current user request:\n' + prompt
             pending_ids = recovered.message_ids
         save_settings(view, asdict(options))
         while True:
@@ -63,6 +65,11 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             try:
                 run = slot.claim(options.engine)
                 plan = prepare(view, effective, next_prompt, run, agent=agent)
+                try:
+                    from .simple_recovery import native_recipe
+                    write(slot.directory / 'native-recovery.json', native_recipe(view, options, agent))
+                except (OSError, ValueError) as error:
+                    print(f'Token Kit: native recovery recipe unavailable: {error}', file=sys.stderr)
                 environment = {key: value for key, value in os.environ.items()
                                if not key.startswith('TOKEN_KIT_')}
                 environment.update(plan.env)
@@ -164,8 +171,18 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 rollover = not continuing
             # Include notes written during shutdown. Snapshot never overwrites live files.
             try:
+                if view.state.is_file():
+                    with view.state.open('rb') as source:
+                        saved_state = source.read(65_537)
+                    if saved_state.strip():
+                        from .core.store import atomic_bytes
+                        from .simple_process import safe
+                        snapshot = safe(view.root, slot.directory / 'state-snapshot.md')
+                        atomic_bytes(snapshot, saved_state[:65_536])
                 recovery = recovery_input(view, agent=agent, mark_presented=False)
                 (run / 'handoff.md').write_text(recovery.text)
+                from .simple_recovery import native_recipe
+                write(slot.directory / 'native-recovery.json', native_recipe(view, options, agent))
             except (OSError, ValueError) as error:
                 print(f'Token Kit: handoff snapshot unavailable: {error}', file=sys.stderr)
             slot.publish(status='exited', exit_code=child.returncode)
@@ -179,7 +196,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 return 1
             completed += 1
             recovered = recovery_input(view, agent=agent)
-            next_prompt = recovered.text or None
+            next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             pending_ids = recovered.message_ids
     finally:
         slot.close()

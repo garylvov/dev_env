@@ -80,6 +80,7 @@ class CLITests(unittest.TestCase):
             code, out, err = self.call('run', '--task', task)
         self.assertEqual(code, 0, err)
         self.assertTrue(run.call_args.kwargs['resume'])
+        self.assertIsNone(run.call_args.kwargs['prompt'])
         self.assertEqual(len(list(self.tasks.iterdir())), 1)
 
     def test_default_and_explicit_settings(self):
@@ -100,6 +101,9 @@ class CLITests(unittest.TestCase):
         self.assertIsNone(options.model)
         self.assertIsNone(options.effort)
         self.assertFalse(options.yolo)
+        switched = cli.resolve_options(args, {'engine': 'claude', 'yolo': True, 'context_window': 123})
+        self.assertFalse(switched.yolo)
+        self.assertIsNone(switched.context_window)
 
     def test_saved_zero_and_explicit_unlimited(self):
         args = cli.parser_for('continue').parse_args(['X'])
