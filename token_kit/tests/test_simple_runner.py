@@ -245,6 +245,30 @@ p.write_text(json.dumps(s))
         self.assertTrue(marked)
         self.assertTrue(all(ids == ('message-1',) for ids in marked))
 
+    def test_prepare_failure_allows_corrected_configuration_retry(self):
+        files = types.ModuleType('token_kit.task_files')
+        files.recovery_input = lambda *a, **k: RecoveryInput('notes')
+        files.save_settings = lambda *a, **k: None
+        files.mark_messages_presented = lambda *a, **k: None
+        adapters = types.ModuleType('token_kit.simple_adapters')
+        def broken(*args, **kwargs):
+            raise ValueError('Unsupported launch flag')
+        adapters.prepare = broken
+        with patch.dict(sys.modules, {'token_kit.task_files': files, 'token_kit.simple_adapters': adapters}):
+            with self.assertRaisesRegex(ValueError, 'Unsupported'):
+                run_session(self.view, LaunchOptions())
+        code, launched = self._run_fake(cap=0)
+        self.assertEqual(code, 0)
+
+    def test_definite_spawn_failure_allows_retry(self):
+        slot = Slot(self.root, 'coordinator').acquire()
+        slot.claim('claude')
+        with self.assertRaises(FileNotFoundError):
+            slot.spawn([sys.executable, '-c', 'pass'], self.root / 'missing', dict(os.environ))
+        slot.close()
+        successor = Slot(self.root, 'coordinator').acquire()
+        successor.close()
+
     def test_three_plain_rollovers_then_normal_exit(self):
         code, launched = self._run_fake()
         self.assertEqual(code, 0)

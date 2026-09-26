@@ -42,11 +42,12 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             pending_ids = recovered.message_ids
         save_settings(view, asdict(options))
         while True:
-            run = slot.claim(options.engine)
             effective = options
             if options.max_rollovers is not None and completed >= options.max_rollovers:
                 effective = replace(options, rollover=None)
+            launch_started = False
             try:
+                run = slot.claim(options.engine)
                 plan = prepare(view, effective, next_prompt, run, agent=agent)
                 environment = {key: value for key, value in os.environ.items()
                                if not key.startswith('TOKEN_KIT_')}
@@ -63,9 +64,13 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         notices.add(diagnostic)
                 simple_runtime.initialize(run, effective,
                        environment.get('TOKEN_KIT_SIMPLE_SESSION_ID'), view.state)
+                launch_started = True
                 child = slot.spawn(plan.argv, plan.cwd, environment)
             except Exception:
-                # A failed spawn/publication may be uncertain. Never erase its claim.
+                # Before spawn, no client can exist. Corrected configuration
+                # must be immediately retryable; only actual spawn uncertainty persists.
+                if not launch_started and slot.record:
+                    slot.publish(status='exited', exit_code=1)
                 raise
             started_at = time.monotonic()
             rollover = False

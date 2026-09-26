@@ -188,6 +188,7 @@ class Slot:
 
     def spawn(self, argv, cwd, env):
         incoming, release = os.pipe()
+        child = None
         try:
             child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
                                       str(incoming), *argv], cwd=cwd, env=env,
@@ -201,6 +202,10 @@ class Slot:
             write(self.root / '.token-kit' / 'runs' / self.record['run_id'] / 'process.json', self.record)
             os.write(release, b'1')
             return child
+        except Exception:
+            if child is None:
+                self.publish(status='exited', exit_code=1)
+            raise
         finally:
             if incoming >= 0:
                 os.close(incoming)
