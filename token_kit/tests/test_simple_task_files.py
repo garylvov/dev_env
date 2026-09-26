@@ -105,6 +105,19 @@ class TaskFilesTests(unittest.TestCase):
         self.assertEqual(load_settings(load_task(root))['model'], 'coordinator')
         self.assertEqual(load_settings(load_task(root, agent='editor'))['model'], 'editor')
 
+    def test_presentation_marks_only_captured_ids(self):
+        from token_kit.task_files import mark_messages_presented
+        view = self.plain()
+        messages = view.root / 'messages'
+        messages.mkdir()
+        def send(identifier):
+            (messages / (identifier + '.json')).write_text(json.dumps({'message_id': identifier, 'text': identifier}))
+        send('first')
+        captured = recovery_input(view)
+        send('later')
+        mark_messages_presented(view, captured.message_ids)
+        self.assertEqual(recovery_input(view).message_ids, ('later',))
+
     def test_root_messages_and_label_title(self):
         view = self.plain()
         (view.root / '.token-kit/labels.json').write_text(json.dumps({'title': 'Renamed', 'status': 'done'}))

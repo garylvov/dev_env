@@ -281,6 +281,23 @@ def _entries(root: Path, directory: Path, diagnostics: list[str]) -> list[Path]:
         return []
 
 
+def mark_messages_presented(view: TaskView, message_ids: tuple[str, ...], agent: str = 'coordinator') -> None:
+    """Record only the IDs captured in a prompt that was actually injected.
+
+    This records presentation attempted, not external execution or acknowledgment.
+    Call after the client handshake, never by rebuilding a later recovery bundle.
+    """
+    _component(agent)
+    if not message_ids:
+        return
+    if any(not isinstance(identifier, str) or not identifier for identifier in message_ids):
+        raise ValueError('Message IDs must be nonempty strings')
+    with _metadata(view) as metadata:
+        cursors = metadata.setdefault('presented_messages', {})
+        old_ids = cursors.get(agent, [])
+        cursors[agent] = sorted(set(old_ids) | set(message_ids))
+
+
 def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: bool = False) -> RecoveryInput:
     if agent != 'coordinator':
         view = load_task(view.root, view.workspace, agent)
@@ -367,10 +384,7 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
                     diagnostics.append(str(exc))
     if mark_presented and ids:
         try:
-            with _metadata(view) as metadata:
-                cursors = metadata.setdefault('presented_messages', {})
-                old_ids = cursors.get(agent, [])
-                cursors[agent] = sorted(set(old_ids) | set(ids))
+            mark_messages_presented(view, tuple(ids), agent)
         except (OSError, ValueError, TypeError) as exc:
             diagnostics.append(f'Presentation cursor could not be saved; messages may repeat: {exc}')
     return RecoveryInput('\n\n'.join(sections), tuple(paths), tuple(ids), tuple(diagnostics))
