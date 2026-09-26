@@ -96,13 +96,22 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         if nonce != control.get('run_id') or nonce != run.name:
             return {}
         expected = control.get('expected_session')
+        event = payload.get('hook_event_name')
         if control.get('engine') == 'codex':
             from token_kit.simple_adapters import codex_root_session
-            proven = codex_root_session(payload) if owned_hook_ancestry(run) else None
-            if not proven or (expected and expected != proven):
+            if not owned_hook_ancestry(run):
                 return {}
-            expected = proven
-            control['expected_session'] = proven
+            child_notice = (event in ('SubagentStart', 'SubagentStop') and
+                            control.get('armed') and expected and
+                            payload.get('session_id') == expected and
+                            not payload.get('parent_thread_id') and
+                            not payload.get('parent_session_id'))
+            if not child_notice:
+                proven = codex_root_session(payload)
+                if not proven or (expected and expected != proven):
+                    return {}
+                expected = proven
+                control['expected_session'] = proven
         # Unknown and child events never bind or control a parent. Environment
         # inheritance alone is not identity evidence.
         if not expected or payload.get('session_id') != expected:
@@ -129,7 +138,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['armed'] = True
         if not control.get('armed'):
             return {}
-        if event in ('PostToolUse', 'UserPromptSubmit'):
+        if event == 'PostToolUse' and control['phase'] == 'running':
             control['activity'] += 1
         sample = {}
         transcript = payload.get('transcript_path')
@@ -144,12 +153,12 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 sample = {}
         used = sample.get('context_tokens')
         window = control.get('context_window') or sample.get('context_window')
-        limit = control.get('threshold')
-        if isinstance(limit, str) and limit.endswith('%'):
-            limit = window * float(limit[:-1]) / 100 if window else None
-        elif isinstance(limit, str):
-            suffix = limit[-1:].lower()
-            limit = int(limit[:-1]) * {'k': 1000, 'm': 1000000}[suffix] if suffix in ('k', 'm') else int(limit)
+        from token_kit.rollover import effective_limit
+        try:
+            limit = (effective_limit(control['threshold'], window)
+                     if control.get('threshold') is not None else None)
+        except ValueError:
+            limit = None
         if event == 'Stop' and control.get('threshold') is not None and (used is None or limit is None):
             control['degraded'] = 'Current context usage/window unavailable; native compaction remains enabled'
         elif used is not None and limit is not None:

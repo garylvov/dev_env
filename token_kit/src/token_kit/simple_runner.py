@@ -28,15 +28,18 @@ def _stop(child, record, timeout=8):
 
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
-    from .task_files import recovery_input, save_settings
+    from .task_files import recovery_input, save_settings, mark_messages_presented
     from .simple_adapters import prepare
     slot = Slot(view.root, agent).acquire(resume=resume)
     completed = 0
     notices = set()
     next_prompt = prompt
+    pending_ids = ()
     try:
         if resume and next_prompt is None:
-            next_prompt = recovery_input(view, agent=agent, mark_presented=True).text or None
+            recovered = recovery_input(view, agent=agent)
+            next_prompt = recovered.text or None
+            pending_ids = recovered.message_ids
         save_settings(view, asdict(options))
         while True:
             run = slot.claim(options.engine)
@@ -64,12 +67,22 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             except Exception:
                 # A failed spawn/publication may be uncertain. Never erase its claim.
                 raise
+            started_at = time.monotonic()
             rollover = False
             continuing = False
             try:
                 while child.poll() is None:
                     control = read(run / 'control.json')
+                    if pending_ids and control.get('armed') and (control.get('valid_usage') or control.get('activity')):
+                        try:
+                            mark_messages_presented(view, pending_ids, agent=agent)
+                            pending_ids = ()
+                        except (OSError, ValueError) as error:
+                            print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
+                            pending_ids = ()  # leave persisted cursor unchanged, do not spam warnings
                     diagnostic = control.get('degraded')
+                    if effective.rollover is not None and not control.get('armed') and time.monotonic() - started_at >= 5:
+                        diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
                     if diagnostic and diagnostic not in notices:
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
@@ -95,7 +108,19 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 if child.poll() is not None:
                     slot.publish(status='exited', exit_code=child.returncode)
                 return 130
-            if child.returncode == 0 and read(run / 'control.json').get('phase') == 'ready':
+            final_control = read(run / 'control.json')
+            if effective.rollover is not None and not final_control.get('armed'):
+                diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
+                if diagnostic not in notices:
+                    print('Token Kit: ' + diagnostic, file=sys.stderr)
+                    notices.add(diagnostic)
+            if pending_ids and final_control.get('armed') and (final_control.get('valid_usage') or final_control.get('activity')):
+                try:
+                    mark_messages_presented(view, pending_ids, agent=agent)
+                    pending_ids = ()
+                except (OSError, ValueError) as error:
+                    print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
+            if child.returncode == 0 and final_control.get('phase') == 'ready':
                 rollover = not continuing
             # Include notes written during shutdown. Snapshot never overwrites live files.
             try:
@@ -113,6 +138,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 print('Token Kit: successor requested rollover without fresh activity and usage; stopped.', file=sys.stderr)
                 return 1
             completed += 1
-            next_prompt = recovery_input(view, agent=agent, mark_presented=True).text or None
+            recovered = recovery_input(view, agent=agent)
+            next_prompt = recovered.text or None
+            pending_ids = recovered.message_ids
     finally:
         slot.close()

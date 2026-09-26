@@ -147,7 +147,53 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         with self.assertRaisesRegex(ValueError, 'symlink'):
             Slot(self.root, 'coordinator')
 
-    def _run_fake(self, failures=False, cap=None):
+    def test_old_worker_anywhere_blocks_task_adoption(self):
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            import socket
+            write(self.root / 'agents/worker/runs/old/run.json', {
+                'status': 'running', 'host': socket.gethostname(),
+                'child_pid': child.pid, 'child_identity': identity(child.pid),
+                'supervisor_pid': os.getpid(), 'supervisor_identity': identity(os.getpid())})
+            with self.assertRaisesRegex(ValueError, 'Legacy client'):
+                Slot(self.root, 'coordinator').acquire()
+        finally:
+            child.terminate()
+            child.wait()
+
+    def test_prompt_and_handoff_tools_do_not_count_as_progress(self):
+        run = self.root / 'run'
+        run.mkdir()
+        initialize(run, LaunchOptions(rollover=100, context_window=100), 'parent', self.state)
+        base = {'session_id': 'parent'}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        handle(run, dict(base, hook_event_name='UserPromptSubmit'), run.name)
+        self.assertEqual(read(run / 'control.json')['activity'], 0)
+        transcript = self.root / 'transcript.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 81}}}) + '\n')
+        handle(run, dict(base, hook_event_name='Stop', transcript_path=str(transcript)), run.name)
+        self.assertEqual(read(run / 'control.json')['phase'], 'requested')  # absolute capped at 80%
+        handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+        self.assertEqual(read(run / 'control.json')['activity'], 0)
+
+    def test_codex_child_notices_observed_after_parent_proof(self):
+        run = self.root / 'run'
+        run.mkdir()
+        initialize(run, LaunchOptions(engine='codex'), 'parent', self.state)
+        current = read(run / 'control.json')
+        current['armed'] = True
+        write(run / 'control.json', current)
+        adapters = types.ModuleType('token_kit.simple_adapters')
+        adapters.codex_root_session = lambda payload: None if payload.get('agent_id') else 'parent'
+        with patch.dict(sys.modules, {'token_kit.simple_adapters': adapters}), patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True):
+            handle(run, {'session_id': 'parent', 'agent_id': 'worker', 'hook_event_name': 'SubagentStart'}, run.name)
+            self.assertEqual(read(run / 'control.json')['children'], ['worker'])
+            handle(run, {'session_id': 'parent', 'hook_event_name': 'PreCompact'}, run.name)
+            self.assertEqual(read(run / 'control.json')['phase'], 'running')
+            handle(run, {'session_id': 'child', 'agent_id': 'worker', 'hook_event_name': 'SubagentStop'}, run.name)
+            self.assertEqual(read(run / 'control.json')['children'], ['worker'])
+
+    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False):
         launched = []
         def prepare(view, options, prompt, run, agent='coordinator'):
             launched.append((options, prompt))
@@ -160,6 +206,10 @@ s = json.loads(p.read_text())
 s.update(phase='ready', activity=1, valid_usage=True)
 p.write_text(json.dumps(s))
 '''
+            if no_progress:
+                script = script.replace('activity=1', 'activity=0')
+            if not failures:
+                script = script.replace("phase='ready'", "armed=True, phase='ready'")
             if not action:
                 script = 'pass'
             if failures:
@@ -167,13 +217,33 @@ p.write_text(json.dumps(s))
             return types.SimpleNamespace(argv=(sys.executable, '-c', script), cwd=self.root,
                                          env={'TOKEN_KIT_SIMPLE_SESSION_ID': 'parent'})
         files = types.ModuleType('token_kit.task_files')
-        files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state')
+        files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state', message_ids=('message-1',))
         files.save_settings = lambda *a, **k: None
+        files.mark_messages_presented = lambda *a, **k: marked.append(a[1]) if marked is not None else None
         adapters = types.ModuleType('token_kit.simple_adapters')
         adapters.prepare = prepare
         with patch.dict(sys.modules, {'token_kit.task_files': files, 'token_kit.simple_adapters': adapters}):
-            code = run_session(self.view, LaunchOptions(max_rollovers=cap))
+            code = run_session(self.view, LaunchOptions(max_rollovers=cap), resume=resume)
         return code, launched
+
+    def test_startup_failure_leaves_steering_pending(self):
+        marked = []
+        code, launched = self._run_fake(failures=True, resume=True, marked=marked)
+        self.assertEqual(code, 7)
+        self.assertIn('Latest plain state', launched[0][1])
+        self.assertEqual(marked, [])
+
+    def test_repeated_initial_context_rollover_stops_without_progress(self):
+        code, launched = self._run_fake(no_progress=True)
+        self.assertEqual(code, 1)
+        self.assertEqual(len(launched), 2)
+
+    def test_only_injected_message_ids_marked_after_activity(self):
+        marked = []
+        code, launched = self._run_fake(resume=True, marked=marked)
+        self.assertEqual(code, 0)
+        self.assertTrue(marked)
+        self.assertTrue(all(ids == ('message-1',) for ids in marked))
 
     def test_three_plain_rollovers_then_normal_exit(self):
         code, launched = self._run_fake()

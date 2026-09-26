@@ -130,11 +130,36 @@ class Slot:
                 raise ValueError('Previous client is alive or its launch outcome is uncertain; no duplicate launched')
             # Audit legacy processes only on task admission. Parsed lifecycle is irrelevant.
             with locked(safe(self.root, self.root / '.lock')):
-                for path in (self.root / 'agents' / self.agent / 'runs').glob('*/run.json'):
-                    old = read(path)
-                    if old.get('status') in ('starting', 'running', 'interrupted'):
-                        if not dead(old, 'child'):
-                            raise ValueError('Legacy client may still be running; continue with its original launcher')
+                agents = safe(self.root, self.root / 'agents')
+                entries = 0
+                if agents.is_dir():
+                    for directory in agents.iterdir():
+                        if not directory.is_dir():
+                            continue
+                        runs = safe(self.root, directory / 'runs')
+                        if not runs.is_dir():
+                            continue
+                        for run in runs.iterdir():
+                            entries += 1
+                            if entries > 10000:
+                                raise ValueError('Legacy process inventory exceeds bounded admission check')
+                            path = safe(self.root, run / 'run.json')
+                            if not path.exists():
+                                continue
+                            if path.stat().st_size > 65536:
+                                raise ValueError('Legacy process record too large to establish ownership')
+                            old = read(path)
+                            if not isinstance(old, dict):
+                                raise ValueError('Malformed legacy process record; ownership uncertain')
+                            # Other simple slots own their own process locks. Old
+                            # supervisors anywhere in this task share the EX fence.
+                            if old.get('simple_launcher'):
+                                continue
+                            if old.get('status') not in ('starting', 'running', 'interrupted', 'exited', 'reconciled'):
+                                raise ValueError('Unrecognized legacy process record; ownership uncertain')
+                            if old.get('status') in ('starting', 'running', 'interrupted'):
+                                if not dead(old, 'child') or not dead(old, 'supervisor'):
+                                    raise ValueError('Legacy client or supervisor may still be running; continue with its original launcher')
             return self
         except Exception:
             self.close()
