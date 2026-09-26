@@ -133,7 +133,10 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     preferences = next((_inside(root, root / name) for name in ('preferences.md', 'trigger_pyramid.md') if (root / name).is_file()), None)
     state_text = _read(root, state, diagnostics) if state.exists() else ''
     legacy_cwd = re.search(r'^Cwd:\s*(.+)$', state_text, re.MULTILINE)
-    candidates = [workspace] if workspace is not None else [new.get('workspace'), old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None]
+    per_agent = new.get('agent_settings', {})
+    selected_metadata = per_agent.get(agent, {}) if isinstance(per_agent, dict) else {}
+    worker_workspace = selected_metadata.get('workspace') if isinstance(selected_metadata, dict) and agent != 'coordinator' else None
+    candidates = [workspace] if workspace is not None else [worker_workspace, new.get('workspace'), old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None]
     resolved_workspace = None
     for candidate in candidates:
         if not isinstance(candidate, (str, Path)) or not str(candidate).strip():
@@ -204,6 +207,8 @@ def save_settings(view: TaskView, settings: dict, *, agent: str | None = None) -
     selected = _component(agent) if agent is not None else _view_agent(view)
     with _metadata(view) as metadata:
         container = metadata if selected == 'coordinator' else metadata.setdefault('agent_settings', {}).setdefault(selected, {})
+        if view.workspace is not None:
+            container['workspace'] = str(view.workspace.expanduser().resolve())
         previous = container.get('settings', {})
         container['settings'] = {**(previous if isinstance(previous, dict) else {}), **settings}
 
@@ -258,7 +263,7 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:64] or 'session'
     path = root / f'{slug}_{datetime.now():%Y%m%d_%H%M}_{uuid.uuid4().hex[:8]}'
     path.mkdir()
-    (path / 'task.md').write_text((assignment if assignment is not None else title) + '\n')
+    (path / 'task.md').write_text(assignment + '\n' if assignment is not None else '')
     (path / 'STATE.md').write_text('')
     view = load_task(path, workspace)
     with _metadata(view) as metadata:
@@ -388,3 +393,25 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
         except (OSError, ValueError, TypeError) as exc:
             diagnostics.append(f'Presentation cursor could not be saved; messages may repeat: {exc}')
     return RecoveryInput('\n\n'.join(sections), tuple(paths), tuple(ids), tuple(diagnostics))
+
+
+def has_work_context(view: TaskView, agent: str = 'coordinator') -> bool:
+    """Whether readable work exists, excluding labels, preferences and guidance."""
+    selected = _view_agent(view) if agent == 'coordinator' else _component(agent)
+    recovery = recovery_input(view, agent=selected)
+    for path in recovery.paths:
+        if path == view.preferences:
+            continue
+        if path.suffix == '.json':
+            if path.stem not in recovery.message_ids:
+                continue
+            message = _json(view.root, path, [])
+            # Lifecycle notices alone are not objectives for another paid turn.
+            if message.get('source') == 'worker_lifecycle':
+                continue
+            text = message.get('text')
+            if isinstance(text, str) and _strip_wrapper(text).strip():
+                return True
+        elif _strip_wrapper(_read(view.root, path, [])).strip():
+            return True
+    return False

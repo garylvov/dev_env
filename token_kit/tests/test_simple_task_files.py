@@ -118,6 +118,43 @@ class TaskFilesTests(unittest.TestCase):
         mark_messages_presented(view, captured.message_ids)
         self.assertEqual(recovery_input(view).message_ids, ('later',))
 
+    def test_workspace_overrides_roundtrip_per_agent(self):
+        view = self.plain()
+        coordinator_workspace = self.root / 'coordinator-work'
+        worker_workspace = self.root / 'worker-work'
+        coordinator_workspace.mkdir()
+        worker_workspace.mkdir()
+        overridden = load_task(view.root, workspace=coordinator_workspace)
+        save_settings(overridden, {'model': 'coordinator'})
+        self.assertEqual(load_task(view.root).workspace, coordinator_workspace)
+        worker = load_task(view.root, workspace=worker_workspace, agent='editor')
+        save_settings(worker, {'model': 'worker'})
+        self.assertEqual(load_task(view.root, agent='editor').workspace, worker_workspace)
+        self.assertEqual(load_task(view.root).workspace, coordinator_workspace)
+
+    def test_title_only_is_idle_until_work_exists(self):
+        from token_kit.task_files import has_work_context
+        view = create_task(self.root / 'tasks', 'A label, not an objective', self.workspace)
+        self.assertEqual(view.assignment.read_text(), '')
+        self.assertFalse(has_work_context(view))
+        (view.root / 'preferences.md').write_text('Use my chosen model')
+        view = load_task(view.root)
+        self.assertFalse(has_work_context(view))
+        view.state.write_text('Actual progress and next work')
+        self.assertTrue(has_work_context(view))
+        view.state.write_text('')
+        messages = view.root / 'messages'
+        messages.mkdir()
+        (messages / 'steer.json').write_text(json.dumps({'message_id': 'steer', 'text': 'Implement the requested change'}))
+        self.assertTrue(has_work_context(view))
+        from token_kit.task_files import mark_messages_presented
+        mark_messages_presented(view, ('steer',))
+        self.assertFalse(has_work_context(view))
+        child = view.root / 'agents/editor'
+        child.mkdir(parents=True)
+        (child / 'out.md').write_text('Result worth reviewing')
+        self.assertTrue(has_work_context(view))
+
     def test_root_messages_and_label_title(self):
         view = self.plain()
         (view.root / '.token-kit/labels.json').write_text(json.dumps({'title': 'Renamed', 'status': 'done'}))
