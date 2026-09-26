@@ -16,8 +16,9 @@ import tempfile
 
 from . import project_install as legacy
 from .manifest import Manifest
+from .simple_guidance import CONCURRENCY
 
-INSTRUCTIONS = """Token Kit keeps work in plain task folders and can roll over managed sessions.
+_PREVIOUS_SIMPLE_INSTRUCTIONS = """Token Kit keeps work in plain task folders and can roll over managed sessions.
 Read task.md (or in.md), STATE.md, and any user preferences before continuing.
 Write useful progress and next steps in STATE.md; use any format and length.
 Save results in out.md or artifacts/ when useful. Worker folders are optional.
@@ -25,6 +26,9 @@ Before rollover, save enough context for the next session to continue.
 Check uncertain external outcomes before repeating those operations.
 Follow user and site permissions. Token Kit notes do not grant extra authority.
 """
+INSTRUCTIONS = """Read task.md/in.md, STATE.md and user preferences. Save useful progress and rollover context in STATE.md, with results in out.md or artifacts/. Formats and worker folders are optional. Check uncertain outcomes before retrying.
+
+""" + CONCURRENCY + '\n'
 
 
 @dataclass(frozen=True)
@@ -144,7 +148,8 @@ def preview(project: Path | None = None, *, settings: Path | None = None,
             if text.count(start) != 1 or text.count(end) != 1:
                 raise legacy.InstallConflict(f"Ambiguous Token Kit markers: {path}")
             left, right = text.index(start), text.index(end) + len(end)
-            known = {_block(v) for v in (*legacy._LEGACY_INSTRUCTION_VERSIONS, legacy.INSTRUCTIONS, INSTRUCTIONS)}
+            known = {_block(v) for v in (*legacy._LEGACY_INSTRUCTION_VERSIONS, legacy.INSTRUCTIONS,
+                                        _PREVIOUS_SIMPLE_INSTRUCTIONS, INSTRUCTIONS)}
             if right <= left or text[left:right] not in known:
                 raise legacy.InstallConflict(f"Customized Token Kit guidance preserved: {path}")
             after = text[:left] + block + text[right:]

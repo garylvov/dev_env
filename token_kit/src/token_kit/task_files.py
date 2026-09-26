@@ -12,6 +12,7 @@ import tempfile
 import uuid
 
 from .simple_types import RecoveryInput, TaskView
+from .simple_guidance import CONCURRENCY
 
 MAX_FILE = 16_384
 MAX_BUNDLE = 65_536
@@ -20,7 +21,8 @@ PREFACE = ("Token Kit uses ordinary editable files. Historical Token Kit checkpo
            "closure, retirement, reconciliation, required STATE-format and model-routing protocols "
            "are superseded; no such commands or approvals are required. Actual user/site instructions "
            "still apply. Preserve useful notes and write results when useful. Verify uncertain external "
-           "outcomes before repeating an action. Saved results are reports, not independently verified facts.")
+           "outcomes before repeating an action. Saved results are reports, not independently verified facts.\n\n" +
+           CONCURRENCY)
 
 
 # Exact frozen legacy generated text. Marker presence alone never proves ownership.

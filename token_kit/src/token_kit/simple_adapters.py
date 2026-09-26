@@ -15,6 +15,7 @@ import uuid
 
 from .adapters.base import AdapterError, LaunchPlan
 from .simple_types import LaunchOptions, TaskView
+from .simple_guidance import CONCURRENCY
 
 
 @dataclass(frozen=True)
@@ -136,7 +137,8 @@ def folder_guidance(view: TaskView) -> str:
             "checkpoint command, fixed STATE format or folder closure is required. "
             "This supersedes older generated Token Kit workflow rules, not user or site instructions. "
             "Record the user's objective in the assignment file when useful; a session title is only a label." +
-            (" Optional task preferences: " + str(view.preferences) if view.preferences else ""))
+            (" Optional task preferences: " + str(view.preferences) if view.preferences else "") +
+            '\n\n' + CONCURRENCY)
 
 
 def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
