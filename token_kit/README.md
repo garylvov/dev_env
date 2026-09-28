@@ -14,6 +14,29 @@ Use the candidate `token-kit run` to start, `token-kit continue` to continue, or
 `resume` spelling remains read-only; use `continue` to launch a session.
 Run `token-kit --help` for exact arguments.
 
+Start a new Codex task with automatic rollover at 80% context:
+
+```bash
+token-kit run "My new task" --engine codex --rollover-perc 80
+```
+
+This opens an idle session in your current workspace; tell the agent what to do.
+To start work immediately, include an assignment:
+
+```bash
+token-kit run "Fix parser" --engine codex --rollover-perc 80 --prompt "Investigate and fix the parser failure"
+```
+
+Continue an existing task by name with the same explicit settings:
+
+```bash
+token-kit continue retread --engine codex --rollover-perc 80
+```
+
+If several tasks match, choose one from the list. New tasks default to Claude when
+`--engine` is omitted; use `--engine claude` explicitly if preferred. New tasks
+default to 80% rollover, while continuation reuses saved settings unless overridden.
+
 Plain launch does not require project installation. Client trust and permissions
 remain in effect; Token Kit does not enable `--yolo` automatically.
 
