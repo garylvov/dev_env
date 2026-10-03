@@ -63,8 +63,9 @@ def _settings_paths(workspace: Path, engine: str, env: dict[str, str]) -> list[P
         paths.append(Path("/etc/claude-code/managed-settings.json"))
     else:
         home = Path(env.get("CODEX_HOME", str(Path(env.get("HOME", "~")).expanduser() / ".codex")))
-        paths = [home / "config.toml"]
-        paths.extend(directory / ".codex/config.toml" for directory in (workspace, *workspace.parents))
+        paths = [home / "config.toml", home / "hooks.json"]
+        for directory in (workspace, *workspace.parents):
+            paths.extend((directory / ".codex/config.toml", directory / ".codex/hooks.json"))
     return list(dict.fromkeys(paths))
 
 
@@ -121,6 +122,12 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
         try:
             if path.stat().st_size > 2_000_000:
                 result.append(str(path))
+            elif path.suffix == '.json':
+                # Codex 0.159.0 empirically appends hooks.json hooks to -c tables.
+                # Validate the file, but never copy these hooks into the override.
+                value = json.loads(path.read_text())
+                if not isinstance(value, dict) or not isinstance(value.get('hooks', {}), dict):
+                    result.append(str(path))
             elif has_hooks(tomllib.loads(path.read_text())):
                 result.append(str(path))
         except (OSError, ValueError):

@@ -23,7 +23,7 @@ HELP = """Token Kit — folders and automatic session rollover.
   token-kit status PATH              Show saved state paths
 
 Sessions start idle; --prompt TEXT starts work immediately.
-Rollover defaults to 80%, unlimited. --no-rollover disables automatic restarts.
+Rollover defaults to 60%, unlimited. --no-rollover disables automatic restarts.
 Use COMMAND --help for launch options. Files can be edited normally.
 """
 

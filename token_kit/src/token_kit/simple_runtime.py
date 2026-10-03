@@ -83,11 +83,13 @@ def owned_hook_ancestry(run: Path) -> bool:
     return False
 
 
-def initialize(run: Path, options, expected_session: str | None, state: Path):
+def initialize(run: Path, options, expected_session: str | None, state: Path,
+               assignment: Path | None = None, output: Path | None = None):
     write(run / 'control.json', {'run_id': run.name, 'engine': options.engine,
           'expected_session': expected_session, 'armed': False, 'phase': 'running',
           'threshold': options.rollover, 'context_window': options.context_window,
-          'state': str(state), 'children': [], 'activity': 0, 'valid_usage': False})
+          'state': str(state), 'assignment': str(assignment) if assignment else None,
+          'output': str(output or state), 'children': [], 'activity': 0, 'valid_usage': False})
 
 
 def handle(run: Path, payload: dict, nonce: str) -> dict:
@@ -188,9 +190,15 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 # Do not veto native compaction. Supervisor handles verified shutdown.
             elif crossed and control['phase'] == 'running' and event in ('PostToolUse', 'Stop'):
                 control['phase'] = 'requested'
-                note = ('Please briefly update ' + control['state'] +
-                        ' with useful context, remaining work, constraints, and uncertain external work. '
-                        'Use ordinary file edits; the launcher will handle the context rollover.')
+                percent = f"{used / window * 100:.0f}%" if window else f"{used} tokens"
+                note = (f"Context is at {percent}. Finish summarizing everything into the task folder now: "
+                        f"update {control.get('output') or control['state']} "
+                        "(state, what's done, what's next, open asks, decisions and dead ends) "
+                        f"and record any asks not yet in {control.get('assignment') or 'the assignment file'} "
+                        "verbatim with a date. "
+                        + (f"Also update continuation notes in {control['state']}. "
+                           if control.get('output') != control['state'] else "")
+                        + "Then stop; a fresh session will continue from the folder.")
                 output = ({'decision': 'block', 'reason': note} if event == 'Stop' else
                           {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}})
         write(run / 'control.json', control)

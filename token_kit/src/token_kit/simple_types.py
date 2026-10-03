@@ -25,7 +25,7 @@ class LaunchOptions:
     model: str | None = None
     effort: str | None = None
     yolo: bool = False
-    rollover: int | str | None = "80%"
+    rollover: int | str | None = "60%"
     max_rollovers: int | None = None
     context_window: int | None = None
     executable: str | None = None

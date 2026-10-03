@@ -84,7 +84,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
                 simple_runtime.initialize(run, effective,
-                       environment.get('TOKEN_KIT_SIMPLE_SESSION_ID'), view.state)
+                       environment.get('TOKEN_KIT_SIMPLE_SESSION_ID'), view.state,
+                       assignment=view.assignment, output=view.output)
                 launch_started = True
                 child = slot.spawn(plan.argv, plan.cwd, environment)
             except Exception:
