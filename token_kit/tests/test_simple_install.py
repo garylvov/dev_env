@@ -104,7 +104,7 @@ class SimpleInstallTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), original)
 
     def test_guidance_is_short_and_free_of_protocol(self):
-        self.assertLess(len(new.INSTRUCTIONS.split()), 250)
+        self.assertLess(len(new.INSTRUCTIONS.split()), 320)
         for forbidden in ['worker prepare', 'checkpoint', 'closure', 'five sections', '200 words', 'pyramid']:
             self.assertNotIn(forbidden, new.INSTRUCTIONS)
 

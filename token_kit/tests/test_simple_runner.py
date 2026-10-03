@@ -154,6 +154,38 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                         self.assertFalse(stopped['continue'])
                         self.assertEqual(read(run / 'control.json')['phase'], 'ready')
 
+    def test_managed_prompts_record_verbatim_and_skip_kickoff_for_both_engines(self):
+        for engine in ('claude', 'codex'):
+            with self.subTest(engine=engine):
+                run = self.root / (engine + '-prompts')
+                run.mkdir()
+                assignment = self.root / (engine + '_in.md')
+                assignment.write_text('# Objective\nFix it\n\n# Asks\n')
+                initialize(run, LaunchOptions(engine=engine), 'parent', self.state,
+                           assignment, self.state, kickoff_prompt='Token Kit successor kickoff')
+                base = {'session_id': 'parent'}
+                with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
+                     patch('token_kit.simple_adapters.codex_root_session', return_value='parent'):
+                    handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                    handle(run, dict(base, hook_event_name='UserPromptSubmit',
+                                     prompt='Token Kit successor kickoff'), run.name)
+                    ask = 'Please keep this exact.\n  Including whitespace and `$stuff`.'
+                    for _ in range(2):
+                        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=ask), run.name)
+                    text = assignment.read_text()
+                    self.assertNotIn('Token Kit successor kickoff', text)
+                    self.assertEqual(text.count(ask), 2)
+                    self.assertIn('1. [ ]', text)
+                    self.assertIn('2. [ ]', text)
+                    self.assertRegex(text, r'1\. \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2}')
+                    self.assertEqual(read(run / 'control.json')['last_ask'], 2)
+                    for _ in range(2):
+                        handle(run, dict(base, hook_event_name='UserPromptSubmit',
+                                         prompt='One ask with a replayed hook', prompt_id='unique'), run.name)
+                    self.assertEqual(assignment.read_text().count('One ask with a replayed hook'), 1)
+                    self.assertEqual(read(run / 'control.json')['last_ask'], 3)
+
+
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
         run.mkdir()

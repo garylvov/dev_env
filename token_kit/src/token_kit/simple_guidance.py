@@ -11,13 +11,17 @@ CONCURRENCY = (
 )
 
 TASK_RULES = (
-    "Read both task files at session start; re-read _in.md about every five minutes and whenever it changes.\n"
-    "Before working on each user ask, append it verbatim with a date to _in.md as a numbered "
-    "[ ] item; mark [x] when done or [-] dropped (why). The user may edit this file any time.\n"
-    "Append dated progress to _out.md every few minutes: done, in progress, next, decisions, dead ends "
-    "and open asks; fully summarize before rollover so a cold session can continue.\n"
-    "Optional artifacts/ and agents/<name>_in.md + agents/<name>_out.md use the same read/update rules. "
-    "Keep existing task.md/in.md, STATE.md and out.md layouts in place.\n"
+    "Read _in.md and _out.md first at session start; re-read input about every five minutes and when edited.\n"
+    "Managed prompt hooks record dated, numbered verbatim asks automatically. Mark [x] done or [-] dropped (why); "
+    "if hooks are unavailable, record asks before work yourself.\n"
+    "Keep a sparse Current state at the top of _out.md (done, in progress, next, open decisions). "
+    "Append progress every few minutes and never rewrite History.\n"
+    "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
+    "linking results, commits or files. Before rollover ensure every ask has a History entry and summarize fully.\n"
+    "Put longer findings/designs/how-tos in docs/<topic>.md as needed; link them from state/history. "
+    "Successors open docs only as needed; no index is required.\n"
+    "Optional artifacts/ and agents/<name>_in.md + agents/<name>_out.md follow the same rules. "
+    "Keep legacy task.md/in.md, STATE.md/out.md in place; apply these rules to the supplied paths.\n"
 )
 EFFORT = (
     "Choose each subagent's model and effort deliberately; state why in its _in.md.\n"

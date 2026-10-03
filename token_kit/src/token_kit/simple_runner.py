@@ -51,6 +51,9 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     pending_ids = ()
     try:
         if resume:
+            if prompt:
+                from .task_files import append_ask
+                append_ask(view.root, view.assignment, prompt)
             recovered = recovery_input(view, agent=agent)
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             if prompt:
@@ -85,7 +88,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         notices.add(diagnostic)
                 simple_runtime.initialize(run, effective,
                        environment.get('TOKEN_KIT_SIMPLE_SESSION_ID'), view.state,
-                       assignment=view.assignment, output=view.output)
+                       assignment=view.assignment, output=view.output,
+                       kickoff_prompt=plan.argv[-1] if '--' in plan.argv else None)
                 launch_started = True
                 child = slot.spawn(plan.argv, plan.cwd, environment)
             except Exception:

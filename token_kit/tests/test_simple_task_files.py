@@ -27,7 +27,7 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_create_minimal_and_read_only_load(self):
         view = self.plain()
-        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', '.token-kit'})
+        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', 'docs', '.token-kit'})
         (view.state).write_text('anything I want')
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in view.root.rglob('*') if p.is_file()}
         loaded = load_task(view.root)
@@ -68,6 +68,19 @@ class TaskFilesTests(unittest.TestCase):
         for expected in ('Original assignment', 'Original progress', 'Original result'):
             self.assertIn(expected, recovered.text)
         self.assertEqual({p.name for p in root.iterdir()}, {'task.md', 'STATE.md', 'out.md'})
+
+    def test_concurrent_ask_recording_is_numbered_and_verbatim(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from token_kit.task_files import append_ask
+        view = self.plain()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            numbers = list(pool.map(lambda n: append_ask(view.root, view.assignment, f'Ask {n}\nsecond line'), range(8)))
+        self.assertEqual(sorted(numbers), list(range(2, 10)))
+        text = view.assignment.read_text()
+        for n in range(8):
+            self.assertIn(f'Ask {n}\nsecond line', text)
+        self.assertEqual(view.output.read_text(), '# Current state\n\n# History\n')
+        self.assertTrue((view.root / 'docs').is_dir())
 
     def test_divergent_legacy_state_and_later_worker_result(self):
         root, agent = self.legacy()

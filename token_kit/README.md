@@ -22,20 +22,31 @@ Client trust and permissions remain in effect; Token Kit does not enable `--yolo
 <task>/
   <task>_in.md             objective and user asks
   <task>_out.md            running state and results
+  docs/                   longer findings and decisions, linked from output
   artifacts/              optional
   agents/<name>_in.md      optional worker assignment
   agents/<name>_out.md     optional worker progress
   .token-kit/             launcher records
 ```
 
-The filenames use the actual task folder name. Record each user ask verbatim with
-a date before working on it, as a numbered `[ ]` item in the input file. Mark it
-`[x]` when done or `[-] dropped (why)`. Read both files at session start and re-read
-the input about every five minutes; the user can edit it any time. Append dated
-progress to the output every few minutes: done, in progress, next, decisions,
-dead ends and open asks. Fully summarize before rollover. Workers follow the same rules.
-Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts remain readable in place.
-No migration or checkpoint commands are needed.
+The filenames use the actual task folder name. Managed `UserPromptSubmit` hooks
+record every user ask verbatim with a date and numbered `[ ]` status, before the
+agent works. Initial assignments are saved on creation; Token Kit's kickoff and
+successor prompts are excluded. Mark `[x]` done or `[-] dropped (why)`. If managed
+hooks are unavailable, the agent must record asks itself.
+
+Read input and output first at session start; re-read input about every five
+minutes and when edited. Keep a sparse `Current state` at the output's top: done,
+in progress, next and open decisions. Update it and append progress every few
+minutes. After every ask append a `History` entry headed
+`### #N <date> <first line of ask>` with a 2-6 line response linking results,
+commits or files. History is append-only. Rollover requests are logged there too;
+the summary request reminds the agent to cover every ask.
+
+Put longer designs, findings and how-tos in `docs/<topic>.md`, linked from state
+and history. Successors open docs only as needed; no index is required. Workers
+follow the same rules. Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts
+remain readable in place. No migration or checkpoint commands are needed.
 
 Choose each subagent's model and effort deliberately and explain the choice in its
 input file. Use low for lookups/mechanical edits, medium for clear implementation,

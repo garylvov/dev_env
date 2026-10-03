@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import shlex
 import sys
@@ -84,12 +85,14 @@ def owned_hook_ancestry(run: Path) -> bool:
 
 
 def initialize(run: Path, options, expected_session: str | None, state: Path,
-               assignment: Path | None = None, output: Path | None = None):
+               assignment: Path | None = None, output: Path | None = None,
+               kickoff_prompt: str | None = None):
     write(run / 'control.json', {'run_id': run.name, 'engine': options.engine,
           'expected_session': expected_session, 'armed': False, 'phase': 'running',
           'threshold': options.rollover, 'context_window': options.context_window,
           'state': str(state), 'assignment': str(assignment) if assignment else None,
-          'output': str(output or state), 'children': [], 'activity': 0, 'valid_usage': False})
+          'output': str(output or state), 'kickoff_prompt': kickoff_prompt,
+          'task_root': os.environ.get('TOKEN_KIT_TASK', str(state.parent)), 'children': [], 'activity': 0, 'valid_usage': False})
 
 
 def handle(run: Path, payload: dict, nonce: str) -> dict:
@@ -142,6 +145,28 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['armed'] = True
         if not control.get('armed'):
             return {}
+        if event == 'UserPromptSubmit' and control.get('assignment'):
+            prompt = payload.get('prompt')
+            prompt_id = payload.get('prompt_id') or payload.get('turn_id')
+            seen = control.get('recorded_prompt_ids', [])
+            if prompt_id and prompt_id in seen:
+                return {}
+            if not isinstance(prompt, str) or not prompt.strip():
+                control['degraded'] = 'Cannot record user ask: prompt payload is missing'
+                write(run / 'control.json', control)
+                return {'decision': 'block', 'reason': control['degraded']}
+            kickoff = control.pop('kickoff_prompt', None)
+            if prompt != kickoff:
+                from token_kit.task_files import append_ask
+                try:
+                    number = append_ask(Path(control['task_root']), Path(control['assignment']), prompt)
+                    control['last_ask'] = number
+                except (OSError, ValueError) as exc:
+                    control['degraded'] = f'Cannot record user ask before work: {exc}'
+                    write(run / 'control.json', control)
+                    return {'decision': 'block', 'reason': control['degraded']}
+            if prompt_id:
+                control['recorded_prompt_ids'] = (seen + [prompt_id])[-2048:]
         if event == 'PostToolUse' and control['phase'] == 'running':
             control['activity'] += 1
         sample = {}
@@ -198,7 +223,17 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                         "verbatim with a date. "
                         + (f"Also update continuation notes in {control['state']}. "
                            if control.get('output') != control['state'] else "")
-                        + "Then stop; a fresh session will continue from the folder.")
+                        + "Make sure every ask in the input file has a History entry in the output. "
+                        "Keep Current state sparse and link docs/ for details. "
+                        "Then stop; a fresh session will continue from the folder.")
+                output_path = Path(control.get('output') or control['state'])
+                from token_kit.task_files import safe_task_path
+                from token_kit.simple_types import TaskView
+                root = Path(control['task_root']).resolve()
+                safe_task_path(TaskView(root, None, '', output_path, output_path, output_path), output_path)
+                with output_path.open('a') as history:
+                    history.write(f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent}\n"
+                                  "Summary requested; fresh context will follow verified stop.\n")
                 output = ({'decision': 'block', 'reason': note} if event == 'Stop' else
                           {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}})
         write(run / 'control.json', control)

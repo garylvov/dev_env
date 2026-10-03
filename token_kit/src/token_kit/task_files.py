@@ -263,6 +263,24 @@ def load_settings(view: TaskView, *, agent: str | None = None) -> dict:
     return settings
 
 
+def append_ask(root: Path, assignment: Path, prompt: str) -> int:
+    """Record a submitted ask verbatim under a task-scoped append lock."""
+    from .simple_process import locked
+    assignment = _inside(root.resolve(), assignment)
+    assignment.parent.mkdir(parents=True, exist_ok=True)
+    records = _inside(root.resolve(), root / '.token-kit')
+    records.mkdir(exist_ok=True)
+    with locked(_inside(root.resolve(), records / (assignment.name + '.lock'))):
+        text = assignment.read_text() if assignment.exists() else ''
+        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. \[[- x]\]', text, re.MULTILINE)]
+        number = max(numbers, default=0) + 1
+        with assignment.open('a') as stream:
+            stream.write(f"\n{number}. [ ] {datetime.now().astimezone().isoformat()}\n{prompt}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        return number
+
+
 def create_task(root: Path, title: str, workspace: Path, assignment: str | None = None) -> TaskView:
     workspace = Path(workspace).expanduser().resolve(strict=True)
     if not workspace.is_dir() or not title.strip():
@@ -272,10 +290,12 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:64] or 'session'
     path = root / f'{slug}_{datetime.now():%Y%m%d_%H%M}_{uuid.uuid4().hex[:8]}'
     path.mkdir()
-    (path / f'{path.name}_in.md').write_text(
-        f'1. [ ] {datetime.now().astimezone().isoformat()}\n{assignment}\n'
-        if assignment is not None else '')
-    (path / f'{path.name}_out.md').write_text('')
+    input_path = path / f'{path.name}_in.md'
+    input_path.write_text(f'# Objective\n\n{assignment}\n\n# Asks\n' if assignment is not None else '')
+    (path / f'{path.name}_out.md').write_text('# Current state\n\n# History\n')
+    (path / 'docs').mkdir()
+    if assignment is not None:
+        append_ask(path, input_path, assignment)
     view = load_task(path, workspace)
     with _metadata(view) as metadata:
         metadata.update(schema=1, title=title, workspace=str(workspace), settings={})
@@ -431,5 +451,7 @@ def has_work_context(view: TaskView, agent: str = 'coordinator') -> bool:
             if isinstance(text, str) and _strip_wrapper(text).strip():
                 return True
         elif _strip_wrapper(_read(view.root, path, [])).strip():
+            if path == view.output and _read(view.root, path, []).strip() == '# Current state\n\n# History':
+                continue
             return True
     return False

@@ -31,7 +31,7 @@ transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'messag
 def hook(event):
     import shlex
     command = settings['hooks'][event][0]['hooks'][0]['command']
-    result = subprocess.run(shlex.split(command), input=json.dumps({'hook_event_name':event,'session_id':session,'transcript_path':str(transcript)}), text=True, capture_output=True)
+    result = subprocess.run(shlex.split(command), input=json.dumps({'hook_event_name':event,'session_id':session,'transcript_path':str(transcript),'prompt':sys.argv[-1] if event == 'UserPromptSubmit' else None}), text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError(result.stderr)
     return json.loads(result.stdout)
@@ -41,7 +41,8 @@ if len(rows) < 3:
     note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
     assert 'Context is at 90%' in note and 'Finish summarizing everything' in note
     assert task.name + '_in.md' in note and task.name + '_out.md' in note
-    (task / (task.name + '_out.md')).write_text('ordinary note from segment '+str(len(rows)))
+    with (task / (task.name + '_out.md')).open('a') as notes:
+        notes.write('ordinary note from segment '+str(len(rows))+'\n')
     hook('Stop')
     signal.alarm(10)
     signal.pause()
@@ -68,6 +69,9 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(len(rows), 3)
             self.assertEqual(len({row['session'] for row in rows}), 3)
             self.assertIn('ordinary note from segment 2', view.state.read_text())
+            self.assertEqual(view.state.read_text().count('### rollover '), 2)
+            self.assertEqual(view.assignment.read_text().count('1. [ ]'), 1)
+            self.assertNotIn('2. [ ]', view.assignment.read_text())
             self.assertFalse((view.root / 'agents/coordinator/checkpoints').exists())
             self.assertFalse((view.root / 'agents/coordinator/lifecycle.json').exists())
             self.assertEqual(len(list((view.root / '.token-kit/runs').glob('*/control.json'))), 3)
