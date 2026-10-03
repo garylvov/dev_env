@@ -152,7 +152,7 @@ def task_candidates(root: Path, words=(), limit=20) -> list[TaskView]:
             if not entry.is_dir(follow_symlinks=False) or entry.name.startswith("."):
                 continue
             path = Path(entry.path)
-            if not any((path / name).exists() for name in ("task.md", "task.json", "STATE.md")):
+            if not any((path / name).exists() for name in ("task.md", "task.json", "STATE.md", "in.md", f"{path.name}_in.md", f"{path.name}_out.md")):
                 continue
             try:
                 view = load_task(path)

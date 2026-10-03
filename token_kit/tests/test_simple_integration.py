@@ -38,8 +38,10 @@ def hook(event):
 hook('SessionStart')
 if len(rows) < 3:
     hook('UserPromptSubmit')
-    hook('PostToolUse')
-    (task / 'STATE.md').write_text('ordinary note from segment '+str(len(rows)))
+    note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
+    assert 'Context is at 90%' in note and 'Finish summarizing everything' in note
+    assert task.name + '_in.md' in note and task.name + '_out.md' in note
+    (task / (task.name + '_out.md')).write_text('ordinary note from segment '+str(len(rows)))
     hook('Stop')
     signal.alarm(10)
     signal.pause()
@@ -60,7 +62,7 @@ class IntegrationTests(unittest.TestCase):
             client.write_text('#!' + sys.executable + '\n' + FAKE)
             client.chmod(0o755)
             with patch.dict(os.environ, {'HOME': str(root), 'CLAUDE_CONFIG_DIR': str(root / 'config')}):
-                code = run_session(view, LaunchOptions(executable=str(client), rollover='80%', context_window=100), prompt='Do useful work')
+                code = run_session(view, LaunchOptions(executable=str(client), rollover='60%', context_window=100), prompt='Do useful work')
             self.assertEqual(code, 0)
             rows = json.loads((view.root / 'fake-launches.json').read_text())
             self.assertEqual(len(rows), 3)
@@ -80,6 +82,8 @@ class IntegrationTests(unittest.TestCase):
             for row in rows[1:]:
                 prompt = row['argv'][row['argv'].index('--')+1]
                 self.assertIn('ordinary note from segment', prompt)
+                self.assertIn(str(view.assignment), prompt)
+                self.assertIn(str(view.output), prompt)
 
 
 if __name__ == '__main__':

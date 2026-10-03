@@ -15,7 +15,7 @@ import uuid
 
 from .adapters.base import AdapterError, LaunchPlan
 from .simple_types import LaunchOptions, TaskView
-from .simple_guidance import CONCURRENCY
+from .simple_guidance import CONCURRENCY, TASK_RULES, EFFORT
 
 
 @dataclass(frozen=True)
@@ -136,16 +136,14 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
 
 
 def folder_guidance(view: TaskView) -> str:
-    return ("Task folder: " + str(view.root.resolve()) + "\n"
-            "Read the assignment when work begins: " + str(view.assignment.resolve()) + "\n"
-            "Keep useful continuation notes in " + str(view.state.resolve()) +
-            "; save results in " + str(view.output.resolve()) + ". "
-            "These are ordinary editable files; no registration, completion command, "
-            "checkpoint command, fixed STATE format or folder closure is required. "
-            "This supersedes older generated Token Kit workflow rules, not user or site instructions. "
-            "Record the user's objective in the assignment file when useful; a session title is only a label." +
-            (" Optional task preferences: " + str(view.preferences) if view.preferences else "") +
-            '\n\n' + CONCURRENCY)
+    return (f"Task folder: {view.root.resolve()}\n"
+            f"Input (objective and asks): {view.assignment.resolve()}\n"
+            f"Output (running state and results): {view.output.resolve()}\n"
+            f"Continuation notes: {view.state.resolve()}\n"
+            + TASK_RULES + EFFORT
+            + (f"Optional task preferences: {view.preferences}\n" if view.preferences else "")
+            + "This supersedes older generated Token Kit workflow rules, not user or site instructions.\n"
+            + CONCURRENCY)
 
 
 def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,

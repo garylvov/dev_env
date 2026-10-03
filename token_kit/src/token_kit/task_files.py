@@ -120,7 +120,12 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     agent_dir = _agent_dir(root, agent)
     legacy = bool(old) or (root / 'lanes').is_dir() or (root / 'agents/coordinator').is_dir()
     base = agent_dir if agent != 'coordinator' or (root / 'agents/coordinator').is_dir() else root
-    state = _inside(root, base / 'STATE.md')
+    named_base = root if agent == 'coordinator' else root / 'agents'
+    named = root.name if agent == 'coordinator' else _component(agent)
+    named_in = _inside(root, named_base / f'{named}_in.md')
+    named_out = _inside(root, named_base / f'{named}_out.md')
+    named_layout = named_in.is_file() or named_out.is_file()
+    state = named_out if named_layout else _inside(root, base / 'STATE.md')
     alternate = root / 'STATE.md' if base != root and agent == 'coordinator' else None
     if alternate is not None:
         _inside(root, alternate)
@@ -129,7 +134,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
         elif not state.is_file():
             diagnostics.append(f"Canonical STATE missing ({state}); using root STATE fallback")
             state, alternate = alternate, None
-    assignment = _inside(root, base / ('task.md' if base == root else 'in.md'))
+    assignment = named_in if named_layout else _inside(root, base / ('task.md' if base == root else 'in.md'))
     if not assignment.exists() and base == root and (root / 'in.md').is_file():
         assignment = _inside(root, root / 'in.md')
     preferences = next((_inside(root, root / name) for name in ('preferences.md', 'trigger_pyramid.md') if (root / name).is_file()), None)
@@ -156,7 +161,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     if not isinstance(title, str) or not title.strip():
         heading = re.search(r'^#\s+(.+)$', state_text, re.MULTILINE)
         title = heading.group(1) if heading else root.name
-    return TaskView(root, resolved_workspace, title, assignment, state, _inside(root, base / 'out.md'), preferences, alternate, legacy, tuple(diagnostics))
+    return TaskView(root, resolved_workspace, title, assignment, state, named_out if named_layout else _inside(root, base / 'out.md'), preferences, alternate, legacy, tuple(diagnostics))
 
 
 @contextmanager
@@ -199,6 +204,8 @@ def _metadata(view: TaskView):
 
 def _view_agent(view: TaskView) -> str:
     """Agent selection is encoded by the TaskView working STATE location."""
+    if view.state.parent == view.root / 'agents' and view.state.name.endswith('_out.md'):
+        return _component(view.state.name[:-7])
     parent = view.state.parent.relative_to(view.root)
     if len(parent.parts) == 2 and parent.parts[0] in ('agents', 'lanes'):
         return _component(parent.parts[1])
@@ -265,8 +272,10 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     slug = re.sub(r'[^a-z0-9]+', '_', title.lower()).strip('_')[:64] or 'session'
     path = root / f'{slug}_{datetime.now():%Y%m%d_%H%M}_{uuid.uuid4().hex[:8]}'
     path.mkdir()
-    (path / 'task.md').write_text(assignment + '\n' if assignment is not None else '')
-    (path / 'STATE.md').write_text('')
+    (path / f'{path.name}_in.md').write_text(
+        f'1. [ ] {datetime.now().astimezone().isoformat()}\n{assignment}\n'
+        if assignment is not None else '')
+    (path / f'{path.name}_out.md').write_text('')
     view = load_task(path, workspace)
     with _metadata(view) as metadata:
         metadata.update(schema=1, title=title, workspace=str(workspace), settings={})
@@ -341,7 +350,7 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
             include('Divergent legacy root STATE (preserved; do not silently overwrite either copy)', view.alternate_state, other, 8192)
     if view.preferences:
         include('Optional task preferences; current explicit choices take precedence', view.preferences, limit=4096)
-    if view.output.is_file():
+    if view.output != view.state and view.output.is_file():
         include('Saved result (unverified)', view.output, limit=4096)
     agent_dir = _agent_dir(view.root, agent)
     acknowledged: set[str] = set()
@@ -387,6 +396,9 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
     if agent == 'coordinator':
         for folder in ('agents', 'lanes'):
             for child in sorted(_entries(view.root, view.root / folder, diagnostics))[:32]:
+                if child.is_file() and child.name.endswith('_out.md'):
+                    include('Available worker result (unverified)', child, limit=2048)
+                    continue
                 try:
                     output = _inside(view.root, child / 'out.md')
                     if output != view.output and output.is_file():

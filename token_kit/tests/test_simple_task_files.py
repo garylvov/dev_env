@@ -27,13 +27,47 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_create_minimal_and_read_only_load(self):
         view = self.plain()
-        self.assertEqual({p.name for p in view.root.iterdir()}, {'task.md', 'STATE.md', '.token-kit'})
+        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', '.token-kit'})
         (view.state).write_text('anything I want')
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in view.root.rglob('*') if p.is_file()}
         loaded = load_task(view.root)
         recovery = recovery_input(loaded)
         self.assertIn('anything I want', recovery.text)
         self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in view.root.rglob('*') if p.is_file()})
+
+    def test_named_asks_and_flat_worker_notes_recover_in_place(self):
+        view = self.plain()
+        self.assertIn('1. [ ]', view.assignment.read_text())
+        self.assertIn('Do useful work', view.assignment.read_text())
+        self.assertEqual(view.state, view.output)
+        agents = view.root / 'agents'
+        agents.mkdir()
+        (agents / 'editor_in.md').write_text('1. [ ] Implement the edit, medium effort')
+        (agents / 'editor_out.md').write_text('Edit complete; next verify')
+        worker = load_task(view.root, agent='editor')
+        self.assertEqual(worker.assignment, agents / 'editor_in.md')
+        self.assertEqual(worker.state, agents / 'editor_out.md')
+        self.assertIn('Edit complete', recovery_input(view).text)
+        save_settings(worker, {'effort': 'medium'})
+        self.assertEqual(load_settings(worker), {'effort': 'medium'})
+        self.assertEqual(load_settings(view), {})
+        recovered = recovery_input(view)
+        self.assertIn(str(view.assignment), recovered.text)
+        self.assertIn(str(view.output), recovered.text)
+
+    def test_original_plain_layout_remains_readable_without_migration(self):
+        root = self.root / 'plain-old'
+        root.mkdir()
+        (root / 'task.md').write_text('Original assignment')
+        (root / 'STATE.md').write_text('Original progress')
+        (root / 'out.md').write_text('Original result')
+        view = load_task(root, self.workspace)
+        self.assertEqual(view.assignment, root / 'task.md')
+        self.assertEqual(view.state, root / 'STATE.md')
+        recovered = recovery_input(view)
+        for expected in ('Original assignment', 'Original progress', 'Original result'):
+            self.assertIn(expected, recovered.text)
+        self.assertEqual({p.name for p in root.iterdir()}, {'task.md', 'STATE.md', 'out.md'})
 
     def test_divergent_legacy_state_and_later_worker_result(self):
         root, agent = self.legacy()

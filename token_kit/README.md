@@ -1,110 +1,81 @@
 # Token Kit
 
-Token Kit keeps work in plain folders and continues managed sessions when their
-context fills. Start or continue a task, save useful notes, and keep working.
-
-The simplified implementation is a separate candidate release. Keep the original
-checkout intact while existing sessions still depend on it. See the
-[cutover guide](docs/SIMPLE-CUTOVER.md) before changing an installed command.
+Token Kit keeps work in task folders and starts a fresh Claude or Codex session
+when context reaches 60%. Save the work in the folder so the next session can continue.
 
 ## Everyday use
 
-Use the candidate `token-kit run` to start, `token-kit continue` to continue, or
-`token-kit pick` to select an existing task. `status` displays records. The old
-`resume` spelling remains read-only; use `continue` to launch a session.
-Run `token-kit --help` for exact arguments.
-
-Start a new Codex task with automatic rollover at 80% context:
-
 ```bash
-token-kit run "My new task" --engine codex --rollover-perc 80
+token-kit run "Fix parser" --engine codex --prompt "Investigate and fix the parser failure"
+token-kit continue retread --engine codex
+token-kit run "My task" --engine claude
 ```
 
-This opens an idle session in your current workspace; tell the agent what to do.
-To start work immediately, include an assignment:
-
-```bash
-token-kit run "Fix parser" --engine codex --rollover-perc 80 --prompt "Investigate and fix the parser failure"
-```
-
-Continue an existing task by name with the same explicit settings:
-
-```bash
-token-kit continue retread --engine codex --rollover-perc 80
-```
-
-If several tasks match, choose one from the list. New tasks default to Claude when
-`--engine` is omitted; use `--engine claude` explicitly if preferred. New tasks
-default to 80% rollover, while continuation reuses saved settings unless overridden.
-
-Plain launch does not require project installation. Client trust and permissions
-remain in effect; Token Kit does not enable `--yolo` automatically.
+Without `--prompt`, a new task opens an idle session. New tasks default to Claude
+and 60% rollover; continuation reuses saved settings unless overridden. Use
+`--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
+`--no-rollover` to disable restarts, and `--help` for all arguments.
+`pick` selects a task; `status` displays records; `resume` is a read-only preview.
+Client trust and permissions remain in effect; Token Kit does not enable `--yolo`.
 
 ```text
-task/
-  task.md
-  STATE.md
-  out.md                  optional
+<task>/
+  <task>_in.md             objective and user asks
+  <task>_out.md            running state and results
   artifacts/              optional
-  agents/                 optional worker folders
+  agents/<name>_in.md      optional worker assignment
+  agents/<name>_out.md     optional worker progress
   .token-kit/             launcher records
 ```
 
-Existing task layouts remain readable in place. Write STATE in any format and
-length. Save results directly. No registration, checkpoint command, completion
-ticket, or folder closure is required. Optional model preferences remain ordinary
-text; explicit user instructions take precedence.
+The filenames use the actual task folder name. Record each user ask verbatim with
+a date before working on it, as a numbered `[ ]` item in the input file. Mark it
+`[x]` when done or `[-] dropped (why)`. Read both files at session start and re-read
+the input about every five minutes; the user can edit it any time. Append dated
+progress to the output every few minutes: done, in progress, next, decisions,
+dead ends and open asks. Fully summarize before rollover. Workers follow the same rules.
+Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts remain readable in place.
+No migration or checkpoint commands are needed.
+
+Choose each subagent's model and effort deliberately and explain the choice in its
+input file. Use low for lookups/mechanical edits, medium for clear implementation,
+and high for unknown root causes, design and trusted verification. A verifier is
+never weaker than the author. Escalate one level after failure; never spawn only to wait or relay.
 
 ## Rollover
 
-The default threshold is 80% of the known context window, with unlimited successful
-rollovers. A finite restart limit is optional. `--no-rollover` disables all automatic
-restarts. Normal completion, manual interruption, and arbitrary errors do not restart.
+At the threshold, a model-visible hook asks: “Context is at N%. Finish summarizing
+everything into the task folder now,” naming the output and input files, asking
+for remaining asks to be recorded, then asking the agent to stop. After verifying
+the old client stopped, the launcher starts a successor with both files and saved
+notes. Rollovers are unlimited unless a restart limit is set. Normal completion,
+manual interruption and arbitrary errors do not restart.
 
-Before rollover, the client is asked to save current notes. After verifying that the
-old client stopped, the launcher starts its successor with the latest saved files.
-Missing fresh notes produce a recovery limitation, not a checkpoint requirement.
-If the client cannot provide trustworthy context and safe-stop events, the launcher
-reports that automatic rollover is unavailable. Native worker compaction remains
-available; a child event never authorizes restarting its parent.
+Missing telemetry or untrusted hooks cause a diagnostic and leave native
+compaction available. Active workers defer managed rollover. Missing fresh notes
+produce a recovery limitation; process ownership checks prevent overlapping launches.
+Check uncertain external outcomes before retrying operations.
 
-Codex configurations with overlapping existing hook arrays retain those hooks and
-use native compaction until managed hooks can be combined without replacing policy.
-An active session without working rollover hooks must be stopped normally before
-`continue` can launch a fresh session. Saved folders remain usable throughout.
+Codex 0.159.0 empirically merges `$CODEX_HOME/hooks.json` with session `-c` hooks,
+so user JSON hooks can coexist with rollover without being copied or overwritten.
+Token Kit inspects home and ancestor project `.codex/hooks.json` files, including
+legacy-hook conflicts; project-file execution was not observed in the disposable
+probe. Overlapping TOML hook tables still disable automatic rollover because
+session overrides could replace those arrays. Unreadable hook settings are reported.
+Token Kit never bypasses hook trust. Stop an unmanaged active session normally
+before launching `continue`.
 
-Process ownership checks prevent overlapping launches. They do not judge whether
-results are complete or correct. Check uncertain external operations before retrying
-them; continue unrelated authorized work.
+## Installing the candidate
 
-## Existing installations
-
-Old global Token Kit caps or lifecycle hooks can still affect new launches. The
-candidate reports these conflicts; disabling every client hook is not a remedy.
-The optional cleanup helper previews exact owned changes and creates backups with
-an executable rollback recipe. User-edited guidance and unrelated hooks survive.
-Policy cleanup affecting old sessions waits until those sessions exit.
-
-The old installer, runtime, and lifecycle commands remain pinned for existing
-consumers. New obsolete worker commands fail without mutating records; workers can
-save their result and report back normally. Historical documentation is in
-[docs/legacy-guide.md](docs/legacy-guide.md) and the dated handoffs. It describes the
-old installation, not the simplified workflow.
-
-## Installing the launcher
-
-From the new checkout, run:
+Keep the old checkout available for sessions that depend on it; read the
+[cutover guide](docs/SIMPLE-CUTOVER.md) before changing an installed command.
 
 ```bash
 bash token_kit/install.sh --legacy-root /path/to/previous/checkout
 ```
 
-Use `--dry-run` to list changes first. The installer updates the user command and
-shell startup, and forwards the previous executable path to the new launcher so
-existing shells with a cached path work immediately. It retains a sibling legacy
-launcher for old hooks and managed-session utilities. Explicit new launches and
-continuations use the simplified launcher even with inherited legacy variables.
-The previous installer path forwards here too. Repeating installation is a no-op;
-each changed installation prints a standalone rollback command. Task files and
-client hook configuration are untouched. Historical hook installation is archived
-in `install-legacy.sh`.
+Use `--dry-run` first to preview. The installer preserves a legacy launcher and
+prints a rollback command for changed installations. Task files and client hook
+configuration are untouched. Optional legacy cleanup previews owned changes and
+backs them up; customized guidance and unrelated hooks survive. The
+[legacy guide](docs/legacy-guide.md) describes the old workflow.

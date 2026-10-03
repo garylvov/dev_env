@@ -132,6 +132,30 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertNotIn('--enable', plan.argv)
         self.assertIn('preserved', plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])
 
+    def test_codex_json_hooks_merge_without_duplication_or_mutation(self):
+        home = self.root / '.codex'
+        home.mkdir()
+        project = self.root / 'project'
+        (project / '.codex').mkdir(parents=True)
+        body = json.dumps({'hooks': {'SessionStart': [{'hooks': [
+            {'type': 'command', 'command': 'site-policy'}]}]}})
+        for config in (home / 'hooks.json', project / '.codex/hooks.json'):
+            config.write_text(body)
+        self.assertEqual(adapters._codex_hook_settings(project, dict(os.environ)), [])
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            plan = self.prepare(engine='codex')
+        self.assertIn('--no-daemon', plan.argv)
+        self.assertFalse(any('site-policy' in arg for arg in plan.argv))
+        self.assertEqual((home / 'hooks.json').read_text(), body)
+        self.assertEqual((project / '.codex/hooks.json').read_text(), body)
+
+    def test_codex_unreadable_json_hook_settings_are_reported(self):
+        home = self.root / '.codex'
+        home.mkdir()
+        config = home / 'hooks.json'
+        config.write_text('{invalid')
+        self.assertIn(str(config), adapters._codex_hook_settings(self.root, dict(os.environ)))
+
     def test_nonoverlapping_policy_hook_does_not_disable_rollover(self):
         config = self.root/'.codex/config.toml'
         config.parent.mkdir()

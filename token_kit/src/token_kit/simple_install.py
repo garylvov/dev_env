@@ -16,7 +16,7 @@ import tempfile
 
 from . import project_install as legacy
 from .manifest import Manifest
-from .simple_guidance import CONCURRENCY
+from .simple_guidance import CONCURRENCY, TASK_RULES, EFFORT
 
 _PREVIOUS_SIMPLE_INSTRUCTIONS = """Token Kit keeps work in plain task folders and can roll over managed sessions.
 Read task.md (or in.md), STATE.md, and any user preferences before continuing.
@@ -26,9 +26,10 @@ Before rollover, save enough context for the next session to continue.
 Check uncertain external outcomes before repeating those operations.
 Follow user and site permissions. Token Kit notes do not grant extra authority.
 """
-INSTRUCTIONS = """Read task.md/in.md, STATE.md and user preferences. Save useful progress and rollover context in STATE.md, with results in out.md or artifacts/. Formats and worker folders are optional. Check uncertain outcomes before retrying.
+_PREVIOUS_CURRENT_INSTRUCTIONS = """Read task.md/in.md, STATE.md and user preferences. Save useful progress and rollover context in STATE.md, with results in out.md or artifacts/. Formats and worker folders are optional. Check uncertain outcomes before retrying.
 
 """ + CONCURRENCY + '\n'
+INSTRUCTIONS = TASK_RULES + EFFORT + CONCURRENCY + "\n"
 
 
 @dataclass(frozen=True)
@@ -149,7 +150,7 @@ def preview(project: Path | None = None, *, settings: Path | None = None,
                 raise legacy.InstallConflict(f"Ambiguous Token Kit markers: {path}")
             left, right = text.index(start), text.index(end) + len(end)
             known = {_block(v) for v in (*legacy._LEGACY_INSTRUCTION_VERSIONS, legacy.INSTRUCTIONS,
-                                        _PREVIOUS_SIMPLE_INSTRUCTIONS, INSTRUCTIONS)}
+                                        _PREVIOUS_SIMPLE_INSTRUCTIONS, _PREVIOUS_CURRENT_INSTRUCTIONS, INSTRUCTIONS)}
             if right <= left or text[left:right] not in known:
                 raise legacy.InstallConflict(f"Customized Token Kit guidance preserved: {path}")
             after = text[:left] + block + text[right:]

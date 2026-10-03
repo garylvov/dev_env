@@ -41,7 +41,7 @@ class CLITests(unittest.TestCase):
 
     def test_new_task_no_lifecycle_and_readonly_resume(self):
         task = self.create()
-        (task / 'STATE.md').write_text('Arbitrary notes. No headings.')
+        (task / f'{task.name}_out.md').write_text('Arbitrary notes. No headings.')
         before = {str(p): p.read_bytes() for p in task.rglob('*') if p.is_file()}
         code, out, err = self.call('resume', task)
         self.assertEqual(code, 0, err)

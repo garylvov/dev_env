@@ -123,6 +123,37 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         self.assertFalse(handle(run, dict(base, hook_event_name='Stop'), run.name)['continue'])
         self.assertEqual(read(run / 'control.json')['phase'], 'ready')
 
+    def test_summary_message_is_model_context_for_both_engines(self):
+        for engine in ('claude', 'codex'):
+            for event in ('PostToolUse', 'Stop'):
+                with self.subTest(engine=engine, event=event):
+                    run = self.root / (engine + event)
+                    run.mkdir()
+                    assignment = self.root / 'task_in.md'
+                    output = self.root / 'task_out.md'
+                    initialize(run, LaunchOptions(engine=engine, context_window=100),
+                               'parent', self.state, assignment, output)
+                    transcript = self.root / 'transcript.jsonl'
+                    transcript.write_text(json.dumps({'type': 'assistant', 'message':
+                        {'usage': {'input_tokens': 60}}}) + '\n')
+                    base = {'session_id': 'parent', 'transcript_path': str(transcript)}
+                    with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
+                         patch('token_kit.simple_adapters.codex_root_session', return_value='parent'), \
+                         patch('token_kit.simple_adapters.codex_usage_sample', return_value={
+                             'context_tokens': 60, 'context_window': 100}):
+                        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                        response = handle(run, dict(base, hook_event_name=event), run.name)
+                        note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
+                        self.assertIn('Context is at 60%', note)
+                        self.assertIn('Finish summarizing everything', note)
+                        self.assertIn(str(assignment), note)
+                        self.assertIn(str(output), note)
+                        self.assertIn('Then stop', note)
+                        self.assertEqual(read(run / 'control.json')['phase'], 'requested')
+                        stopped = handle(run, dict(base, hook_event_name='Stop'), run.name)
+                        self.assertFalse(stopped['continue'])
+                        self.assertEqual(read(run / 'control.json')['phase'], 'ready')
+
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
         run.mkdir()
