@@ -65,6 +65,17 @@ class LeanTests(unittest.TestCase):
             self.assertEqual(archive_history(self.view), 0)
             self.assertEqual(self.view.output.read_bytes(), raw)
 
+    def test_nested_output_links_to_task_root_archive(self):
+        from dataclasses import replace
+        output = self.view.root / 'agents/editor_out.md'
+        output.parent.mkdir()
+        original = b'# History\n### old\n' + b'x' * 9000 + b'\n### recent\nnew\n'
+        output.write_bytes(original)
+        nested = replace(self.view, output=output, state=output)
+        self.assertGreater(archive_history(nested), 0)
+        self.assertIn(b'[docs/history.md](../docs/history.md)', output.read_bytes())
+        self.assertEqual(archive_history(nested), 0)
+
     def test_archive_rejects_escaping_symlink_without_changes(self):
         original = b'# History\n### old\n' + b'x' * 9000 + b'\n### recent\nnew\n'
         self.view.output.write_bytes(original)

@@ -473,6 +473,7 @@ def archive_history(view: TaskView, limit: int = 8000) -> int:
     from .core.store import atomic_bytes
     output = safe_task_path(view, view.output)
     archive = safe_task_path(view, view.root / 'docs/history.md')
+    link = (f'Older History: [docs/history.md]({os.path.relpath(archive, output.parent)})\n').encode()
     raw = output.read_bytes()
     heading = re.search(rb'^# History[^\S\r\n]*\r?\n', raw, re.MULTILINE)
     if not heading:
@@ -481,8 +482,8 @@ def archive_history(view: TaskView, limit: int = 8000) -> int:
     end_heading = re.search(rb'^# [^\r\n]+', raw[start:], re.MULTILINE)
     end = start + end_heading.start() if end_heading else len(raw)
     history = raw[start:end]
-    if history.startswith(HISTORY_LINK):
-        history = history[len(HISTORY_LINK):]
+    if history.startswith(link):
+        history = history[len(link):]
     if len(history.decode('utf-8')) <= limit:
         return 0
     entries = list(re.finditer(rb'^### [^\r\n]*', history, re.MULTILINE))
@@ -499,5 +500,5 @@ def archive_history(view: TaskView, limit: int = 8000) -> int:
         stream.write(moved)
         stream.flush()
         os.fsync(stream.fileno())
-    atomic_bytes(output, raw[:start] + HISTORY_LINK + recent + raw[end:])
+    atomic_bytes(output, raw[:start] + link + recent + raw[end:])
     return len(moved)
