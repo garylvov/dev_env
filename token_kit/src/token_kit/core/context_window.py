@@ -1,6 +1,8 @@
 """Claude window defaults for resolved model IDs, never mutable family aliases.
 
-Verified 2026-09-25 against https://code.claude.com/docs/en/model-config
+Sonnet 5.5 added 2026-10-06 against
+https://platform.claude.com/docs/en/models/sonnet-5-5/overview (1M tokens).
+Other defaults verified 2026-09-25 against https://code.claude.com/docs/en/model-config
 (Extended context, Sonnet 5 context window, third-party deployments) and
 https://platform.claude.com/docs/en/models/overview . The fallback is conservative:
 provider/gateway deployments can budget only 200K even for a 1M-capable model.
@@ -13,7 +15,7 @@ from collections.abc import Mapping
 
 
 _NATIVE_MILLION = frozenset({
-    "claude-fable-5-1", "claude-fable-5", "claude-sonnet-5",
+    "claude-fable-5-1", "claude-fable-5", "claude-sonnet-5", "claude-sonnet-5-5",
     "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
 })
 _STANDARD = frozenset({

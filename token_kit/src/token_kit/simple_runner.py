@@ -19,6 +19,12 @@ def _stop(child, record, timeout=8):
         return child.returncode == 0
     if identity(child.pid) != record.get('child_identity'):
         return False
+    # Allow the client's remaining Stop hooks to finish before forcing shutdown.
+    try:
+        child.wait(timeout=min(1, timeout))
+        return child.returncode == 0
+    except subprocess.TimeoutExpired:
+        pass
     child.send_signal(signal.SIGTERM)
     try:
         child.wait(timeout=timeout)

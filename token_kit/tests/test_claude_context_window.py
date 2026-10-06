@@ -13,7 +13,7 @@ from token_kit.core.ledger import summarize
 
 class ClaudeContextWindowTests(unittest.TestCase):
     def test_native_model_defaults_and_unknown_aliases(self):
-        for model in ("claude-fable-5-1", "claude-fable-5", "claude-sonnet-5",
+        for model in ("claude-fable-5-1", "claude-fable-5", "claude-sonnet-5", "claude-sonnet-5-5",
                       "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5", "claude-opus-5-5"):
             self.assertEqual(claude_window(model, environ={}), (1_000_000, "documented_default"))
         for model in ("claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"):

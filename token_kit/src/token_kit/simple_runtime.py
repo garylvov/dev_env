@@ -205,6 +205,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['degraded'] = 'Current context usage/window unavailable; native compaction remains enabled'
         elif used is not None and limit is not None:
             control.pop('degraded', None)
+        if type(used) is int and used >= 0:
+            control.setdefault('startup_tokens', used)
         crossed = (type(used) is int and type(window) is int and window > 0 and limit is not None
                    and rollover_growth(control, used, window, limit))
         if isinstance(used, (int, float)) and used > 0:

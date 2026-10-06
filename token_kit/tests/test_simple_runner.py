@@ -331,15 +331,23 @@ p.write_text(json.dumps(s))
         directory.mkdir(parents=True)
         transcript = directory / f'rollout-date-{session}.jsonl'
         meta = {'id': session, 'source': 'exec', 'cwd': str(self.root)}
-        def emit(tokens):
+        def emit(tokens, baseline=10):
             transcript.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n' +
                 json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
-                    'last_token_usage': {'total_tokens': 10}, 'model_context_window': 100_000}}}) + '\n' +
+                    'last_token_usage': {'total_tokens': baseline}, 'model_context_window': 100_000}}}) + '\n' +
                 json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
                     'last_token_usage': {'total_tokens': tokens}, 'model_context_window': 100_000}}}) + '\n')
         emit(30_000)
         summary = fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
         self.assertEqual(summary[0], session)
+        emit(43_001, baseline=43_000)
+        observed = {}
+        self.assertIsNone(fallback_summary(log, self.root, self.root, self.view,
+            LaunchOptions(rollover='5%'), control=observed))
+        self.assertEqual(observed['startup_tokens'], 43_000)
+        self.assertEqual(observed['token_growth'], 1)
+        self.assertIn('continuing', observed['loop_warning'])
+        emit(30_000)
         self.assertIn('Finish summarizing', summary[1])
         self.assertIn(str(self.view.assignment), summary[1])
         self.assertEqual(summary_argv(('codex', 'exec', '--', 'old'), session, 'summary'),
@@ -400,7 +408,7 @@ p.write_text(json.dumps(s))
         self.assertIn('Latest plain state', launched[0][1])
         self.assertEqual(marked, [])
 
-    def test_repeated_initial_context_rollover_stops_without_progress(self):
+    def test_repeated_initial_context_rollover_keeps_successor_running(self):
         code, launched = self._run_fake(no_progress=True)
         self.assertEqual(code, 0)
         self.assertEqual(len(launched), 3)
@@ -437,6 +445,15 @@ p.write_text(json.dumps(s))
         slot.close()
         successor = Slot(self.root, 'coordinator').acquire()
         successor.close()
+
+    def test_owned_stop_allows_provider_hooks_to_finish_naturally(self):
+        from token_kit.simple_runner import _stop
+        child = Mock(pid=123, returncode=0)
+        child.poll.return_value = None
+        with patch('token_kit.simple_runner.identity', return_value='owned'):
+            self.assertTrue(_stop(child, {'child_identity': 'owned'}))
+        child.wait.assert_called_once_with(timeout=1)
+        child.send_signal.assert_not_called()
 
     def test_nonzero_exit_racing_owned_stop_is_not_success(self):
         from token_kit.simple_runner import _stop
@@ -501,7 +518,7 @@ p.write_text(json.dumps(s))
             handle(run, {'session_id': 'parent', 'hook_event_name': event, 'transcript_path': str(transcript)}, run.name)
             self.assertEqual(read(run / 'control.json')['phase'], 'running')
 
-    def test_three_plain_rollovers_then_normal_exit(self):
+    def test_two_mechanical_only_rollovers_disable_further_rollovers(self):
         code, launched = self._run_fake()
         self.assertEqual(code, 0)
         self.assertEqual(len(launched), 3)
@@ -544,6 +561,25 @@ p.write_text(json.dumps(s))
                         self.assertEqual(control['startup_tokens'], 43_000)
                         self.assertEqual(control['token_growth'], 20_000)
                         self.assertEqual(control['phase'], 'requested')
+
+    def test_claude_baseline_is_retained_while_window_is_unknown(self):
+        run = self.root / 'unknown-window'
+        run.mkdir()
+        initialize(run, LaunchOptions(rollover='20%'), 'parent', self.state)
+        transcript = self.root / 'usage.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'sessionId': 'parent',
+            'message': {'model': 'custom', 'usage': {'input_tokens': 43_000}}}) + '\n')
+        base = {'session_id': 'parent', 'transcript_path': str(transcript)}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        self.assertEqual(read(run / 'control.json')['startup_tokens'], 43_000)
+        transcript.write_text(json.dumps({'type': 'assistant', 'sessionId': 'parent',
+            'message': {'model': 'claude-sonnet-5-5', 'usage': {'input_tokens': 200_000}}}) + '\n')
+        with patch.dict(os.environ, {}, clear=True):
+            result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+        self.assertIn('Finish summarizing', result['hookSpecificOutput']['additionalContext'])
+        control = read(run / 'control.json')
+        self.assertEqual(control['startup_tokens'], 43_000)
+        self.assertEqual(control['telemetry_window'], 1_000_000)
 
     def test_growth_minimum_scales_with_context_and_requires_threshold(self):
         from token_kit.simple_runtime import rollover_growth
