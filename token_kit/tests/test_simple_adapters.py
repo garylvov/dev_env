@@ -168,6 +168,13 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertEqual((home / 'hooks.json').read_text(), body)
         self.assertEqual((project / '.codex/hooks.json').read_text(), body)
 
+    def test_codex_hooks_feature_switch_is_not_a_hook_table(self):
+        home = self.root / '.codex'
+        home.mkdir()
+        (home / 'config.toml').write_text(
+            '[features]\nhooks = true\n\n[hooks.state."/x/hooks.json:stop:0:0"]\ntrusted_hash = "abc"\n')
+        self.assertEqual(adapters._codex_hook_settings(self.root, dict(os.environ)), [])
+
     def test_codex_unreadable_json_hook_settings_are_reported(self):
         home = self.root / '.codex'
         home.mkdir()

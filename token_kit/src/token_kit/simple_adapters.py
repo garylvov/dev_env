@@ -109,6 +109,9 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
     def has_hooks(value):
         if isinstance(value, dict):
             hooks = value.get('hooks', {})
+            if isinstance(hooks, bool):
+                # `[features] hooks = true` is the feature switch, not a hook table.
+                hooks = {}
             if hooks and not isinstance(hooks, dict):
                 return True
             overlap = any(re.sub(r'[^a-z]', '', str(key).lower()) in controlled and groups
