@@ -32,12 +32,13 @@ def capabilities(options: LaunchOptions) -> Capabilities:
     executable = options.executable or options.engine
     _argument(executable, "Executable")
     try:
-        result = subprocess.run([executable, "--help"], capture_output=True,
+        result = subprocess.run([executable, *(["exec"] if options.engine == "codex" and (options.headless or options.non_interactive) else []), "--help"], capture_output=True,
                                 text=True, timeout=10, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return Capabilities(False, (f"Rollover capability probe failed: {exc}",))
     required = (("--session-id", "--settings") if options.engine == "claude"
-                else ("--no-daemon", "--config", "--enable"))
+                else (("--config", "--enable", "--skip-git-repo-check")
+                      if options.headless or options.non_interactive else ("--no-daemon", "--config", "--enable")))
     if result.returncode or not all(flag in result.stdout for flag in required):
         return Capabilities(False, ("Client help does not confirm session identity and settings flags; "
                                     "automatic rollover is unavailable.",))
@@ -154,8 +155,13 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
         raise AdapterError(f"Workspace is not a directory: {workspace}")
     if options.engine not in ("claude", "codex"):
         raise AdapterError(f"Unknown engine: {options.engine}")
-    if options.engine == "codex" and options.non_interactive:
-        raise AdapterError("Codex print mode is not supported by the simplified launcher")
+    headless = options.headless or options.non_interactive
+    if options.sandbox not in (None, "read-only", "workspace-write", "danger-full-access"):
+        raise AdapterError("Invalid sandbox mode")
+    if options.sandbox and options.engine != "codex":
+        raise AdapterError("--sandbox is supported only for Codex")
+    if options.sandbox and options.yolo:
+        raise AdapterError("Choose either --sandbox or --yolo")
     executable = options.executable or options.engine
     _argument(executable, "Executable")
     for value, label in ((options.model, "Model"), (options.effort, "Effort")):
@@ -163,8 +169,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
             _argument(value, label)
     if prompt is not None and (not prompt.strip() or "\0" in prompt):
         raise AdapterError("Prompt must be nonempty and contain no NUL bytes")
-    if options.non_interactive and prompt is None:
-        raise AdapterError("Print mode requires a prompt")
+    if headless and prompt is None:
+        raise AdapterError("Headless mode requires a prompt or saved task context")
     # A nested launch must never inherit its parent's control nonce or identity.
     env = {key: value for key, value in os.environ.items() if not key.startswith("TOKEN_KIT_")}
     conflicts = _legacy_conflicts(workspace, options.engine, env)
@@ -193,10 +199,10 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
         "diagnostics": cap.diagnostics})
-    argv = [executable, "--add-dir", str(view.root.resolve())]
+    argv = [executable, *(["exec", "--skip-git-repo-check"] if options.engine == "codex" and headless else []), "--add-dir", str(view.root.resolve())]
     if options.engine == "claude":
         argv.extend(("--append-system-prompt", guidance))
-        if options.non_interactive:
+        if headless:
             argv.append("--print")
         if options.yolo:
             argv.append("--dangerously-skip-permissions")
@@ -211,10 +217,15 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
         argv.extend(("--cd", str(workspace)))
         if cap.managed_hooks:
             from .simple_runtime import codex_config
-            argv.append("--no-daemon")
+            if headless:
+                argv.insert(1, "--no-daemon")
+            else:
+                argv.append("--no-daemon")
             argv.extend(codex_config())
         if options.yolo:
             argv.append("--dangerously-bypass-approvals-and-sandbox")
+        if options.sandbox:
+            argv.extend(("--sandbox", options.sandbox))
         if options.effort is not None:
             argv.extend(("-c", "model_reasoning_effort=" + json.dumps(options.effort)))
     if options.model is not None:
@@ -249,7 +260,7 @@ def codex_root_session(payload: dict) -> str | None:
             return None
         row = json.loads(line)
         meta = row.get("payload", {})
-        if (row.get("type") != "session_meta" or meta.get("source") != "cli"
+        if (row.get("type") != "session_meta" or meta.get("source") not in ("cli", "exec")
                 or meta.get("id") != session
                 or any(meta.get(key) for key in ("parent_thread_id", "parent_session_id",
                                                  "forked_from_id", "agent_path"))):

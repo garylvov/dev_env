@@ -198,13 +198,13 @@ class Slot:
                 write(self.bridge, self.record)
             write(self.current, self.record)
 
-    def spawn(self, argv, cwd, env):
+    def spawn(self, argv, cwd, env, **stdio):
         incoming, release = os.pipe()
         child = None
         try:
             child = subprocess.Popen([sys.executable, str(Path(__file__).resolve()),
                                       str(incoming), *argv], cwd=cwd, env=env,
-                                     pass_fds=(incoming,))
+                                     pass_fds=(incoming,), **stdio)
             os.close(incoming)
             incoming = -1
             start = identity(child.pid)

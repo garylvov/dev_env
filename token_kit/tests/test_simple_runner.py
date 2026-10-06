@@ -256,7 +256,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
             handle(run, {'session_id': 'child', 'agent_id': 'worker', 'hook_event_name': 'SubagentStop'}, run.name)
             self.assertEqual(read(run / 'control.json')['children'], ['worker'])
 
-    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False):
+    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False, headless=False):
         launched = []
         def prepare(view, options, prompt, run, agent='coordinator'):
             launched.append((options, prompt))
@@ -275,6 +275,7 @@ p.write_text(json.dumps(s))
                 script = script.replace("phase='ready'", "armed=True, phase='ready'")
             if not action:
                 script = 'pass'
+            script += '\nprint("HEADLESS_LOG_MARKER", flush=True)'
             if failures:
                 script += '\nraise SystemExit(7)'
             return types.SimpleNamespace(argv=(sys.executable, '-c', script), cwd=self.root,
@@ -287,8 +288,50 @@ p.write_text(json.dumps(s))
         adapters = types.ModuleType('token_kit.simple_adapters')
         adapters.prepare = prepare
         with patch.dict(sys.modules, {'token_kit.task_files': files, 'token_kit.simple_adapters': adapters}):
-            code = run_session(self.view, LaunchOptions(max_rollovers=cap), resume=resume)
+            code = run_session(self.view, LaunchOptions(max_rollovers=cap, headless=headless), resume=resume)
         return code, launched
+
+    def test_headless_successors_log_and_final_exit(self):
+        code, launched = self._run_fake(headless=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(launched), 4)
+        self.assertTrue(all(options.headless for options, prompt in launched))
+        logs = list(self.root.glob('.token-kit/runs/*/stdout.log'))
+        self.assertEqual(len(logs), 4)
+        self.assertTrue(all('HEADLESS_LOG_MARKER' in log.read_text() for log in logs))
+        code, launched = self._run_fake(headless=True, failures=True)
+        self.assertEqual(code, 7)
+        self.assertEqual(len(launched), 1)
+
+    def test_exec_telemetry_fallback_identity_threshold_and_resume(self):
+        from token_kit.simple_headless import fallback_summary, summary_argv
+        session = '12345678-1234-1234-1234-123456789abc'
+        log = self.root / 'stdout.log'
+        log.write_text(f'session id: {session}\n')
+        directory = self.root / 'sessions/2026/10/06'
+        directory.mkdir(parents=True)
+        transcript = directory / f'rollout-date-{session}.jsonl'
+        meta = {'id': session, 'source': 'exec', 'cwd': str(self.root)}
+        def emit(tokens):
+            transcript.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n' +
+                json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+                    'last_token_usage': {'total_tokens': tokens}, 'model_context_window': 1000}}}) + '\n')
+        emit(100)
+        summary = fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
+        self.assertEqual(summary[0], session)
+        self.assertIn('Finish summarizing', summary[1])
+        self.assertIn(str(self.view.assignment), summary[1])
+        self.assertEqual(summary_argv(('codex', 'exec', '--', 'old'), session, 'summary'),
+                         ('codex', 'exec', 'resume', session, '--', 'summary'))
+        emit(1)
+        self.assertIsNone(fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%')))
+        meta['source'] = {'subagent': {}}
+        emit(100)
+        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
+        transcript.unlink()
+        with self.assertRaisesRegex(ValueError, 'unavailable'):
+            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
 
     def test_startup_failure_leaves_steering_pending(self):
         marked = []

@@ -16,6 +16,11 @@ and 60% rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.
 `pick` selects a task; `status` displays records; `resume` is a read-only preview.
+Run unattended with `token-kit run "Title" --engine codex --headless --prompt "..."`; Claude headless uses its print mode.
+`token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches.
+Client stdout/stderr streams into `.token-kit/runs/<run>/stdout.log`; the launcher prints each log path and returns the final client exit code.
+Pass `--yolo` explicitly (Codex: `--dangerously-bypass-approvals-and-sandbox`) or choose `--sandbox workspace-write`; headless never enables bypass automatically.
+
 Client trust and permissions remain in effect; Token Kit does not enable `--yolo`.
 
 ```text

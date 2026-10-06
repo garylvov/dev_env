@@ -62,8 +62,23 @@ class SimpleAdaptersTest(unittest.TestCase):
         plan = self.prepare(engine='codex', effort='high', yolo=True, rollover='off')
         self.assertIn('model_reasoning_effort="high"', plan.argv)
         self.assertNotIn('--dangerously-bypass-hook-trust', plan.argv)
-        with self.assertRaisesRegex(AdapterError, 'print mode'):
-            self.prepare(engine='codex', non_interactive=True)
+        self.assertIn('exec', self.prepare(engine='codex', non_interactive=True, rollover='off').argv)
+
+    def test_headless_argv_and_refusals(self):
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            plan = self.prepare(engine='codex', headless=True, sandbox='workspace-write')
+        self.assertEqual(plan.argv[:4], ('codex', '--no-daemon', 'exec', '--skip-git-repo-check'))
+        self.assertIn('--enable', plan.argv)
+        self.assertIn('--no-daemon', plan.argv)
+        self.assertIn('--sandbox', plan.argv)
+        self.assertNotIn('--dangerously-bypass-approvals-and-sandbox', plan.argv)
+        self.assertIn('--print', self.prepare(headless=True, rollover='off').argv)
+        with self.assertRaisesRegex(AdapterError, 'requires a prompt'):
+            adapters.prepare(self.view, LaunchOptions(headless=True), None, self.root/'run')
+        with self.assertRaisesRegex(AdapterError, 'only for Codex'):
+            self.prepare(headless=True, sandbox='read-only')
+        with self.assertRaisesRegex(AdapterError, 'either'):
+            self.prepare(engine='codex', headless=True, sandbox='read-only', yolo=True)
 
     def test_probe_reports_syntax_not_trust(self):
         help_result = subprocess.CompletedProcess([], 0, '--session-id --settings', '')

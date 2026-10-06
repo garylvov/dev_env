@@ -33,6 +33,22 @@ class CLITests(unittest.TestCase):
         self.assertEqual(code, 0, err)
         return Path(out.strip())
 
+    def test_headless_settings_persist_and_override(self):
+        from dataclasses import asdict
+        from token_kit.task_files import load_task, save_settings, load_settings
+        task = self.create()
+        view = load_task(task)
+        args = cli.parser_for('run').parse_args(['Title', '--engine', 'codex', '--headless', '--sandbox', 'workspace-write'])
+        options = cli.resolve_options(args)
+        save_settings(view, asdict(options))
+        continued = cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), load_settings(view))
+        self.assertTrue(continued.headless)
+        self.assertEqual(continued.sandbox, 'workspace-write')
+        overridden = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--no-headless']), load_settings(view))
+        self.assertFalse(overridden.headless)
+        with self.assertRaisesRegex(ValueError, 'headless'):
+            cli.resolve_options(args, {'non_interactive': 'bad'})
+
     def test_preview_create_does_not_write(self):
         code, out, err = self.call('run', 'Draft', '--root', self.tasks, '--workspace', self.work, '--dry-run')
         self.assertEqual(code, 0, err)

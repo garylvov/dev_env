@@ -30,6 +30,8 @@ class LaunchOptions:
     context_window: int | None = None
     executable: str | None = None
     non_interactive: bool = False
+    headless: bool = False
+    sandbox: str | None = None
 
 
 @dataclass(frozen=True)

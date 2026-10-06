@@ -70,6 +70,8 @@ def _launch_options(parser):
                            default=argparse.SUPPRESS)
     parser.add_argument("--max-rollovers", type=_budget, default=argparse.SUPPRESS)
     parser.add_argument("--context-window", type=_window, default=argparse.SUPPRESS)
+    parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
+    parser.add_argument("--sandbox", choices=("read-only", "workspace-write", "danger-full-access"), default=argparse.SUPPRESS)
     parser.add_argument("--dry-run", "--print", dest="preview", action="store_true")
     parser.add_argument("--prompt")
     parser.add_argument("--non-interactive", action="store_true", default=argparse.SUPPRESS,
@@ -127,6 +129,10 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     options = LaunchOptions(**result)
     if options.engine not in ("claude", "codex"):
         raise ValueError("Saved engine is invalid; select --engine claude or codex")
+    if type(options.headless) is not bool or type(options.non_interactive) is not bool:
+        raise ValueError("Saved headless setting is invalid; select --headless or --no-headless")
+    if options.sandbox not in (None, "read-only", "workspace-write", "danger-full-access"):
+        raise ValueError("Saved sandbox setting is invalid")
     if type(options.yolo) is not bool:
         raise ValueError("Saved permission setting is invalid; select --yolo or --no-yolo")
     if options.max_rollovers is not None and (type(options.max_rollovers) is not int or options.max_rollovers < 0):

@@ -8,6 +8,7 @@ import signal
 import subprocess
 import sys
 import time
+import threading
 from .simple_types import TaskView, LaunchOptions
 from .simple_process import Slot, identity, read, write
 from . import simple_runtime
@@ -91,7 +92,23 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                        assignment=view.assignment, output=view.output,
                        kickoff_prompt=plan.argv[-1] if '--' in plan.argv else None)
                 launch_started = True
-                child = slot.spawn(plan.argv, plan.cwd, environment)
+                headless = options.headless or options.non_interactive
+                output_thread = None
+                if headless:
+                    log = run / 'stdout.log'
+                    print(f'Token Kit: headless output log: {log}', flush=True)
+                    child = slot.spawn(plan.argv, plan.cwd, environment,
+                                       stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    def stream_output(child=child, log=log):
+                        with log.open('ab') as target:
+                            while chunk := child.stdout.read1(8192):
+                                target.write(chunk)
+                                target.flush()
+                        child.stdout.close()
+                    output_thread = threading.Thread(target=stream_output, daemon=True)
+                    output_thread.start()
+                else:
+                    child = slot.spawn(plan.argv, plan.cwd, environment)
             except Exception:
                 # Before spawn, no client can exist. Corrected configuration
                 # must be immediately retryable; only actual spawn uncertainty persists.
@@ -156,7 +173,38 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 if child.poll() is not None:
                     slot.publish(status='exited', exit_code=child.returncode)
                 return 130
+            if output_thread:
+                output_thread.join(timeout=5)
             final_control = _observe(run / 'control.json', notices)
+            if (headless and options.engine == 'codex' and effective.rollover is not None
+                    and not final_control.get('armed') and child.returncode == 0):
+                from .simple_headless import fallback_summary, summary_argv
+                home = Path(environment.get('CODEX_HOME', str(Path.home() / '.codex')))
+                print('Token Kit: exec hooks did not arm; checking exact-session telemetry after verified exit.', file=sys.stderr)
+                summary = fallback_summary(log, home, plan.cwd, view, effective)
+                if summary:
+                    session, note, used = summary
+                    from datetime import datetime
+                    with view.output.open('a') as history:
+                        history.write(f'\n### rollover {datetime.now().astimezone().isoformat()} at {used} tokens\n'
+                                      'Exec hooks unavailable; summary requested after verified process exit.\n')
+                    with log.open('ab') as target:
+                        target.write(('\nToken Kit summary request: ' + note + '\n').encode())
+                        target.flush()
+                        child = slot.spawn(summary_argv(plan.argv, session, note), plan.cwd,
+                                           environment, stdin=subprocess.DEVNULL, stdout=target,
+                                           stderr=subprocess.STDOUT)
+                        try:
+                            child.wait()
+                        except KeyboardInterrupt:
+                            _stop(child, slot.record)
+                            if child.poll() is not None:
+                                slot.publish(status='exited', exit_code=child.returncode)
+                            return 130
+                    if child.returncode == 0:
+                        final_control.update(phase='ready', activity=1, valid_usage=True,
+                                             context_tokens=used, telemetry_fallback=True)
+                        write(run / 'control.json', final_control)
             if effective.rollover is not None and not final_control.get('armed'):
                 diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
                 if diagnostic not in notices:
