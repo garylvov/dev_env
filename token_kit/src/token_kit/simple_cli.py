@@ -252,7 +252,7 @@ def _launch(args, path: Path | None, *, create=False, only_create=False):
     elif create or not args.preview:
         prompt = None
     else:
-        prompt = recovery_input(view, agent=args.agent).text or None
+        prompt = recovery_input(view, agent=args.agent, paths_only=True).text or None
     if args.preview:
         _preview(view, options, prompt)
         return 0

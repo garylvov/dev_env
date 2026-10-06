@@ -63,7 +63,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if prompt:
                 from .task_files import append_ask
                 append_ask(view.root, view.assignment, prompt)
-            recovered = recovery_input(view, agent=agent)
+            recovered = recovery_input(view, agent=agent, paths_only=True)
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             if prompt:
                 next_prompt = ((next_prompt + '\n\n') if next_prompt else '') + 'Current user request:\n' + prompt
@@ -252,10 +252,19 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 rollover_entries.append(entry)
             if rollover_entries:
                 saved_output = view.output.read_text() if view.output.exists() else ''
+                archive = view.root / 'docs/history.md'
+                from .task_files import safe_task_path
+                archived = safe_task_path(view, archive).read_text() if archive.exists() else ''
                 with view.output.open('a') as history:
                     for entry in rollover_entries:
-                        if entry not in saved_output:
+                        if entry not in saved_output and entry not in archived:
                             history.write(entry)
+            if rollover or continuing or final_control.get('phase') == 'ready':
+                try:
+                    from .task_files import archive_history
+                    archive_history(view)
+                except (OSError, ValueError) as error:
+                    print(f'Token Kit: History archive unavailable: {error}', file=sys.stderr)
             # Include notes written during shutdown. Snapshot never overwrites live files.
             try:
                 if view.state.is_file():
@@ -266,7 +275,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         from .simple_process import safe
                         snapshot = safe(view.root, slot.directory / 'state-snapshot.md')
                         atomic_bytes(snapshot, saved_state[:65_536])
-                recovery = recovery_input(view, agent=agent, mark_presented=False)
+                recovery = recovery_input(view, agent=agent, mark_presented=False, paths_only=True)
                 (run / 'handoff.md').write_text(recovery.text)
                 from .simple_recovery import native_recipe
                 write(slot.directory / 'native-recovery.json', native_recipe(view, options, agent))
@@ -293,7 +302,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                       'automatic rollover disabled, successor will keep running with native compaction.',
                       file=sys.stderr)
             completed += 1
-            recovered = recovery_input(view, agent=agent)
+            recovered = recovery_input(view, agent=agent, paths_only=True)
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             pending_ids = recovered.message_ids
     finally:

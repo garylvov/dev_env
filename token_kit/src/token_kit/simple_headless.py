@@ -56,11 +56,9 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options, cont
         return None
     if native_workers_may_have_run(candidates[0]):
         raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')
-    note = (f'Context is at {used / window * 100:.0f}%. Finish summarizing everything into '
-            f'{view.output.resolve()} now: update sparse Current state and append History, '
-            f'ensure every ask in {view.assignment.resolve()} has a History response. '
-            'Save done, next, open asks, decisions and dead ends. Then stop; a fresh session '
-            'will continue from these files. Do no further task work in this summary turn.')
+    from .simple_guidance import summary_request
+    note = summary_request(f'{used / window * 100:.0f}%', view.output.resolve(),
+                           view.assignment.resolve(), view.state.resolve())
     return session, note, used
 
 

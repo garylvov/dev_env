@@ -151,10 +151,10 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                         response = handle(run, dict(base, hook_event_name=event), run.name)
                         note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
                         self.assertIn('Context is at 60%', note)
-                        self.assertIn('Finish summarizing everything', note)
+                        self.assertIn('Append one brief History entry', note)
                         self.assertIn(str(assignment), note)
                         self.assertIn(str(output), note)
-                        self.assertIn('Then stop', note)
+                        self.assertIn('End your turn', note)
                         self.assertEqual(read(run / 'control.json')['phase'], 'requested')
                         stopped = handle(run, dict(base, hook_event_name='Stop'), run.name)
                         self.assertFalse(stopped['continue'])
@@ -298,7 +298,10 @@ p.write_text(json.dumps(s))
                 script += '\nraise SystemExit(7)'
             return types.SimpleNamespace(argv=(sys.executable, '-c', script), cwd=self.root,
                                          env={'TOKEN_KIT_SIMPLE_SESSION_ID': 'parent'})
+        from token_kit.task_files import safe_task_path, archive_history
         files = types.ModuleType('token_kit.task_files')
+        files.safe_task_path = safe_task_path
+        files.archive_history = archive_history
         files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state', message_ids=('message-1',))
         files.save_settings = lambda *a, **k: None
         files.has_work_context = lambda *a, **k: True
@@ -348,7 +351,7 @@ p.write_text(json.dumps(s))
         self.assertEqual(observed['token_growth'], 1)
         self.assertIn('continuing', observed['loop_warning'])
         emit(30_000)
-        self.assertIn('Finish summarizing', summary[1])
+        self.assertIn('Append one brief History entry', summary[1])
         self.assertIn(str(self.view.assignment), summary[1])
         self.assertEqual(summary_argv(('codex', 'exec', '--', 'old'), session, 'summary'),
                          ('codex', 'exec', 'resume', session, '--', 'summary'))
@@ -422,7 +425,10 @@ p.write_text(json.dumps(s))
         self.assertTrue(all(ids == ('message-1',) for ids in marked))
 
     def test_prepare_failure_allows_corrected_configuration_retry(self):
+        from token_kit.task_files import safe_task_path, archive_history
         files = types.ModuleType('token_kit.task_files')
+        files.safe_task_path = safe_task_path
+        files.archive_history = archive_history
         files.recovery_input = lambda *a, **k: RecoveryInput('notes')
         files.has_work_context = lambda *a, **k: True
         files.save_settings = lambda *a, **k: None
@@ -556,7 +562,7 @@ p.write_text(json.dumps(s))
                         self.assertEqual(read(run / 'control.json')['loop_warning'], warning)
                     with sample(63_000):
                         result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-                        self.assertIn('Finish summarizing', result['hookSpecificOutput']['additionalContext'])
+                        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
                         control = read(run / 'control.json')
                         self.assertEqual(control['startup_tokens'], 43_000)
                         self.assertEqual(control['token_growth'], 20_000)
@@ -576,7 +582,7 @@ p.write_text(json.dumps(s))
             'message': {'model': 'claude-sonnet-5-5', 'usage': {'input_tokens': 200_000}}}) + '\n')
         with patch.dict(os.environ, {}, clear=True):
             result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-        self.assertIn('Finish summarizing', result['hookSpecificOutput']['additionalContext'])
+        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
         control = read(run / 'control.json')
         self.assertEqual(control['startup_tokens'], 43_000)
         self.assertEqual(control['telemetry_window'], 1_000_000)

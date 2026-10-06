@@ -222,7 +222,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 control['guidance_presented'] = True
         # Native children of unknown fate defer this segment's managed rollover.
         if control.get('children') or control.get('unknown_children'):
-            control['degraded'] = 'Native workers are active; using native compaction until they stop'
+            control['degraded'] = 'Native workers are active; using native compaction until they finish'
         elif control.get('threshold') is not None:
             if control['phase'] == 'requested' and event == 'Stop':
                 control['phase'] = 'ready'
@@ -234,23 +234,16 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             elif crossed and control['phase'] == 'running' and event in ('PostToolUse', 'Stop'):
                 control['phase'] = 'requested'
                 percent = f"{used / window * 100:.0f}%" if window else f"{used} tokens"
-                note = (f"Context is at {percent}. Finish summarizing everything into the task folder now: "
-                        f"update {control.get('output') or control['state']} "
-                        "(state, what's done, what's next, open asks, decisions and dead ends) "
-                        f"and record any asks not yet in {control.get('assignment') or 'the assignment file'} "
-                        "verbatim with a date. "
-                        + (f"Also update continuation notes in {control['state']}. "
-                           if control.get('output') != control['state'] else "")
-                        + "Make sure every ask in the input file has a History entry in the output. "
-                        "Keep Current state sparse and link docs/ for details. "
-                        "Then stop; a fresh session will continue from the folder.")
+                from token_kit.simple_guidance import summary_request
+                note = summary_request(percent, control.get('output') or control['state'],
+                                       control.get('assignment') or 'the assignment file', control['state'])
                 output_path = Path(control.get('output') or control['state'])
                 from token_kit.task_files import safe_task_path
                 from token_kit.simple_types import TaskView
                 root = Path(control['task_root']).resolve()
                 safe_task_path(TaskView(root, None, '', output_path, output_path, output_path), output_path)
                 entry = (f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent} ({used} tokens)\n"
-                         "Summary requested; fresh context will follow verified stop.\n")
+                         "Summary requested; fresh context will follow verified session exit.\n")
                 control['rollover_entry'] = entry
                 with output_path.open('a') as history:
                     history.write(entry)

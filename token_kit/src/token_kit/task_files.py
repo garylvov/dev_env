@@ -334,7 +334,7 @@ def mark_messages_presented(view: TaskView, message_ids: tuple[str, ...], agent:
         cursors[agent] = sorted(set(old_ids) | set(message_ids))
 
 
-def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: bool = False) -> RecoveryInput:
+def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: bool = False, *, paths_only: bool = False) -> RecoveryInput:
     if agent != 'coordinator':
         view = load_task(view.root, view.workspace, agent)
     diagnostics = list(view.diagnostics)
@@ -346,6 +346,9 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
         nonlocal budget
         if path not in paths:
             paths.append(path)
+        if paths_only:
+            sections.append(f'{label}: {path}')
+            return
         if text is None:
             text = _strip_wrapper(_read(view.root, path, diagnostics, limit))
         heading = f'{label}: {path}\n'
@@ -455,3 +458,46 @@ def has_work_context(view: TaskView, agent: str = 'coordinator') -> bool:
                 continue
             return True
     return False
+
+
+HISTORY_LINK = b"Older History: [docs/history.md](docs/history.md)\n"
+
+
+def archive_history(view: TaskView, limit: int = 8000) -> int:
+    """Move whole older entries verbatim after the owned client has exited.
+
+    An indivisible newest entry may exceed the limit. Non-History sections and
+    unstructured notes remain untouched. Append precedes replacement so a failed
+    write can duplicate evidence but cannot discard it.
+    """
+    from .core.store import atomic_bytes
+    output = safe_task_path(view, view.output)
+    archive = safe_task_path(view, view.root / 'docs/history.md')
+    raw = output.read_bytes()
+    heading = re.search(rb'^# History[^\S\r\n]*\r?\n', raw, re.MULTILINE)
+    if not heading:
+        return 0
+    start = heading.end()
+    end_heading = re.search(rb'^# [^\r\n]+', raw[start:], re.MULTILINE)
+    end = start + end_heading.start() if end_heading else len(raw)
+    history = raw[start:end]
+    if history.startswith(HISTORY_LINK):
+        history = history[len(HISTORY_LINK):]
+    if len(history.decode('utf-8')) <= limit:
+        return 0
+    entries = list(re.finditer(rb'^### [^\r\n]*', history, re.MULTILINE))
+    cut = None
+    for entry in entries[1:]:
+        cut = entry.start()
+        if len(history[cut:].decode('utf-8')) <= limit:
+            break
+    if cut is None:
+        return 0
+    moved, recent = history[:cut], history[cut:]
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with archive.open('ab') as stream:
+        stream.write(moved)
+        stream.flush()
+        os.fsync(stream.fileno())
+    atomic_bytes(output, raw[:start] + HISTORY_LINK + recent + raw[end:])
+    return len(moved)

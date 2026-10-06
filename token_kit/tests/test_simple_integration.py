@@ -40,10 +40,10 @@ if len(rows) < 3:
     hook('UserPromptSubmit')
     transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'message':{'model':'claude-sonnet-4-6','usage':{'input_tokens':90000}}})+'\n')
     note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
-    assert 'Context is at 90%' in note and 'Finish summarizing everything' in note
+    assert 'Context is at 90%' in note and 'Append one brief History entry' in note
     assert task.name + '_in.md' in note and task.name + '_out.md' in note
     with (task / (task.name + '_out.md')).open('a') as notes:
-        notes.write('ordinary note from segment '+str(len(rows))+'\n')
+        notes.write('ordinary note from segment '+str(len(rows))+'\n' + 'detail ' * 900 + '\n')
     hook('Stop')
     signal.alarm(10)
     signal.pause()
@@ -70,7 +70,11 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(len(rows), 3)
             self.assertEqual(len({row['session'] for row in rows}), 3)
             self.assertIn('ordinary note from segment 2', view.state.read_text())
-            self.assertEqual(view.state.read_text().count('### rollover '), 2)
+            archived = (view.root / 'docs/history.md').read_text()
+            self.assertIn('ordinary note from segment 1', archived)
+            self.assertNotIn('ordinary note from segment 1', view.state.read_text())
+            self.assertEqual((view.state.read_text() + archived).count('### rollover '), 2)
+            self.assertLess(len(view.state.read_text()), 8000)
             self.assertEqual(view.assignment.read_text().count('1. [ ]'), 1)
             self.assertNotIn('2. [ ]', view.assignment.read_text())
             self.assertFalse((view.root / 'agents/coordinator/checkpoints').exists())
@@ -78,7 +82,8 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(len(list((view.root / '.token-kit/runs').glob('*/control.json'))), 3)
             recipe = json.loads((view.root / '.token-kit/slots/coordinator/native-recovery.json').read_text())
             self.assertNotIn('--settings', recipe['argv'])
-            self.assertIn('ordinary note from segment 2', recipe['argv'][-1])
+            self.assertNotIn('ordinary note from segment 2', recipe['argv'][-1])
+            self.assertIn(str(view.output), recipe['argv'][-1])
             view.state.unlink()
             from token_kit.task_files import recovery_input
             fallback = recovery_input(view)
@@ -86,7 +91,7 @@ class IntegrationTests(unittest.TestCase):
             self.assertIn('Previous saved STATE fallback', fallback.text)
             for row in rows[1:]:
                 prompt = row['argv'][row['argv'].index('--')+1]
-                self.assertIn('ordinary note from segment', prompt)
+                self.assertNotIn('ordinary note from segment', prompt)
                 self.assertIn(str(view.assignment), prompt)
                 self.assertIn(str(view.output), prompt)
 

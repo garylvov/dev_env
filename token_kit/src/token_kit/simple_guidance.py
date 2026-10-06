@@ -3,13 +3,13 @@
 CONCURRENCY = "Use scoped ownership or locks for overlapping writes and shared resources.\n"
 
 TASK_RULES = (
-    "Read _in.md and _out.md first at session start; re-read input about every five minutes and when edited.\n"
+    "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
     "Managed prompt hooks record dated, numbered verbatim asks automatically. Mark [x] done or [-] dropped (why); "
     "if hooks are unavailable, record asks before work yourself.\n"
     "Keep a sparse Current state at the top of _out.md (done, in progress, next, open decisions). "
     "Append progress every few minutes and never rewrite History.\n"
     "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
-    "linking results, commits or files. Before rollover ensure every ask has a History entry and summarize fully.\n"
+    "linking results, commits or files. Before rollover ensure every ask has a History entry and refresh sparse Current state.\n"
     "Put longer findings/designs/how-tos in docs/<topic>.md as needed; link them from state/history. "
     "Successors open docs only as needed; no index is required.\n"
     "Optional artifacts/ and agents/<name>_in.md + agents/<name>_out.md follow the same rules. "
@@ -22,3 +22,13 @@ EFFORT = (
     "A verifier must never be weaker than its author; escalate one level on failure rather than starting high.\n"
     "Never spawn an agent only to wait or relay.\n"
 )
+
+
+def summary_request(percent, output, assignment, state=None):
+    """One bounded handoff request shared by trusted hooks and exec fallback."""
+    return (f"Context is at {percent}. Append one brief History entry to {output} for work since "
+            "your last update; refresh Current state (sparse, with links to docs/). "
+            f"Ensure every ask in {assignment} has a History entry; record any unrecorded asks "
+            "verbatim with a date. "
+            + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
+            + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")

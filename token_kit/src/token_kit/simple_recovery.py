@@ -22,8 +22,9 @@ def native_recipe(view: TaskView, options: LaunchOptions, agent: str = 'coordina
         argv += ['--model', options.model]
     argv += ['--add-dir', str(view.root)]
     if has_work_context(view, agent=agent):
-        argv += ['--', recovery_input(view, agent=agent).text]
+        from .simple_guidance import TASK_RULES
+        argv += ['--', TASK_RULES + '\n\n' + recovery_input(view, agent=agent, paths_only=True).text]
     return {'argv': argv, 'cwd': str(view.workspace) if view.workspace else None,
             'assignment': str(view.assignment), 'state': str(view.state),
             'note': 'Native continuation only, without automatic Token Kit rollover. '
-                    'Stop any managed client for this assignment before using this recipe.'}
+                    'End any managed client for this assignment before using this recipe.'}

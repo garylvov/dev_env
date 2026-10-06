@@ -97,3 +97,5 @@ backs them up; customized guidance and unrelated hooks survive. The
 [legacy guide](docs/legacy-guide.md) describes the old workflow.
 
 Automatic rollover requires growth since the first session telemetry sample of at least max(10% of the context window, 20,000 tokens), so very low thresholds are clamped by this startup loop guard. After two consecutive rollovers that add only rollover entries to the output, further automatic rollover is disabled and the successor continues with native compaction; the default restart count remains unlimited.
+
+Startup and successor prompts pass task-file paths without embedding their contents. Read Current state and recent History; open docs/ only when needed. At rollover, whole older History entries above roughly 8,000 characters move verbatim to `docs/history.md` in chronological order, with a link left in the output. A single oversized newest entry remains intact.
