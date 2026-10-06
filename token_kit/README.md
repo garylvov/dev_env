@@ -95,3 +95,5 @@ prints a rollback command for changed installations. Task files and client hook
 configuration are untouched. Optional legacy cleanup previews owned changes and
 backs them up; customized guidance and unrelated hooks survive. The
 [legacy guide](docs/legacy-guide.md) describes the old workflow.
+
+Automatic rollover requires growth since the first session telemetry sample of at least max(10% of the context window, 20,000 tokens), so very low thresholds are clamped by this startup loop guard. After two consecutive rollovers that add only rollover entries to the output, further automatic rollover is disabled and the successor continues with native compaction; the default restart count remains unlimited.

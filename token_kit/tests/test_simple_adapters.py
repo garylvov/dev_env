@@ -100,6 +100,22 @@ class SimpleAdaptersTest(unittest.TestCase):
         with self.assertRaisesRegex(AdapterError, 'either'):
             self.prepare(engine='codex', headless=True, sandbox='read-only', yolo=True)
 
+    def test_claude_yolo_headless_hooks_need_no_home_hook_install(self):
+        settings = self.root / '.claude/settings.json'
+        settings.parent.mkdir()
+        settings.write_text('{"permissions": {"allow": []}}')
+        before = settings.read_bytes()
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            initial = self.prepare(engine='claude', yolo=True, headless=True)
+            successor = self.prepare(engine='claude', yolo=True, headless=True)
+        self.assertEqual(settings.read_bytes(), before)
+        for plan in (initial, successor):
+            self.assertIn('--print', plan.argv)
+            self.assertIn('--dangerously-skip-permissions', plan.argv)
+            managed = json.loads(plan.argv[plan.argv.index('--settings') + 1])['hooks']
+            self.assertTrue({'SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop'} <= managed.keys())
+        self.assertNotEqual(initial.env['TOKEN_KIT_SIMPLE_SESSION_ID'], successor.env['TOKEN_KIT_SIMPLE_SESSION_ID'])
+
     def test_probe_reports_syntax_not_trust(self):
         help_result = subprocess.CompletedProcess([], 0, '--session-id --settings', '')
         with patch.object(adapters.subprocess, 'run', return_value=help_result) as run:

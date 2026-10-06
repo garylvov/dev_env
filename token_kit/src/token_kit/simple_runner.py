@@ -47,6 +47,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     from .simple_adapters import prepare
     slot = Slot(view.root, agent).acquire(resume=resume)
     completed = 0
+    stagnant_rollovers = 0
     rollover_entries = []
     notices = set()
     next_prompt = prompt
@@ -64,8 +65,9 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
         save_settings(view, asdict(options))
         while True:
             effective = options
-            if options.max_rollovers is not None and completed >= options.max_rollovers:
+            if stagnant_rollovers >= 2 or (options.max_rollovers is not None and completed >= options.max_rollovers):
                 effective = replace(options, rollover=None)
+            output_before = view.output.read_text() if view.output.exists() else ''
             launch_started = False
             try:
                 run = slot.claim(options.engine)
@@ -129,6 +131,10 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         except (OSError, ValueError) as error:
                             print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
                             pending_ids = ()  # leave persisted cursor unchanged, do not spam warnings
+                    warning = control.get('loop_warning')
+                    if warning and warning not in notices:
+                        print('Token Kit: ' + warning, file=sys.stderr)
+                        notices.add(warning)
                     diagnostic = control.get('degraded')
                     if effective.rollover is not None and not control.get('armed') and time.monotonic() - started_at >= 5:
                         diagnostic = ('Managed exec hooks not observed; rollover will check exact-session telemetry after exit'
@@ -185,7 +191,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 home = Path(environment.get('CODEX_HOME', str(Path.home() / '.codex')))
                 print('Token Kit: exec hooks did not arm; checking exact-session telemetry after verified exit.', file=sys.stderr)
                 try:
-                    summary = fallback_summary(log, home, plan.cwd, view, effective)
+                    summary = fallback_summary(log, home, plan.cwd, view, effective, control=final_control)
+                    write(run / 'control.json', final_control)
                 except (OSError, ValueError):
                     slot.publish(status='exited', exit_code=child.returncode)
                     raise
@@ -264,10 +271,21 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 return 0
             if not rollover:
                 return child.returncode or 0
-            control = _observe(run / 'control.json', notices)
-            if completed and not (control.get('activity', 0) > 0 and control.get('valid_usage')):
-                print('Token Kit: successor requested rollover without fresh activity and usage; stopped.', file=sys.stderr)
-                return 1
+            def substantive(text):
+                for mechanical in rollover_entries:
+                    text = text.replace(mechanical, '')
+                return text.strip()
+            output_after = view.output.read_text() if view.output.exists() else ''
+            from collections import Counter
+            gained = Counter(substantive(output_after).splitlines()) - Counter(substantive(output_before).splitlines())
+            if not any(line.strip() for line in gained):
+                stagnant_rollovers += 1
+            else:
+                stagnant_rollovers = 0
+            if stagnant_rollovers == 2:
+                print('Token Kit: two consecutive rollovers added no substantive output; '
+                      'automatic rollover disabled, successor will keep running with native compaction.',
+                      file=sys.stderr)
             completed += 1
             recovered = recovery_input(view, agent=agent)
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None

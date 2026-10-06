@@ -95,6 +95,19 @@ def initialize(run: Path, options, expected_session: str | None, state: Path,
           'task_root': os.environ.get('TOKEN_KIT_TASK', str(state.parent)), 'children': [], 'activity': 0, 'valid_usage': False})
 
 
+def rollover_growth(control: dict, used: int, window: int, limit: int) -> bool:
+    """Amortize startup context before requesting another managed handoff."""
+    baseline = control.setdefault('startup_tokens', used)
+    minimum = max(20_000, int(window * 0.10))
+    control['minimum_growth'] = minimum
+    control['token_growth'] = max(0, used - baseline)
+    if baseline >= limit:
+        control.setdefault('loop_warning',
+            f'Startup baseline {baseline} tokens already meets rollover threshold {limit}; '
+            f'continuing until at least {minimum} tokens of new work accumulate.')
+    return used >= limit and used - baseline >= minimum
+
+
 def handle(run: Path, payload: dict, nonce: str) -> dict:
     with locked(run / 'control.lock'):
         control = read(run / 'control.json')
@@ -192,10 +205,13 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['degraded'] = 'Current context usage/window unavailable; native compaction remains enabled'
         elif used is not None and limit is not None:
             control.pop('degraded', None)
-        crossed = isinstance(used, (int, float)) and limit is not None and used >= limit
+        crossed = (type(used) is int and type(window) is int and window > 0 and limit is not None
+                   and rollover_growth(control, used, window, limit))
         if isinstance(used, (int, float)) and used > 0:
             control['valid_usage'] = True
             control['context_tokens'] = used
+            if type(window) is int and window > 0:
+                control['telemetry_window'] = window
         output = {}
         if event == 'UserPromptSubmit' and not control.get('guidance_presented'):
             guidance = os.environ.get('TOKEN_KIT_SIMPLE_GUIDANCE')
@@ -209,7 +225,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             if control['phase'] == 'requested' and event == 'Stop':
                 control['phase'] = 'ready'
                 output = {'continue': False, 'stopReason': 'Token Kit is carrying this session into fresh context.'}
-            elif event == 'PreCompact':
+            elif event == 'PreCompact' and crossed:
                 control['phase'] = 'ready'
                 control['reason'] = 'parent_compaction'
                 # Do not veto native compaction. Supervisor handles verified shutdown.
@@ -231,7 +247,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 from token_kit.simple_types import TaskView
                 root = Path(control['task_root']).resolve()
                 safe_task_path(TaskView(root, None, '', output_path, output_path, output_path), output_path)
-                entry = (f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent}\n"
+                entry = (f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent} ({used} tokens)\n"
                          "Summary requested; fresh context will follow verified stop.\n")
                 control['rollover_entry'] = entry
                 with output_path.open('a') as history:

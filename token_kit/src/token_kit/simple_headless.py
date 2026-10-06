@@ -7,7 +7,7 @@ from .simple_adapters import codex_usage
 from .rollover import effective_limit
 
 
-def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
+def fallback_summary(log: Path, home: Path, workspace: Path, view, options, control=None):
     """Bind the owned client's startup session header to exact persisted metadata."""
     with log.open('rb') as stream:
         header = stream.read(65536).decode('utf-8', errors='replace')
@@ -31,7 +31,28 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
     window = options.context_window or window
     if used is None or window is None:
         raise ValueError('Headless rollover token telemetry unavailable; no successor launched')
-    if used < effective_limit(options.rollover, window):
+    from .simple_runtime import rollover_growth
+    baseline = None
+    with candidates[0].open() as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+                info = event.get('payload', {}).get('info') or {}
+                value = (info.get('last_token_usage') or {}).get('total_tokens')
+                if (event.get('type') == 'event_msg' and
+                        event.get('payload', {}).get('type') == 'token_count' and
+                        type(value) is int and value >= 0):
+                    baseline = value
+                    break
+            except (ValueError, AttributeError, TypeError):
+                continue
+    guard = control if control is not None else {}
+    guard.setdefault('startup_tokens', baseline if baseline is not None else used)
+    guard.update(context_tokens=used, telemetry_window=window)
+    if not rollover_growth(guard, used, window, effective_limit(options.rollover, window)):
+        if guard.get('loop_warning'):
+            import sys
+            print('Token Kit: ' + guard['loop_warning'], file=sys.stderr)
         return None
     if native_workers_may_have_run(candidates[0]):
         raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')

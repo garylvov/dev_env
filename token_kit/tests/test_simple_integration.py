@@ -27,7 +27,7 @@ if '--settings' not in sys.argv:
     raise SystemExit(0)
 settings = json.loads(sys.argv[sys.argv.index('--settings')+1])
 transcript = run / 'transcript.jsonl'
-transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'message':{'model':'claude-sonnet-4-6','usage':{'input_tokens':90}}})+'\n')
+transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'message':{'model':'claude-sonnet-4-6','usage':{'input_tokens':10000}}})+'\n')
 def hook(event):
     import shlex
     command = settings['hooks'][event][0]['hooks'][0]['command']
@@ -38,6 +38,7 @@ def hook(event):
 hook('SessionStart')
 if len(rows) < 3:
     hook('UserPromptSubmit')
+    transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'message':{'model':'claude-sonnet-4-6','usage':{'input_tokens':90000}}})+'\n')
     note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
     assert 'Context is at 90%' in note and 'Finish summarizing everything' in note
     assert task.name + '_in.md' in note and task.name + '_out.md' in note
@@ -63,7 +64,7 @@ class IntegrationTests(unittest.TestCase):
             client.write_text('#!' + sys.executable + '\n' + FAKE)
             client.chmod(0o755)
             with patch.dict(os.environ, {'HOME': str(root), 'CLAUDE_CONFIG_DIR': str(root / 'config')}):
-                code = run_session(view, LaunchOptions(executable=str(client), rollover='60%', context_window=100), prompt='Do useful work')
+                code = run_session(view, LaunchOptions(executable=str(client), rollover='60%', context_window=100000), prompt='Do useful work')
             self.assertEqual(code, 0)
             rows = json.loads((view.root / 'fake-launches.json').read_text())
             self.assertEqual(len(rows), 3)

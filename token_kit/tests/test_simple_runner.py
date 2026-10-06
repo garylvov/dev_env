@@ -112,11 +112,14 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
     def test_one_note_then_safe_stop_without_checkpoint(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(rollover=10), 'parent', self.state)
+        initialize(run, LaunchOptions(rollover=10, context_window=100_000), 'parent', self.state)
         base = {'session_id': 'parent'}
         handle(run, dict(base, hook_event_name='SessionStart'), run.name)
         transcript = self.root / 'transcript.jsonl'
-        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 11}}}) + '\n')
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 30_000}}}) + '\n')
+        current = read(run / 'control.json')
+        current['startup_tokens'] = 10_000
+        write(run / 'control.json', current)
         payload = dict(base, hook_event_name='PostToolUse', transcript_path=str(transcript))
         self.assertIn('additionalContext', handle(run, payload, run.name)['hookSpecificOutput'])
         self.assertEqual(handle(run, payload, run.name), {})
@@ -131,17 +134,20 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                     run.mkdir()
                     assignment = self.root / 'task_in.md'
                     output = self.root / 'task_out.md'
-                    initialize(run, LaunchOptions(engine=engine, context_window=100),
+                    initialize(run, LaunchOptions(engine=engine, context_window=100_000),
                                'parent', self.state, assignment, output)
                     transcript = self.root / 'transcript.jsonl'
                     transcript.write_text(json.dumps({'type': 'assistant', 'message':
-                        {'usage': {'input_tokens': 60}}}) + '\n')
+                        {'usage': {'input_tokens': 60_000}}}) + '\n')
                     base = {'session_id': 'parent', 'transcript_path': str(transcript)}
                     with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
                          patch('token_kit.simple_adapters.codex_root_session', return_value='parent'), \
                          patch('token_kit.simple_adapters.codex_usage_sample', return_value={
-                             'context_tokens': 60, 'context_window': 100}):
+                             'context_tokens': 60_000, 'context_window': 100_000}):
                         handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                        current = read(run / 'control.json')
+                        current['startup_tokens'] = 10_000
+                        write(run / 'control.json', current)
                         response = handle(run, dict(base, hook_event_name=event), run.name)
                         note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
                         self.assertIn('Context is at 60%', note)
@@ -189,8 +195,13 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(), 'parent', self.state)
-        base = {'session_id': 'parent'}
+        initialize(run, LaunchOptions(context_window=200_000), 'parent', self.state)
+        transcript = self.root / 'usage.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 150_000}}}) + '\n')
+        current = read(run / 'control.json')
+        current['startup_tokens'] = 10_000
+        write(run / 'control.json', current)
+        base = {'session_id': 'parent', 'transcript_path': str(transcript)}
         handle(run, dict(base, hook_event_name='SessionStart'), run.name)
         handle(run, dict(base, hook_event_name='SubagentStart', agent_id='worker'), run.name)
         self.assertEqual(handle(run, dict(base, hook_event_name='PreCompact'), run.name), {})
@@ -227,13 +238,16 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
     def test_prompt_and_handoff_tools_do_not_count_as_progress(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(rollover=100, context_window=100), 'parent', self.state)
+        initialize(run, LaunchOptions(rollover=100_000, context_window=100_000), 'parent', self.state)
         base = {'session_id': 'parent'}
         handle(run, dict(base, hook_event_name='SessionStart'), run.name)
         handle(run, dict(base, hook_event_name='UserPromptSubmit'), run.name)
         self.assertEqual(read(run / 'control.json')['activity'], 0)
         transcript = self.root / 'transcript.jsonl'
-        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 81}}}) + '\n')
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 81_000}}}) + '\n')
+        current = read(run / 'control.json')
+        current['startup_tokens'] = 10_000
+        write(run / 'control.json', current)
         handle(run, dict(base, hook_event_name='Stop', transcript_path=str(transcript)), run.name)
         self.assertEqual(read(run / 'control.json')['phase'], 'requested')  # absolute capped at 80%
         handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
@@ -256,7 +270,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
             handle(run, {'session_id': 'child', 'agent_id': 'worker', 'hook_event_name': 'SubagentStop'}, run.name)
             self.assertEqual(read(run / 'control.json')['children'], ['worker'])
 
-    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False, headless=False):
+    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False, headless=False, substantive=False):
         launched = []
         def prepare(view, options, prompt, run, agent='coordinator'):
             launched.append((options, prompt))
@@ -269,6 +283,8 @@ s = json.loads(p.read_text())
 s.update(phase='ready', activity=1, valid_usage=True, rollover_entry='\\n### rollover FIXTURE\\n')
 p.write_text(json.dumps(s))
 '''
+            if substantive:
+                script += '\n(Path(os.environ["TOKEN_KIT_TASK"]) / "out.md").open("a").write("completed file ' + str(len(launched)) + '\\n")'
             if no_progress:
                 script = script.replace('activity=1', 'activity=0')
             if not failures:
@@ -318,8 +334,10 @@ p.write_text(json.dumps(s))
         def emit(tokens):
             transcript.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n' +
                 json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
-                    'last_token_usage': {'total_tokens': tokens}, 'model_context_window': 1000}}}) + '\n')
-        emit(100)
+                    'last_token_usage': {'total_tokens': 10}, 'model_context_window': 100_000}}}) + '\n' +
+                json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
+                    'last_token_usage': {'total_tokens': tokens}, 'model_context_window': 100_000}}}) + '\n')
+        emit(30_000)
         summary = fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
         self.assertEqual(summary[0], session)
         self.assertIn('Finish summarizing', summary[1])
@@ -329,11 +347,11 @@ p.write_text(json.dumps(s))
         emit(1)
         self.assertIsNone(fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%')))
         meta['source'] = {'subagent': {}}
-        emit(100)
+        emit(30_000)
         with self.assertRaisesRegex(ValueError, 'identity mismatch'):
             fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
         meta['source'] = 'exec'
-        emit(100)
+        emit(30_000)
         with transcript.open('a') as stream:
             stream.write(json.dumps({'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'spawn_agent'}}) + '\n')
         with self.assertRaisesRegex(ValueError, 'native-worker'):
@@ -384,8 +402,9 @@ p.write_text(json.dumps(s))
 
     def test_repeated_initial_context_rollover_stops_without_progress(self):
         code, launched = self._run_fake(no_progress=True)
-        self.assertEqual(code, 1)
-        self.assertEqual(len(launched), 2)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(launched), 3)
+        self.assertIsNone(launched[-1][0].rollover)
 
     def test_only_injected_message_ids_marked_after_activity(self):
         marked = []
@@ -429,8 +448,13 @@ p.write_text(json.dumps(s))
     def test_child_start_revokes_ready_boundary(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(), 'parent', self.state)
-        base = {'session_id': 'parent'}
+        initialize(run, LaunchOptions(context_window=200_000), 'parent', self.state)
+        transcript = self.root / 'usage.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 150_000}}}) + '\n')
+        current = read(run / 'control.json')
+        current['startup_tokens'] = 10_000
+        write(run / 'control.json', current)
+        base = {'session_id': 'parent', 'transcript_path': str(transcript)}
         handle(run, dict(base, hook_event_name='SessionStart'), run.name)
         handle(run, dict(base, hook_event_name='PreCompact'), run.name)
         self.assertEqual(read(run / 'control.json')['phase'], 'ready')
@@ -470,9 +494,9 @@ p.write_text(json.dumps(s))
     def test_stale_startup_usage_does_not_request_handoff(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(rollover=10), 'parent', self.state)
+        initialize(run, LaunchOptions(rollover=10, context_window=100_000), 'parent', self.state)
         transcript = self.root / 'transcript.jsonl'
-        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 11}}}) + '\n')
+        transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 30_000}}}) + '\n')
         for event in ('SessionStart', 'UserPromptSubmit'):
             handle(run, {'session_id': 'parent', 'hook_event_name': event, 'transcript_path': str(transcript)}, run.name)
             self.assertEqual(read(run / 'control.json')['phase'], 'running')
@@ -480,8 +504,56 @@ p.write_text(json.dumps(s))
     def test_three_plain_rollovers_then_normal_exit(self):
         code, launched = self._run_fake()
         self.assertEqual(code, 0)
-        self.assertEqual(len(launched), 4)
+        self.assertEqual(len(launched), 3)
+        self.assertIsNone(launched[-1][0].rollover)
         self.assertEqual(launched[-1][1], 'Latest plain state')
+
+    def test_substantive_output_resets_stagnation(self):
+        code, launched = self._run_fake(substantive=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(launched), 4)
+        self.assertIsNotNone(launched[-1][0].rollover)
+
+    def test_startup_growth_guard_for_both_engines(self):
+        for engine in ('claude', 'codex'):
+            with self.subTest(engine=engine):
+                run = self.root / engine
+                run.mkdir()
+                initialize(run, LaunchOptions(engine=engine, rollover='10%', context_window=200_000),
+                           'parent', self.state)
+                base = {'session_id': 'parent', 'transcript_path': str(self.root / 'telemetry')}
+                def sample(tokens):
+                    (self.root / 'telemetry').write_text(json.dumps({'type': 'assistant',
+                        'sessionId': 'parent', 'message': {'usage': {'input_tokens': tokens}}}) + '\n')
+                    return patch('token_kit.simple_adapters.codex_usage_sample',
+                                 return_value={'context_tokens': tokens, 'context_window': 200_000})
+                with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
+                     patch('token_kit.simple_adapters.codex_root_session', return_value='parent'):
+                    with sample(43_000):
+                        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
+                        warning = read(run / 'control.json')['loop_warning']
+                        self.assertEqual(handle(run, dict(base, hook_event_name='PreCompact'), run.name), {})
+                    with sample(62_999):
+                        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
+                        self.assertEqual(read(run / 'control.json')['loop_warning'], warning)
+                    with sample(63_000):
+                        result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+                        self.assertIn('Finish summarizing', result['hookSpecificOutput']['additionalContext'])
+                        control = read(run / 'control.json')
+                        self.assertEqual(control['startup_tokens'], 43_000)
+                        self.assertEqual(control['token_growth'], 20_000)
+                        self.assertEqual(control['phase'], 'requested')
+
+    def test_growth_minimum_scales_with_context_and_requires_threshold(self):
+        from token_kit.simple_runtime import rollover_growth
+        control = {}
+        self.assertFalse(rollover_growth(control, 40_000, 1_000_000, 200_000))
+        self.assertEqual(control['minimum_growth'], 100_000)
+        self.assertFalse(rollover_growth(control, 160_000, 1_000_000, 200_000))
+        self.assertTrue(rollover_growth(control, 200_000, 1_000_000, 200_000))
+        self.assertFalse(rollover_growth(control, 20_000, 1_000_000, 200_000))
+        self.assertEqual(control['startup_tokens'], 40_000)
 
     def test_error_not_replayed_and_zero_cap_respected(self):
         code, launched = self._run_fake(failures=True)
