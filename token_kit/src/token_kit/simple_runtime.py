@@ -231,9 +231,11 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 from token_kit.simple_types import TaskView
                 root = Path(control['task_root']).resolve()
                 safe_task_path(TaskView(root, None, '', output_path, output_path, output_path), output_path)
+                entry = (f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent}\n"
+                         "Summary requested; fresh context will follow verified stop.\n")
+                control['rollover_entry'] = entry
                 with output_path.open('a') as history:
-                    history.write(f"\n### rollover {datetime.now().astimezone().isoformat()} at {percent}\n"
-                                  "Summary requested; fresh context will follow verified stop.\n")
+                    history.write(entry)
                 output = ({'decision': 'block', 'reason': note} if event == 'Stop' else
                           {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}})
         write(run / 'control.json', control)

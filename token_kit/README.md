@@ -17,7 +17,7 @@ and 60% rollover; continuation reuses saved settings unless overridden. Use
 `--no-rollover` to disable restarts, and `--help` for all arguments.
 `pick` selects a task; `status` displays records; `resume` is a read-only preview.
 Run unattended with `token-kit run "Title" --engine codex --headless --prompt "..."`; Claude headless uses its print mode.
-`token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches.
+`token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches. If hooks do not arm, Codex telemetry triggers a summary turn after client exit, then a fresh successor; missing telemetry stops with an error.
 Client stdout/stderr streams into `.token-kit/runs/<run>/stdout.log`; the launcher prints each log path and returns the final client exit code.
 Pass `--yolo` explicitly (Codex: `--dangerously-bypass-approvals-and-sandbox`) or choose `--sandbox workspace-write`; headless never enables bypass automatically.
 

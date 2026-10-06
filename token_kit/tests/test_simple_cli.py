@@ -46,8 +46,12 @@ class CLITests(unittest.TestCase):
         self.assertEqual(continued.sandbox, 'workspace-write')
         overridden = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--no-headless']), load_settings(view))
         self.assertFalse(overridden.headless)
+        legacy = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--no-headless']), {'non_interactive': True})
+        self.assertFalse(legacy.non_interactive)
+        switched = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--engine', 'claude']), load_settings(view))
+        self.assertIsNone(switched.sandbox)
         with self.assertRaisesRegex(ValueError, 'headless'):
-            cli.resolve_options(args, {'non_interactive': 'bad'})
+            cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), {'headless': 'bad'})
 
     def test_preview_create_does_not_write(self):
         code, out, err = self.call('run', 'Draft', '--root', self.tasks, '--workspace', self.work, '--dry-run')

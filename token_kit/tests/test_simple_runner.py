@@ -266,7 +266,7 @@ import json, os
 from pathlib import Path
 p = Path(os.environ['TOKEN_KIT_SIMPLE_RUN']) / 'control.json'
 s = json.loads(p.read_text())
-s.update(phase='ready', activity=1, valid_usage=True)
+s.update(phase='ready', activity=1, valid_usage=True, rollover_entry='\\n### rollover FIXTURE\\n')
 p.write_text(json.dumps(s))
 '''
             if no_progress:
@@ -275,6 +275,8 @@ p.write_text(json.dumps(s))
                 script = script.replace("phase='ready'", "armed=True, phase='ready'")
             if not action:
                 script = 'pass'
+            if headless:
+                script += '\nfrom pathlib import Path\nimport os\n(Path(os.environ["TOKEN_KIT_TASK"]) / "out.md").write_text("Summary replaced history")'
             script += '\nprint("HEADLESS_LOG_MARKER", flush=True)'
             if failures:
                 script += '\nraise SystemExit(7)'
@@ -299,6 +301,7 @@ p.write_text(json.dumps(s))
         logs = list(self.root.glob('.token-kit/runs/*/stdout.log'))
         self.assertEqual(len(logs), 4)
         self.assertTrue(all('HEADLESS_LOG_MARKER' in log.read_text() for log in logs))
+        self.assertIn('### rollover FIXTURE', self.view.output.read_text())
         code, launched = self._run_fake(headless=True, failures=True)
         self.assertEqual(code, 7)
         self.assertEqual(len(launched), 1)
@@ -328,6 +331,12 @@ p.write_text(json.dumps(s))
         meta['source'] = {'subagent': {}}
         emit(100)
         with self.assertRaisesRegex(ValueError, 'identity mismatch'):
+            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
+        meta['source'] = 'exec'
+        emit(100)
+        with transcript.open('a') as stream:
+            stream.write(json.dumps({'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'spawn_agent'}}) + '\n')
+        with self.assertRaisesRegex(ValueError, 'native-worker'):
             fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
         transcript.unlink()
         with self.assertRaisesRegex(ValueError, 'unavailable'):

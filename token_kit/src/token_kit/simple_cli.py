@@ -115,6 +115,7 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
         values.pop("model", None)
         values.pop("effort", None)
         values.pop("context_window", None)
+        values.pop("sandbox", None)
         values["yolo"] = False
     supplied = vars(args)
     if supplied.get("rollover", "absent") is None and supplied.get("max_rollovers") not in (None, 0):
@@ -126,6 +127,8 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
         # An explicit threshold re-enables rollover, unless the user separately set zero.
         if "max_rollovers" not in supplied and values.get("max_rollovers") == 0:
             result["max_rollovers"] = None
+    if "headless" in supplied:
+        result["non_interactive"] = False
     options = LaunchOptions(**result)
     if options.engine not in ("claude", "codex"):
         raise ValueError("Saved engine is invalid; select --engine claude or codex")

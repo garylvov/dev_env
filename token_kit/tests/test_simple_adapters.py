@@ -114,6 +114,10 @@ class SimpleAdaptersTest(unittest.TestCase):
             path.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n')
         write()
         self.assertEqual(adapters.codex_root_session(payload), 'parent')
+        meta['source'] = 'exec'
+        write()
+        self.assertEqual(adapters.codex_root_session(payload), 'parent')
+        meta['source'] = 'cli'
         for update in ({'source': {'subagent': {}}}, {'id': 'child'},
                        {'parent_thread_id': 'other'}, {'session_id': 'other'}, {'source': 'vscode'}):
             old = meta.copy()

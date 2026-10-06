@@ -20,7 +20,9 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
         raise ValueError('Headless rollover transcript unavailable or ambiguous; no successor launched')
     with candidates[0].open() as stream:
         row = json.loads(stream.readline(262145))
-    meta = row.get('payload', {})
+    meta = row.get('payload', {}) if isinstance(row, dict) else {}
+    if not isinstance(meta, dict):
+        raise ValueError('Headless rollover transcript metadata is malformed; no successor launched')
     if (row.get('type') != 'session_meta' or meta.get('id') != session
             or meta.get('source') != 'exec' or meta.get('cwd') != str(workspace)
             or any(meta.get(key) for key in ('parent_thread_id', 'parent_session_id', 'agent_path'))):
@@ -31,6 +33,20 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
         raise ValueError('Headless rollover token telemetry unavailable; no successor launched')
     if used < effective_limit(options.rollover, window):
         return None
+    # Without hooks there is no reliable native-worker stop ledger. Refuse
+    # rather than start a successor that could race workers of unknown fate.
+    with candidates[0].open() as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+                payload = event.get('payload', {}) if isinstance(event, dict) else {}
+                if not isinstance(payload, dict):
+                    continue
+            except ValueError:
+                continue
+            if (payload.get('type') == 'function_call' and
+                    'spawn_agent' in str(payload.get('name', ''))):
+                raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')
     note = (f'Context is at {used / window * 100:.0f}%. Finish summarizing everything into '
             f'{view.output.resolve()} now: update sparse Current state and append History, '
             f'ensure every ask in {view.assignment.resolve()} has a History response. '

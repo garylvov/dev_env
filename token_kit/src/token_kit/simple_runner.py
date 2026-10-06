@@ -47,6 +47,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     from .simple_adapters import prepare
     slot = Slot(view.root, agent).acquire(resume=resume)
     completed = 0
+    rollover_entries = []
     notices = set()
     next_prompt = prompt
     pending_ids = ()
@@ -130,7 +131,9 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                             pending_ids = ()  # leave persisted cursor unchanged, do not spam warnings
                     diagnostic = control.get('degraded')
                     if effective.rollover is not None and not control.get('armed') and time.monotonic() - started_at >= 5:
-                        diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
+                        diagnostic = ('Managed exec hooks not observed; rollover will check exact-session telemetry after exit'
+                                      if headless and options.engine == 'codex' else
+                                      'Managed rollover handshake not observed; native compaction remains available')
                     if diagnostic and diagnostic not in notices:
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
@@ -181,13 +184,19 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 from .simple_headless import fallback_summary, summary_argv
                 home = Path(environment.get('CODEX_HOME', str(Path.home() / '.codex')))
                 print('Token Kit: exec hooks did not arm; checking exact-session telemetry after verified exit.', file=sys.stderr)
-                summary = fallback_summary(log, home, plan.cwd, view, effective)
+                try:
+                    summary = fallback_summary(log, home, plan.cwd, view, effective)
+                except (OSError, ValueError):
+                    slot.publish(status='exited', exit_code=child.returncode)
+                    raise
                 if summary:
                     session, note, used = summary
                     from datetime import datetime
+                    entry = (f'\n### rollover {datetime.now().astimezone().isoformat()} at {used} tokens\n'
+                             'Exec hooks unavailable; summary requested after verified process exit.\n')
+                    final_control['rollover_entry'] = entry
                     with view.output.open('a') as history:
-                        history.write(f'\n### rollover {datetime.now().astimezone().isoformat()} at {used} tokens\n'
-                                      'Exec hooks unavailable; summary requested after verified process exit.\n')
+                        history.write(entry)
                     with log.open('ab') as target:
                         target.write(('\nToken Kit summary request: ' + note + '\n').encode())
                         target.flush()
@@ -206,11 +215,13 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                                              context_tokens=used, telemetry_fallback=True)
                         write(run / 'control.json', final_control)
             if effective.rollover is not None and not final_control.get('armed'):
-                diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
+                diagnostic = ('Managed exec hooks not observed; rollover will check exact-session telemetry after exit'
+                                      if headless and options.engine == 'codex' else
+                                      'Managed rollover handshake not observed; native compaction remains available')
                 if diagnostic not in notices:
                     print('Token Kit: ' + diagnostic, file=sys.stderr)
                     notices.add(diagnostic)
-            if pending_ids and final_control.get('armed') and (final_control.get('valid_usage') or final_control.get('activity')):
+            if pending_ids and (final_control.get('armed') or final_control.get('telemetry_fallback')) and (final_control.get('valid_usage') or final_control.get('activity')):
                 try:
                     mark_messages_presented(view, pending_ids, agent=agent)
                     pending_ids = ()
@@ -222,6 +233,16 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 rollover = False  # a canceled user continuation is never an automatic restart
             elif child.returncode == 0 and final_control.get('phase') == 'ready':
                 rollover = not continuing
+            # Summary/successor edits cannot erase mechanical rollover evidence.
+            entry = final_control.get('rollover_entry')
+            if isinstance(entry, str) and entry and entry not in rollover_entries:
+                rollover_entries.append(entry)
+            if rollover_entries:
+                saved_output = view.output.read_text() if view.output.exists() else ''
+                with view.output.open('a') as history:
+                    for entry in rollover_entries:
+                        if entry not in saved_output:
+                            history.write(entry)
             # Include notes written during shutdown. Snapshot never overwrites live files.
             try:
                 if view.state.is_file():
