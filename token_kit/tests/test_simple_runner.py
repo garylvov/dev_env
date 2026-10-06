@@ -342,6 +342,39 @@ p.write_text(json.dumps(s))
         with self.assertRaisesRegex(ValueError, 'unavailable'):
             fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
 
+    def test_failed_spawn_evidence_and_unknown_worker_refusal(self):
+        from token_kit.simple_headless import native_workers_may_have_run
+        transcript = self.root / 'spawn.jsonl'
+        def event(**payload):
+            return {'type': 'response_item', 'payload': payload}
+        spawn = event(type='function_call', name='collaboration.spawn_agent', call_id='spawn-1')
+        registered = event(type='function_call_output', call_id='spawn-1',
+                           output=json.dumps({'task_name': '/root/helper'}))
+        startup_failure = event(type='agent_message', author='/root/helper', content=[{
+            'type': 'input_text', 'text': 'Agent errored: ' + json.dumps({'type': 'error', 'status': 400,
+            'error': {'type': 'invalid_request_error', 'message':
+                      "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."}})}])
+        cases = [
+            ([], False),
+            ([spawn], True),
+            ([spawn, event(type='function_call_output', call_id='spawn-1', output='{}')], True),
+            ([spawn, event(type='function_call_output', call_id='other', output='{"error":"failed"}')], True),
+            ([spawn, event(type='function_call_output', call_id='spawn-1', output='{"error":"spawn failed"}')], False),
+            ([spawn, registered], True),
+            ([spawn, registered, startup_failure], False),
+            ([spawn, registered, startup_failure, event(type='function_call', name='followup_task')], True),
+            ([spawn, registered, event(type='agent_message', author='/root/helper',
+                content=[{'text': 'Agent errored: runtime failure after work'}])], True),
+            ([spawn, registered, startup_failure, event(type='function_call', name='spawn_agent', call_id='spawn-2')], True),
+            ([spawn, registered, dict(startup_failure, payload=dict(startup_failure['payload'], author='/root/other'))], True),
+            ([spawn, registered, startup_failure, event(type='agent_message', author='/root/helper',
+                content=[{'text': 'Successfully edited files'}])], True),
+        ]
+        for rows, expected in cases:
+            with self.subTest(rows=rows):
+                transcript.write_text(''.join(json.dumps(row) + '\n' for row in rows))
+                self.assertEqual(native_workers_may_have_run(transcript), expected)
+
     def test_startup_failure_leaves_steering_pending(self):
         marked = []
         code, launched = self._run_fake(failures=True, resume=True, marked=marked)

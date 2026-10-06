@@ -85,7 +85,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 except (ValueError, AttributeError):
                     diagnostics = []
                 for diagnostic in diagnostics:
-                    if diagnostic not in notices:
+                    if diagnostic not in notices or diagnostic == 'Hook trust is bypassed because --yolo was given.':
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
                 simple_runtime.initialize(run, effective,

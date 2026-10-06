@@ -23,6 +23,7 @@ class Capabilities:
     managed_hooks: bool
     diagnostics: tuple[str, ...]
     hook_trust: str = "unverified"
+    bypass_hook_trust: bool = False
 
 
 def capabilities(options: LaunchOptions) -> Capabilities:
@@ -42,8 +43,13 @@ def capabilities(options: LaunchOptions) -> Capabilities:
     if result.returncode or not all(flag in result.stdout for flag in required):
         return Capabilities(False, ("Client help does not confirm session identity and settings flags; "
                                     "automatic rollover is unavailable.",))
-    return Capabilities(True, ("Rollover hooks are candidates; hook support, trust, parent identity and telemetry remain "
-                               "unverified until the expected parent session reports them.",))
+    bypass = options.engine == "codex" and options.yolo and "--dangerously-bypass-hook-trust" in result.stdout
+    diagnostics = ("Rollover hooks are candidates; hook support, trust, parent identity and telemetry remain "
+                   "unverified until the expected parent session reports them.",)
+    if options.engine == "codex" and options.yolo:
+        diagnostics += (("Hook trust is bypassed because --yolo was given." if bypass else
+                         "Client help does not confirm --dangerously-bypass-hook-trust; hook trust remains unverified."),)
+    return Capabilities(True, diagnostics, bypass_hook_trust=bypass)
 
 
 def _argument(value: str, label: str) -> None:
@@ -187,18 +193,22 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     guidance = folder_guidance(view)
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
     enabled = options.rollover not in (None, 0, "off")
-    cap = capabilities(options) if enabled else Capabilities(False, ())
+    cap = capabilities(options) if enabled or (options.engine == "codex" and options.yolo) else Capabilities(False, ())
+    if not enabled:
+        cap = Capabilities(False, tuple(d for d in cap.diagnostics if "hook" in d.lower() and "Rollover hooks" not in d),
+                           bypass_hook_trust=cap.bypass_hook_trust)
     if options.engine == "codex" and cap.managed_hooks:
         existing = _codex_hook_settings(workspace, env)
         if existing:
             cap = Capabilities(False, ("Automatic rollover unavailable: existing Codex hook "
-                "tables are preserved; session overrides could replace them: " + "; ".join(existing),))
+                "tables are preserved; session overrides could replace them: " + "; ".join(existing),) +
+                tuple(d for d in cap.diagnostics if "--yolo" in d), bypass_hook_trust=cap.bypass_hook_trust)
     if options.engine == "codex" and prompt is None:
         cap = Capabilities(cap.managed_hooks, cap.diagnostics + (
             "Task assignment: " + str(view.assignment.resolve()) +
             (". Folder guidance is delivered on the first verified prompt hook."
              if cap.managed_hooks else ". Native idle session has no injected folder guidance; "
-             "ask the agent to read this file when starting work."),))
+             "ask the agent to read this file when starting work."),), bypass_hook_trust=cap.bypass_hook_trust)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
         "diagnostics": cap.diagnostics})
@@ -227,6 +237,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
             argv.extend(codex_config())
         if options.yolo:
             argv.append("--dangerously-bypass-approvals-and-sandbox")
+            if cap.bypass_hook_trust:
+                argv.append("--dangerously-bypass-hook-trust")
         if options.sandbox:
             argv.extend(("--sandbox", options.sandbox))
         if options.effort is not None:

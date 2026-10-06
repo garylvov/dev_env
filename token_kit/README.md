@@ -78,7 +78,7 @@ Token Kit inspects home and ancestor project `.codex/hooks.json` files, includin
 legacy-hook conflicts; project-file execution was not observed in the disposable
 probe. Overlapping TOML hook tables still disable automatic rollover because
 session overrides could replace those arrays. Unreadable hook settings are reported.
-Token Kit never bypasses hook trust. Stop an unmanaged active session normally
+For Codex, explicit `--yolo` also bypasses hook trust when the client supports it. Stop an unmanaged active session normally
 before launching `continue`.
 
 ## Installing the candidate

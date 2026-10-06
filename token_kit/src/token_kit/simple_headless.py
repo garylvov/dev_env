@@ -33,20 +33,8 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
         raise ValueError('Headless rollover token telemetry unavailable; no successor launched')
     if used < effective_limit(options.rollover, window):
         return None
-    # Without hooks there is no reliable native-worker stop ledger. Refuse
-    # rather than start a successor that could race workers of unknown fate.
-    with candidates[0].open() as stream:
-        for line in stream:
-            try:
-                event = json.loads(line)
-                payload = event.get('payload', {}) if isinstance(event, dict) else {}
-                if not isinstance(payload, dict):
-                    continue
-            except ValueError:
-                continue
-            if (payload.get('type') == 'function_call' and
-                    'spawn_agent' in str(payload.get('name', ''))):
-                raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')
+    if native_workers_may_have_run(candidates[0]):
+        raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')
     note = (f'Context is at {used / window * 100:.0f}%. Finish summarizing everything into '
             f'{view.output.resolve()} now: update sparse Current state and append History, '
             f'ensure every ask in {view.assignment.resolve()} has a History response. '
@@ -58,3 +46,54 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options):
 def summary_argv(argv, session, note):
     boundary = argv.index('--')
     return (*argv[:boundary], 'resume', session, '--', note)
+
+
+def native_workers_may_have_run(transcript: Path) -> bool:
+    """Only explicit pre-execution failures clear a spawn; unknown outcomes refuse."""
+    calls = {}
+    paths = {}
+    with transcript.open() as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(row, dict) or row.get('type') != 'response_item':
+                continue
+            payload = row.get('payload', {})
+            if not isinstance(payload, dict):
+                continue
+            kind = payload.get('type')
+            name = str(payload.get('name', '')).split('.')[-1]
+            call = payload.get('call_id')
+            if kind == 'function_call' and name == 'spawn_agent':
+                if not isinstance(call, str) or call in calls:
+                    return True
+                calls[call] = False
+            elif kind == 'function_call' and name == 'followup_task' and calls:
+                # A retry can run a previously failed worker. Its outcome is unknown.
+                return True
+            elif kind == 'function_call_output' and call in calls:
+                calls[call] = False
+                output = payload.get('output')
+                try:
+                    result = json.loads(output) if isinstance(output, str) else output
+                except ValueError:
+                    result = None
+                if isinstance(result, dict):
+                    path = result.get('task_name')
+                    if isinstance(path, str):
+                        paths[path] = call
+                    # A tool-level error with no worker identity means spawn itself failed.
+                    elif result.get('error') and not result.get('agent_id'):
+                        calls[call] = True
+            elif kind == 'agent_message' and payload.get('author') in paths:
+                call = paths[payload['author']]
+                content = payload.get('content', [])
+                text = '\n'.join(item.get('text', '') for item in content if isinstance(item, dict))
+                # This exact client startup error precedes model execution. Generic
+                # "agent errored" messages can occur after work and are insufficient.
+                calls[call] = bool(re.search(
+                    r'Agent errored: .*"type"\s*:\s*"invalid_request_error".*'
+                    r'"message"\s*:\s*"The .* model is not supported when using Codex', text))
+    return any(not failed for failed in calls.values())

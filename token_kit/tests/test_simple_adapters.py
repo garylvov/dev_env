@@ -59,10 +59,30 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertNotIn('-c', plan.argv)
         self.assertNotIn('TOKEN_KIT_SIMPLE_SESSION_ID', plan.env)
         self.assertFalse(json.loads(plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])['managed_hooks'])
-        plan = self.prepare(engine='codex', effort='high', yolo=True, rollover='off')
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            plan = self.prepare(engine='codex', effort='high', yolo=True, rollover='off')
         self.assertIn('model_reasoning_effort="high"', plan.argv)
         self.assertNotIn('--dangerously-bypass-hook-trust', plan.argv)
         self.assertIn('exec', self.prepare(engine='codex', non_interactive=True, rollover='off').argv)
+
+    def test_yolo_hook_trust_is_probed_for_interactive_headless_and_successor(self):
+        for headless in (False, True):
+            for rollover in ('5%', None):
+                for supported in (False, True):
+                    with self.subTest(headless=headless, rollover=rollover, supported=supported):
+                        flags = '--no-daemon --config --enable --skip-git-repo-check'
+                        if supported:
+                            flags += ' --dangerously-bypass-hook-trust'
+                        result = subprocess.CompletedProcess([], 0, flags, '')
+                        with patch.object(adapters.subprocess, 'run', return_value=result):
+                            plan = self.prepare(engine='codex', yolo=True, headless=headless, rollover=rollover)
+                            ordinary = self.prepare(engine='codex', headless=headless, rollover=rollover)
+                        self.assertEqual('--dangerously-bypass-hook-trust' in plan.argv, supported)
+                        self.assertNotIn('--dangerously-bypass-hook-trust', ordinary.argv)
+                        diagnostics = json.loads(plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])['diagnostics']
+                        self.assertTrue(any('--yolo' in d if supported else 'hook trust remains' in d for d in diagnostics))
+                        self.assertNotIn('/oscar/', plan.argv[-1])
+                        self.assertNotIn('compute allocations', plan.argv[-1])
 
     def test_headless_argv_and_refusals(self):
         with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
