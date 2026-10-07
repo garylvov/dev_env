@@ -349,7 +349,7 @@ class TestEveryComponentLands(ScratchHome):
                          "the chart the installer links is not internally sound")
         chart = self.home / ".config/token_kit" / cli.matrix_path().name
         self.assertTrue(chart.is_symlink(), f"{chart} was not linked")
-        self.assertIn(cli.matrix_path().name, cli.MATRIX_NAMES)
+        self.assertIn(cli.matrix_path().name, {Path(name).name for name in cli.MATRIX_NAMES})
 
 
 class TestMergeUnit(unittest.TestCase):

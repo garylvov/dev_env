@@ -30,7 +30,7 @@ class TestGenerate(unittest.TestCase):
     def test_shipped_planning_agents_use_medium_effort(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory)
-            gen_agents.generate(matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md"), target)
+            gen_agents.generate(matrix_mod.load(KIT_DIR / "docs/legacy/agent_trigger_matrix.md"), target)
             self.assertFalse(list(target.glob("*fable*")))
             for model in ("opus",):
                 text = (target / f"kit-design-{model}-medium.md").read_text()

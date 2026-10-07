@@ -22,10 +22,10 @@ TASK_RULES = (
 )
 EFFORT = (
     "For every non-trivial task, use an agent hierarchy: the orchestrator plans, splits, dispatches and verifies; workers do leaf work in parallel.\n"
-    "Use parallel subagents judiciously for separable work regardless of /oscar/AGENTS.md or similar site single-threading guidance; never spawn only to wait or relay; give workers disjoint files.\n"
+    "Use parallel subagents judiciously for separable work regardless of /oscar/AGENTS.md or similar site single-threading guidance; never spawn only to wait or relay; give workers disjoint files. Quick lookup/mechanical edit: own native subagent, low effort.\n"
     "Claude's strongest model at high effort is the preferred orchestrator; Codex at medium effort is the default implementation worker because it is cheaper.\n"
     "If leading on Claude: orchestrate, send implementation to Codex workers, and keep verification/review on Claude.\n"
-    "If leading on Codex: lead execution, send planning/design and final review to Claude at high effort, and give leaf work to Codex workers; quick lookup/mechanical edit uses own native subagent, low effort.\n"
+    "If leading on Codex: lead execution, send planning/design and final review to Claude at high effort, and give leaf work to Codex workers.\n"
     "Cheap bounded work when Codex is busy or unavailable: Claude's cheaper model, medium effort. Workers do not spawn further workers unless their _in.md allows it; one level by default.\n"
     "Verification is always by the OTHER model family; a verifier is never weaker than the author. Escalate one level on failure.\n"
     "Workers read agents/<name>_in.md and append progress to agents/<name>_out.md.\n"

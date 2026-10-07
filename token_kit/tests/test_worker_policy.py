@@ -18,7 +18,7 @@ from token_kit.core.store import Store
 
 class WorkerPolicyTests(unittest.TestCase):
     def test_orchestrator_role_and_blocked_delegation_are_explicit(self):
-        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        matrix = (Path(__file__).resolve().parents[1] / "docs/legacy/agent_trigger_matrix.md").read_text()
         self.assertIn("orchestrator, not an execution worker", matrix)
         self.assertIn("before substantial execution", matrix)
         self.assertIn("Every logical agent, including workers", matrix)
@@ -49,7 +49,7 @@ class WorkerPolicyTests(unittest.TestCase):
 
     def test_orphan_retirement_preserves_operation_uncertainty(self):
         from token_kit.project_install import INSTRUCTIONS
-        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        matrix = (Path(__file__).resolve().parents[1] / "docs/legacy/agent_trigger_matrix.md").read_text()
         for text in (policy.POLICY, INSTRUCTIONS, matrix):
             self.assertIn("worker retire", text)
             self.assertIn("checkpoint", text)
@@ -60,7 +60,7 @@ class WorkerPolicyTests(unittest.TestCase):
 
     def test_native_nested_parent_tracking_is_in_all_shared_guidance(self):
         from token_kit.project_install import INSTRUCTIONS
-        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        matrix = (Path(__file__).resolve().parents[1] / "docs/legacy/agent_trigger_matrix.md").read_text()
         for text in (policy.POLICY, INSTRUCTIONS, matrix):
             self.assertIn("native", text)
             self.assertIn("--parent", text)
@@ -69,7 +69,7 @@ class WorkerPolicyTests(unittest.TestCase):
         self.assertIn("does not appear as a native Codex subagent", matrix)
 
     def test_matrix_separates_worktree_indexes_and_source_integration(self):
-        matrix = (Path(__file__).resolve().parents[1] / "agent_trigger_matrix.md").read_text()
+        matrix = (Path(__file__).resolve().parents[1] / "docs/legacy/agent_trigger_matrix.md").read_text()
         section = matrix.split("### CodeGraph: worktree ownership and freshness", 1)[1]
         for requirement in ("One index per worktree", "--absolute-git-dir",
                             "dirty and untracked", "Never merge SQLite",

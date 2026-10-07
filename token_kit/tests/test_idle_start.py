@@ -135,7 +135,7 @@ class IdleStartTests(unittest.TestCase):
                  patch.object(runtime, "wait_segment", return_value=(0, {})):
                 self.assertEqual(workflow.launch(store, "coordinator", engine, rollover_tokens=100, idle=True), 0)
             prompt = popen.call_args.args[0][-1]
-            matrix_path = Path(workflow.__file__).resolve().parents[2] / "agent_trigger_matrix.md"
+            matrix_path = Path(workflow.__file__).resolve().parents[2] / "docs/legacy/agent_trigger_matrix.md"
             self.assertIn(matrix_path.read_text(), prompt)
             self.assertIn(str(matrix_path), prompt)
             self.assertIn("Waiting for your instructions.", prompt)

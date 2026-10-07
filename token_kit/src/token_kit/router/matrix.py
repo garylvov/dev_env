@@ -165,7 +165,7 @@ class Matrix:
 def matrix_path() -> Path:
     """Where the guide lives.  env.sh sets LANE_RECYCLER_MATRIX at install."""
     env = os.environ.get("LANE_RECYCLER_MATRIX")
-    return Path(env) if env else KIT_DIR / "agent_trigger_matrix.md"
+    return Path(env) if env else KIT_DIR / "docs/legacy/agent_trigger_matrix.md"
 
 
 #: (path, mtime, size) -> Matrix.  The hook pays one parse per EDIT of the

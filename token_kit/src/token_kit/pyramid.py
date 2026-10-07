@@ -6,7 +6,7 @@ from pathlib import Path
 
 MAX_BYTES = 16 * 1024
 NAME = "trigger_pyramid.md"
-REPOSITORY_PATH = Path(__file__).resolve().parents[2] / NAME
+REPOSITORY_PATH = Path(__file__).resolve().parents[2] / "docs/legacy" / NAME
 
 
 def _check_path(path: Path, root: Path | None = None) -> None:

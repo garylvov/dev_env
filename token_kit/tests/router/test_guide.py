@@ -29,7 +29,7 @@ from . import KIT_DIR  # noqa: F401
 from token_kit.router import hook as hook_mod, matrix as matrix_mod
 from .runner import FIXTURE_MATRIX
 
-SHIPPED = KIT_DIR / "agent_trigger_matrix.md"
+SHIPPED = KIT_DIR / "docs/legacy/agent_trigger_matrix.md"
 
 
 def fenced_lines(text: str, heading: str = matrix_mod.EXAMPLES_HEADING) -> list[str]:
@@ -103,7 +103,7 @@ def all_fenced(text: str) -> list[str]:
 class TestTaskCommandLinesParse(unittest.TestCase):
     """Legacy matrix examples remain executable through the explicit namespace."""
 
-    DOCS = (KIT_DIR / "agent_trigger_matrix.md",)
+    DOCS = (KIT_DIR / "docs/legacy/agent_trigger_matrix.md",)
 
     def lines(self):
         out = []
@@ -172,7 +172,7 @@ class TestSharedReadmeCommands(unittest.TestCase):
         text = SHIPPED.read_text()
         self.assertIn("trigger_pyramid.md", text)
         self.assertIn("## Session and worker overrides", text)
-        pyramid = (KIT_DIR / "trigger_pyramid.md").read_text()
+        pyramid = (KIT_DIR / "docs/legacy/trigger_pyramid.md").read_text()
         self.assertIn("claude:opus:high > claude:fable:medium", pyramid)
 
 

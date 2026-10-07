@@ -45,7 +45,7 @@ CLI_PATH = Path(__file__).resolve()
 
 #: The routing chart, by preferred name. It is a markdown chart a person edits
 #: by hand; the .toml spelling is accepted while the change lands.
-MATRIX_NAMES = ("agent_trigger_matrix.md",)
+MATRIX_NAMES = ("docs/legacy/agent_trigger_matrix.md",)
 
 
 def matrix_path() -> Path:

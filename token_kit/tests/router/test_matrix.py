@@ -38,7 +38,7 @@ def write(tmp: Path, text: str) -> matrix_mod.Matrix:
 
 class TestParser(unittest.TestCase):
     def test_shipped_model_preferences(self):
-        matrix = matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md")
+        matrix = matrix_mod.load(KIT_DIR / "docs/legacy/agent_trigger_matrix.md")
         for name in matrix.names():
             candidates = matrix.row(name)["prefer"]
             if name in ("design", "design-review", "debug-stuck"):
@@ -201,7 +201,7 @@ class TestNothingShippedNamesAProject(unittest.TestCase):
     """
 
     def test_the_shipped_guide_names_no_project(self):
-        text = (KIT_DIR / "agent_trigger_matrix.md").read_text(encoding="utf-8")
+        text = (KIT_DIR / "docs/legacy/agent_trigger_matrix.md").read_text(encoding="utf-8")
         self.assertEqual(matrix_mod.banned_words_in(text), [])
 
     def test_the_router_source_names_no_project(self):
@@ -215,7 +215,7 @@ class TestNothingShippedNamesAProject(unittest.TestCase):
     def test_every_generated_agent_names_no_project(self):
         from token_kit.router import gen_agents
         with tempfile.TemporaryDirectory() as t:
-            m = matrix_mod.load(KIT_DIR / "agent_trigger_matrix.md")
+            m = matrix_mod.load(KIT_DIR / "docs/legacy/agent_trigger_matrix.md")
             for p in gen_agents.generate(m, Path(t) / "out"):
                 self.assertEqual(matrix_mod.banned_words_in(p.read_text(encoding="utf-8")), [],
                                  p.name)

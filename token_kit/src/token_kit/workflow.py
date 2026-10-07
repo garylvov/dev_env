@@ -685,7 +685,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         )
     from .worker_policy import brief
     if idle:
-        matrix_path = Path(__file__).resolve().parents[2] / "agent_trigger_matrix.md"
+        matrix_path = Path(__file__).resolve().parents[2] / "docs/legacy/agent_trigger_matrix.md"
         matrix = matrix_path.read_text(encoding="utf-8")
         prompt = (f"Token Kit agent trigger matrix, loaded from {matrix_path}:\n\n"
                   f"{matrix}\n\nEND OF TRIGGER MATRIX\n\n"
