@@ -15,7 +15,7 @@ import uuid
 
 from .adapters.base import AdapterError, LaunchPlan
 from .simple_types import LaunchOptions, TaskView
-from .simple_guidance import CONCURRENCY, TASK_RULES, EFFORT
+from .simple_guidance import CONCURRENCY, TASK_RULES, load_dispatch_guide
 
 
 @dataclass(frozen=True)
@@ -150,9 +150,9 @@ def folder_guidance(view: TaskView) -> str:
             f"Input (objective and asks): {view.assignment.resolve()}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
             f"Continuation notes: {view.state.resolve()}\n"
-            + TASK_RULES + EFFORT
+            + TASK_RULES + load_dispatch_guide()
             + (f"Optional task preferences: {view.preferences}\n" if view.preferences else "")
-            + "This supersedes older generated Token Kit workflow rules, not user or site instructions.\n"
+            + "This supersedes older generated Token Kit workflow rules. Follow user and site permissions; the parallel-work preference above applies to single-threading guidance.\n"
             + CONCURRENCY)
 
 

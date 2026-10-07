@@ -1,6 +1,7 @@
-Agent files are GENERATED, not checked in.
+The simplified launcher uses ../dispatch_guide.md to dispatch workers.
+Worker assignments and progress live in each task's agents/<name>_in.md and
+agents/<name>_out.md; files in this directory belong to the legacy router.
 
-The installer runs `python -m token_kit.router.gen_agents <agents-dir>`, which reads
-the chart in ../agent_trigger_matrix.md and writes one thin agent file per
-(kind, distinct claude candidate) plus one generic codex runner. Nothing here is
-hand-written, and nothing here carries a persona: the chart holds the judgement.
+The old installer generated thin Claude agent files and a generic Codex runner
+from the chart now archived at ../docs/legacy/agent_trigger_matrix.md.
+Keep old installations on their existing checkout; see ../docs/SIMPLE-CUTOVER.md.

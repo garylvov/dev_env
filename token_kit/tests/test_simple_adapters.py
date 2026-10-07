@@ -81,7 +81,7 @@ class SimpleAdaptersTest(unittest.TestCase):
                         self.assertNotIn('--dangerously-bypass-hook-trust', ordinary.argv)
                         diagnostics = json.loads(plan.env['TOKEN_KIT_SIMPLE_CAPABILITIES'])['diagnostics']
                         self.assertTrue(any('--yolo' in d if supported else 'hook trust remains' in d for d in diagnostics))
-                        self.assertNotIn('/oscar/', plan.argv[-1])
+                        self.assertIn('parallel subagents', plan.argv[-1])
                         self.assertNotIn('compute allocations', plan.argv[-1])
 
     def test_headless_argv_and_refusals(self):

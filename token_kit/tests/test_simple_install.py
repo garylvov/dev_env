@@ -18,7 +18,8 @@ class SimpleInstallTests(unittest.TestCase):
 
     def test_every_known_generated_block_upgrades_without_touching_user_text(self):
         path = self.project / 'AGENTS.md'
-        for text in (*old._LEGACY_INSTRUCTION_VERSIONS, old.INSTRUCTIONS):
+        for text in (*old._LEGACY_INSTRUCTION_VERSIONS, old.INSTRUCTIONS,
+                     new._PREVIOUS_DISPATCH_INSTRUCTIONS):
             with self.subTest(version=len(text)):
                 source = ('User prefix\n' + new._block(text) + '\nUser suffix\n').encode()
                 path.write_bytes(source)

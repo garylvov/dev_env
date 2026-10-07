@@ -1,7 +1,7 @@
 # Agent trigger matrix
 
 A soft guide for the thread that delegates: how to classify work, apply the
-[canonical trigger pyramid](trigger_pyramid.md), and bound workers. Shared Token Kit
+[canonical trigger pyramid](legacy/trigger_pyramid.md), and bound workers. Shared Token Kit
 sessions apply these preferences through agent instructions. Only the legacy router
 resolves a `KIND: <name>` line and writes a routing header; that hook is not required
 for native delegation below.
@@ -39,7 +39,7 @@ status for the coordinator to read when needed; do not create a polling worker.
 
 ## Tier use policy
 
-The [trigger pyramid](trigger_pyramid.md) owns the live model and effort lists.
+The [trigger pyramid](legacy/trigger_pyramid.md) owns the live model and effort lists.
 Choose the lowest capable tier and start with Mid. Use Medium for scoped work that
 is harder than Mid, including substantive documentation; Smart for complex planning,
 debugging, and independent review; and Smartest only for especially difficult or
@@ -91,7 +91,7 @@ authorized work without unrelated improvements or restarting unaffected phases.
 
 ## Session and worker overrides
 
-Apply the snapshot and override lifecycle in the [trigger pyramid](trigger_pyramid.md).
+Apply the snapshot and override lifecycle in the [trigger pyramid](legacy/trigger_pyramid.md).
 At task start, copy the file to `TASK/trigger_pyramid.md`; this session snapshot
 governs workers, rollovers, and resumes until reset or replaced. Repository-default
 updates do not rewrite active snapshots, and other sessions are unaffected.

@@ -16,7 +16,7 @@ import tempfile
 
 from . import project_install as legacy
 from .manifest import Manifest
-from .simple_guidance import CONCURRENCY, TASK_RULES, EFFORT
+from .simple_guidance import CONCURRENCY, TASK_RULES
 
 _PREVIOUS_SIMPLE_INSTRUCTIONS = """Token Kit keeps work in plain task folders and can roll over managed sessions.
 Read task.md (or in.md), STATE.md, and any user preferences before continuing.
@@ -29,7 +29,16 @@ Follow user and site permissions. Token Kit notes do not grant extra authority.
 _PREVIOUS_CURRENT_INSTRUCTIONS = """Read task.md/in.md, STATE.md and user preferences. Save useful progress and rollover context in STATE.md, with results in out.md or artifacts/. Formats and worker folders are optional. Check uncertain outcomes before retrying.
 
 """ + CONCURRENCY + '\n'
-INSTRUCTIONS = TASK_RULES + EFFORT + CONCURRENCY + "\n"
+_PREVIOUS_DISPATCH_INSTRUCTIONS = TASK_RULES + (
+    "Choose each subagent's model and effort deliberately; state why in its _in.md.\n"
+    "Use low for lookups/mechanical edits, medium for well-specified implementation, high for unknown "
+    "root causes, design and verification whose verdict is trusted.\n"
+    "A verifier must never be weaker than its author; escalate one level on failure rather than starting high.\n"
+    "Never spawn an agent only to wait or relay.\n"
+) + CONCURRENCY + "\n"
+INSTRUCTIONS = TASK_RULES + (
+    "Follow the dispatch guide injected by the launcher for agent hierarchy, model choice and verification.\n"
+) + CONCURRENCY + "\n"
 
 
 @dataclass(frozen=True)
@@ -150,7 +159,8 @@ def preview(project: Path | None = None, *, settings: Path | None = None,
                 raise legacy.InstallConflict(f"Ambiguous Token Kit markers: {path}")
             left, right = text.index(start), text.index(end) + len(end)
             known = {_block(v) for v in (*legacy._LEGACY_INSTRUCTION_VERSIONS, legacy.INSTRUCTIONS,
-                                        _PREVIOUS_SIMPLE_INSTRUCTIONS, _PREVIOUS_CURRENT_INSTRUCTIONS, INSTRUCTIONS)}
+                                        _PREVIOUS_SIMPLE_INSTRUCTIONS, _PREVIOUS_CURRENT_INSTRUCTIONS,
+                                        _PREVIOUS_DISPATCH_INSTRUCTIONS, INSTRUCTIONS)}
             if right <= left or text[left:right] not in known:
                 raise legacy.InstallConflict(f"Customized Token Kit guidance preserved: {path}")
             after = text[:left] + block + text[right:]

@@ -53,10 +53,15 @@ and history. Successors open docs only as needed; no index is required. Workers
 follow the same rules. Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts
 remain readable in place. No migration or checkpoint commands are needed.
 
-Choose each subagent's model and effort deliberately and explain the choice in its
-input file. Use low for lookups/mechanical edits, medium for clear implementation,
-and high for unknown root causes, design and trusted verification. A verifier is
-never weaker than the author. Escalate one level after failure; never spawn only to wait or relay.
+Edit [dispatch_guide.md](dispatch_guide.md) to choose worker models, effort and commands.
+The launcher reads it on every startup and successor launch and injects it for both
+engines. If it is missing, built-in guidance keeps the same dispatch roles using
+operator-selected models. Worker assignments name the model, effort and reason;
+verification uses the other model family at equal or greater capability.
+
+The old trigger pyramid and matrix are archived in [docs/legacy/](docs/legacy/).
+`src/token_kit/router/` remains for old installs; the simplified launcher does not
+execute it. Its only router path checks detect or clean up legacy hooks.
 
 ## Rollover
 
