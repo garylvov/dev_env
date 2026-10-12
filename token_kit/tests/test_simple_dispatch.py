@@ -61,10 +61,10 @@ class DispatchGuideTest(unittest.TestCase):
         self.assertLessEqual(len(guidance.load_dispatch_guide().splitlines()), 25)
         self.assertIn('--dangerously-bypass-approvals-and-sandbox', guidance.load_dispatch_guide())
 
-    def test_guide_and_fallback_have_no_concrete_model_names(self):
+    def test_guide_and_fallback_resolve_versions_from_sources(self):
         for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
             with self.subTest(text=text):
-                self.assertIsNone(re.search(r"gpt-|\b(?:opus|sonnet|haiku|fable|sol|luna|terra|astra)\b", text, re.I))
+                self.assertIsNone(re.search(r"gpt-|claude-(?:opus|sonnet|haiku|fable)-|\b(?:opus|sonnet|haiku|fable)\s+\d", text, re.I))
                 self.assertIn('model_reasoning_effort=<effort>', text)
                 self.assertIn('--model <model> --effort <effort>', text)
                 self.assertIn('codex debug models', text)
@@ -101,11 +101,11 @@ class DispatchGuideTest(unittest.TestCase):
                 self.assertIn('"requires usage credits"', text)
                 self.assertIn('UNAVAILABLE from THIS CLI login right now', text)
                 self.assertIn('not that the model needs credits in general', text)
-                self.assertIn('Record the message verbatim in models.md', text)
+                self.assertIn('record the message verbatim in models.md', text)
                 self.assertIn('only authMethod from claude auth status', text)
                 self.assertIn('never email or tokens', text)
-                self.assertIn('Re-probe at next refresh', text)
-                self.assertIn('Codex usage-limit error switches affected roles', text)
+                self.assertIn('do not edit models.md or automatically re-probe', text)
+                self.assertIn('use the next ordered option for that run', text)
 
     def test_model_decisions_injected_for_both_engines_and_successors(self):
         for engine in ('claude', 'codex'):
@@ -114,10 +114,45 @@ class DispatchGuideTest(unittest.TestCase):
                 with self.subTest(engine=engine, prompt=prompt):
                     plan = adapters.prepare(self.view, options, prompt, self.root / engine)
                     self.assert_injected(plan, str(self.root / 'models.md'))
-                    self.assert_injected(plan, 'missing or older than ~24h')
-                    self.assert_injected(plan, 'successors/workers reuse unless stale or a model fails')
+                    self.assert_injected(plan, 'main agent builds only if missing')
+                    self.assert_injected(plan, 'rebuild or edit only when the user asks')
                     self.assertNotIn('--model', plan.argv)
                     self.assertFalse((self.root / 'models.md').exists())
+
+    def test_build_once_cost_and_fallback_contract(self):
+        self.assertEqual(guidance.DISPATCH_GUIDE.read_bytes(), guidance.EFFORT.encode())
+        for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
+            with self.subTest(text=text):
+                self.assertNotRegex(text, r'(?i)24h|stale|refresh interval|next refresh')
+                self.assertIn('builds <task>/models.md only if it does not exist', text)
+                self.assertIn('Rebuild or edit only when the user asks', text)
+                self.assertIn('recording that ask in _in.md', text)
+                self.assertIn('Existing matrices require no discovery or probes', text)
+                self.assertIn('ORDERED options spanning both families', text)
+                self.assertIn("task's _out.md History", text)
+                self.assertIn('main (top-level) session is typically Claude Opus', text)
+                self.assertIn('with Codex as fallback', text)
+                self.assertIn('candidate table with USD per 1M input/output tokens', text)
+                self.assertIn('cached input if listed, context window', text)
+                self.assertIn('https://platform.claude.com/docs/en/about-claude/pricing', text)
+                self.assertIn('cite the exact URL', text)
+                self.assertIn('RELATIVE cost proxy', text)
+                self.assertIn('state this in one line in models.md', text)
+                self.assertIn('Keep login/usage-limited candidates in their preference order', text)
+                self.assertIn('cheapest model+effort capable of the role', text)
+                self.assertIn('Only when building the matrix', text)
+                self.assertIn('OTHER model family', text)
+
+    def test_existing_matrix_untouched_by_initial_and_successor_launches(self):
+        matrix = self.root / 'models.md'
+        matrix.write_bytes(b'Fixed operator matrix\n')
+        os.utime(matrix, (1, 1))
+        before = (matrix.read_bytes(), matrix.stat().st_mtime_ns)
+        for engine in ('claude', 'codex'):
+            for prompt in ('Start work', recovery_input(self.view, paths_only=True).text):
+                adapters.prepare(self.view, LaunchOptions(engine=engine, headless=True,
+                    rollover=None), prompt, self.root / engine)
+                self.assertEqual((matrix.read_bytes(), matrix.stat().st_mtime_ns), before)
 
     def test_launcher_only_passes_explicit_top_level_model(self):
         for engine in ('claude', 'codex'):

@@ -150,7 +150,7 @@ def folder_guidance(view: TaskView) -> str:
             f"Input (objective and asks): {view.assignment.resolve()}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
             f"Continuation notes: {view.state.resolve()}\n"
-            f"Model decisions: {view.root.resolve() / 'models.md'} — main agent refreshes at top-level start if missing or older than ~24h; successors/workers reuse unless stale or a model fails.\n"
+            f"Model decisions: {view.root.resolve() / 'models.md'} — main agent builds only if missing; reuse unchanged across starts and successors/workers; rebuild or edit only when the user asks (record in _in.md); runtime fallbacks go in _out.md History.\n"
             + TASK_RULES + load_dispatch_guide()
             + (f"Optional task preferences: {view.preferences}\n" if view.preferences else "")
             + "This supersedes older generated Token Kit workflow rules. Follow user and site permissions; the parallel-work preference above applies to single-threading guidance.\n"
