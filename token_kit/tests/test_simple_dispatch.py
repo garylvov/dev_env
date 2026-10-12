@@ -58,5 +58,34 @@ class DispatchGuideTest(unittest.TestCase):
         self.assertTrue(guidance.DISPATCH_GUIDE.is_file())
         for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
             self.assertIsNone(re.search(r'\b(stop|cancel|abort)\b', text, re.I))
-        self.assertLessEqual(len(guidance.load_dispatch_guide().splitlines()), 12)
+        self.assertLessEqual(len(guidance.load_dispatch_guide().splitlines()), 25)
         self.assertIn('--dangerously-bypass-approvals-and-sandbox', guidance.load_dispatch_guide())
+
+    def test_guide_and_fallback_have_no_concrete_model_names(self):
+        for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
+            with self.subTest(text=text):
+                self.assertIsNone(re.search(r"gpt-|\b(?:opus|sonnet|haiku|fable|sol|luna|terra|astra)\b", text, re.I))
+                self.assertIn('model_reasoning_effort=<effort>', text)
+                self.assertIn('--model <model> --effort <effort>', text)
+                self.assertIn('codex debug models', text)
+                self.assertIn('timeout 3s', text)
+                self.assertIn('usage-limit', text)
+
+    def test_model_decisions_injected_for_both_engines_and_successors(self):
+        for engine in ('claude', 'codex'):
+            options = LaunchOptions(engine=engine, headless=True, rollover=None)
+            for prompt in ('Start work', recovery_input(self.view, paths_only=True).text):
+                with self.subTest(engine=engine, prompt=prompt):
+                    plan = adapters.prepare(self.view, options, prompt, self.root / engine)
+                    self.assert_injected(plan, str(self.root / 'models.md'))
+                    self.assert_injected(plan, 'missing or older than ~24h')
+                    self.assert_injected(plan, 'successors/workers reuse unless stale or a model fails')
+                    self.assertNotIn('--model', plan.argv)
+                    self.assertFalse((self.root / 'models.md').exists())
+
+    def test_launcher_only_passes_explicit_top_level_model(self):
+        for engine in ('claude', 'codex'):
+            with self.subTest(engine=engine):
+                plan = adapters.prepare(self.view, LaunchOptions(engine=engine, headless=True,
+                    rollover=None, model='operator-choice'), 'Work', self.root / engine)
+                self.assertEqual(plan.argv[plan.argv.index('--model') + 1], 'operator-choice')

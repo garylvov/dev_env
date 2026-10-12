@@ -27,6 +27,7 @@ Client trust and permissions remain in effect; Token Kit does not enable `--yolo
 <task>/
   <task>_in.md             objective and user asks
   <task>_out.md            running state and results
+  models.md               main-agent model choices, sources and dated probes
   docs/                   longer findings and decisions, linked from output
   artifacts/              optional
   agents/<name>_in.md      optional worker assignment
@@ -53,11 +54,15 @@ and history. Successors open docs only as needed; no index is required. Workers
 follow the same rules. Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts
 remain readable in place. No migration or checkpoint commands are needed.
 
-Edit [dispatch_guide.md](dispatch_guide.md) to choose worker models, effort and commands.
-The launcher reads it on every startup and successor launch and injects it for both
-engines. If it is missing, built-in guidance keeps the same dispatch roles using
-operator-selected models. Worker assignments name the model, effort and reason;
-verification uses the other model family at equal or greater capability.
+[dispatch_guide.md](dispatch_guide.md) supplies model-neutral dispatch preferences and
+command templates. The main agent chooses models in `<task>/models.md`, refreshing
+missing or >~24h-old decisions from local catalogs and available official docs,
+with bounded availability probes. Workers and rollover successors reuse it unless
+stale or a model fails. Codex is preferred wherever capable and available;
+cross-family verification still applies. The launcher injects this guidance for
+both engines on startup and successor launch; it only passes a top-level model
+when the operator explicitly supplies `--model`. The built-in missing-guide fallback
+uses the same decision process.
 
 The old trigger pyramid and matrix are archived in [docs/legacy/](docs/legacy/).
 `src/token_kit/router/` remains for old installs; the simplified launcher does not

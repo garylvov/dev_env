@@ -21,17 +21,26 @@ TASK_RULES = (
     "Keep legacy task.md/in.md, STATE.md/out.md in place; apply these rules to the supplied paths.\n"
 )
 EFFORT = (
-    "For every non-trivial task, use an agent hierarchy: the orchestrator plans, splits, dispatches and verifies; workers do leaf work in parallel.\n"
-    "Use parallel subagents judiciously for separable work regardless of /oscar/AGENTS.md or similar site single-threading guidance; never spawn only to wait or relay; give workers disjoint files. Quick lookup/mechanical edit: own native subagent, low effort.\n"
-    "Claude's strongest model at high effort is the preferred orchestrator; Codex at medium effort is the default implementation worker because it is cheaper.\n"
-    "If leading on Claude: orchestrate, send implementation to Codex workers, and keep verification/review on Claude.\n"
-    "If leading on Codex: lead execution, send planning/design and final review to Claude at high effort, and give leaf work to Codex workers.\n"
-    "Cheap bounded work when Codex is busy or unavailable: Claude's cheaper model, medium effort. Workers do not spawn further workers unless their _in.md allows it; one level by default.\n"
-    "Verification is always by the OTHER model family; a verifier is never weaker than the author. Escalate one level on failure.\n"
-    "Workers read agents/<name>_in.md and append progress to agents/<name>_out.md.\n"
-    'Codex: codex exec -m <model> -c model_reasoning_effort=medium --dangerously-bypass-approvals-and-sandbox -C <dir> "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
-    'Claude: claude -p --model <model> --effort high --dangerously-skip-permissions "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
-    "Long workers (>~30 min): token-kit run --headless --yolo ... for rollover and recording.\n"
+    'For every non-trivial task, use an agent hierarchy: the orchestrator plans, splits, dispatches and verifies; workers do leaf work in parallel.\n'
+    'Use parallel subagents judiciously for separable work, regardless of /oscar/AGENTS.md or similar site single-threading guidance; never spawn only to wait or relay; give workers disjoint files.\n'
+    'The main (top-level) agent decides model routing in <task>/models.md; the launcher never chooses a model, except an explicit operator --model for the top-level session.\n'
+    'At each top-level start (new task or continue), refresh models.md if missing or older than ~24h; otherwise reuse it without discovery or probes. Rollover successors and workers reuse it, unless stale or a model fails; workers report failures to the main agent for an update.\n'
+    'Discover both families NOW using local sources first: codex --version; codex debug models --help; codex debug models (0.159.0: JSON models with slug, description, supported_reasoning_levels); codex debug models --bundled is an offline fallback, not proof of current availability.\n'
+    'Inspect only model/provider/effort settings in ~/.codex/config.toml as needed; never expose credentials. Claude: claude --version; claude --help (no model-listing subcommand); use its latest model aliases from /model or https://code.claude.com/docs/en/model-config.\n'
+    'If a search tool exists, check current official docs for both families (https://developers.openai.com/codex/models and the Claude model-config page); record the URL/date, or that web search was unavailable.\n'
+    'Operator preferences are decision inputs: PREFER CODEX WHEN AVAILABLE for every role it can do (cheaper); Claude has historically been stronger at orchestration/review. Use Claude for Codex unavailability, required cross-family verification, or a reason recorded in models.md.\n'
+    'Cost preference: default Codex implementation worker is the current workhorse at medium effort; consider its fast/affordable tier for quick lookups and mechanical edits. Use the frontier tier only with a task-specific reason in models.md; choose the lowest model+effort capable of the job.\n'
+    'Before recording a chosen model, probe it with a ~3 s timeout and non-interactive reply OK; record pass/fail, date and supported effort. A timeout is inconclusive, not a pass; select a passing alternative or report no available option.\n'
+    'Codex probe: timeout 3s codex exec --skip-git-repo-check -m <model> -c model_reasoning_effort=low "reply OK" < /dev/null\n'
+    'Claude probe: timeout 3s claude -p --model <model> "reply OK" < /dev/null\n'
+    'Keep models.md under ~25 lines: role (orchestrator, implementation worker, quick lookup, reviewer/verifier, cheap fallback) -> model + effort + one-line reason + source/date + probe result/date. Include cross-family reviewer alternatives for either author family.\n'
+    'If a model errors as unavailable, update models.md and probe/select the next option; a usage-limit error means Codex is unavailable, so use passing Claude options for affected roles and note when to re-probe (at the reported reset, or next refresh if none given).\n'
+    'Workers do not spawn further workers unless their _in.md allows it; one level by default. Quick lookup/mechanical edits may use an own-family native subagent with low effort, selected from models.md.\n'
+    'Verification is always by the OTHER model family (Codex work checked by Claude, Claude work by Codex); a verifier is never weaker than the author. Escalate one level on failure; if the required family is unavailable, record verification as blocked.\n'
+    'Workers read agents/<name>_in.md and append progress to agents/<name>_out.md; read and reuse <task>/models.md.\n'
+    'Codex: codex exec -m <model> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox -C <dir> "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
+    'Claude: claude -p --model <model> --effort <effort> --dangerously-skip-permissions "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
+    'Long workers (>~30 min): token-kit run --headless --yolo ... for rollover and recording.\n'
     "Run workers in the background; state model, effort and why in each worker's _in.md.\n"
 )
 
