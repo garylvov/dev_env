@@ -142,6 +142,22 @@ class DispatchGuideTest(unittest.TestCase):
                 self.assertIn('cheapest model+effort capable of the role', text)
                 self.assertIn('Only when building the matrix', text)
                 self.assertIn('OTHER model family', text)
+                self.assertIn('`cost rank` (1 = cheapest)', text)
+                self.assertIn('`intelligence rank` (1 = most capable)', text)
+                self.assertIn('ALL candidates from BOTH families', text)
+                self.assertIn('noting ties', text)
+                self.assertIn('fixed input:output token mix', text)
+                self.assertIn('prefer Codex on cost ties among capable options', text)
+                self.assertIn('After filtering for the role minimum, cross-family verifier parity', text)
+                self.assertIn('never infer intelligence from price', text)
+                self.assertIn('public cross-vendor comparison', text)
+                self.assertIn('label judgment and missing coverage', text)
+                self.assertIn('maximum acceptable intelligence rank', text)
+                self.assertIn('order qualifying options by cost rank, Codex winning cost ties', text)
+                self.assertIn('explicit override outside the cost-ordered options', text)
+                self.assertIn('cost 3, intel 2', text)
+                self.assertIn('only reason a costlier model appears above a cheaper candidate', text)
+                self.assertIn('verifier intelligence rank <= author intelligence rank', text)
 
     def test_existing_matrix_untouched_by_initial_and_successor_launches(self):
         matrix = self.root / 'models.md'
