@@ -69,6 +69,8 @@ class DispatchGuideTest(unittest.TestCase):
                 self.assertIn('--model <model> --effort <effort>', text)
                 self.assertIn('codex debug models', text)
                 self.assertIn('timeout 3s', text)
+                self.assertIn('OK plus cleanup timeout', text)
+                self.assertIn('timeout without OK is inconclusive', text)
                 self.assertIn('usage-limit', text)
 
     def test_model_decisions_injected_for_both_engines_and_successors(self):
