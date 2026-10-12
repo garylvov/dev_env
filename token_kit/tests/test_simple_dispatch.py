@@ -81,6 +81,32 @@ class DispatchGuideTest(unittest.TestCase):
                 self.assertIn('OK plus cleanup timeout', text)
                 self.assertIn('usage-limit', text)
 
+    def test_guide_and_fallback_require_canonical_model_page_reads(self):
+        for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
+            with self.subTest(text=text):
+                self.assertIn('https://platform.claude.com/docs/en/models/overview', text)
+                self.assertIn('https://learn.chatgpt.com/docs/models?surface=app', text)
+                self.assertIn('main agent fetches and reads', text)
+                self.assertIn('canonical model pages with its web/fetch tool', text)
+                self.assertIn('Cite both URLs with the date read in models.md', text)
+                self.assertIn('note any disagreement with the local catalog/Claude CLI aliases', text)
+                self.assertIn('If no fetch tool is available, say so in models.md', text)
+                self.assertIn('fall back to local sources', text)
+                self.assertIn("codex debug models shows what this account's CLI can call", text)
+
+    def test_guide_and_fallback_scope_model_errors_to_cli_login(self):
+        for text in (guidance.load_dispatch_guide(), guidance.EFFORT):
+            with self.subTest(text=text):
+                self.assertIn('explicit model-specific client error', text)
+                self.assertIn('"requires usage credits"', text)
+                self.assertIn('UNAVAILABLE from THIS CLI login right now', text)
+                self.assertIn('not that the model needs credits in general', text)
+                self.assertIn('Record the message verbatim in models.md', text)
+                self.assertIn('only authMethod from claude auth status', text)
+                self.assertIn('never email or tokens', text)
+                self.assertIn('Re-probe at next refresh', text)
+                self.assertIn('Codex usage-limit error switches affected roles', text)
+
     def test_model_decisions_injected_for_both_engines_and_successors(self):
         for engine in ('claude', 'codex'):
             options = LaunchOptions(engine=engine, headless=True, rollover=None)
