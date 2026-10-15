@@ -22,12 +22,9 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 I prefer Claude Code, driven with Token Kit, as my main agent. Other models plug in underneath it: [Shunt](shunt/README.md) is a local gateway that adds GPT-6 Astra, Sol and Luna (per-effort variants too) to Claude Code as native subagents and `/model` entries, using my existing Codex login.
 
-Token Kit workflows (commit-pinned):
+Token Kit: [shared Claude/Codex tasks, checkpoints, and resumable workers](token_kit/README.md), with a [dispatch guide](token_kit/dispatch_guide.md).
 
-- [New: shared Claude/Codex tasks, checkpoints, and resumable workers (`b6253a7`)](https://github.com/garylvov/dev_env/blob/b6253a71c755b4608fd6ceebc86b0091b7e7ccf3/token_kit/README.md)
-- [Legacy: hooks, lanes, and Claude supervision (`d68a193`)](https://github.com/garylvov/dev_env/blob/d68a193c0d574446d57c03c9bb85fe9380c6a440/token_kit/README.md)
-
-[Current Token Kit docs](token_kit/README.md) · [Dispatch guide](token_kit/dispatch_guide.md) · [Archived legacy guidance](token_kit/docs/legacy/)
+Before Token Kit I ran a hand-built set of Claude Code subagents (the-grizzly, swe-worker-bee, test-titan, bloat-killer, and others). That setup is kept in history, pinned to [`d9a0585`](https://github.com/garylvov/dev_env/tree/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding): [README](https://github.com/garylvov/dev_env/blob/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/README.md), [agents](https://github.com/garylvov/dev_env/tree/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/agents), [settings](https://github.com/garylvov/dev_env/blob/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/settings.json).
 
 Claude code can be installed with the following.
 
