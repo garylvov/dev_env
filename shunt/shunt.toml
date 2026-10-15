@@ -1,0 +1,33 @@
+# shunt gateway for Claude Code: Claude passthrough + gpt-6-astra via Codex (ChatGPT login)
+[server]
+bind = "127.0.0.1:3001"
+
+[[upstreams]]
+name = "anthropic"
+provider = "anthropic"
+
+[[upstreams]]
+name = "codex"
+provider = "codex"
+effort = "high"
+
+[[models]]
+id = "gpt-6-astra"
+display_name = "GPT-6 Astra"
+
+[models.upstream_model]
+codex = "gpt-6-astra"
+
+[[models]]
+id = "gpt-6-sol"
+display_name = "GPT-6 Sol"
+
+[models.upstream_model]
+codex = "gpt-6-sol"
+
+[[models]]
+id = "gpt-6-luna"
+display_name = "GPT-6 Luna"
+
+[models.upstream_model]
+codex = "gpt-6-luna"
