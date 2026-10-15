@@ -112,4 +112,4 @@ Startup and successor prompts pass task-file paths without embedding their conte
 
 ## Global agent rules
 
-`AGENTS.md` is the single source of personal rules for Claude Code and Codex. Put it at `~/.config/agents/AGENTS.md`, make `~/.claude/CLAUDE.md` a one-line `@~/.config/agents/AGENTS.md` import, and run `sync_agents.sh` to copy everything above the `## Claude Code only` heading into `~/.codex/AGENTS.md` (re-run after `omx setup`).
+`AGENTS.md` is the single source of personal rules for Claude Code and Codex. Put it at `~/.config/agents/AGENTS.md`, make `~/.claude/CLAUDE.md` a one-line `@~/.config/agents/AGENTS.md` import, and run `sync_agents.sh` to copy everything above the `## Claude Code only` heading into `~/.codex/AGENTS.md`.
