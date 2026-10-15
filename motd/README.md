@@ -142,3 +142,14 @@ sudo chmod +x /etc/update-motd.d/10-help-text   # and any others you want back
   `touch ~/.hushlogin`.
 - `sshd_config`'s `Banner` is a *different* thing - that one prints before
   authentication. Use it for legal notices, not art.
+
+## Per-host banners
+
+`minerva.ans` and `hydra.ans` are green, `roz.ans` is blue (`ssh roz`). Regenerate roz with:
+
+```
+./taag2ansi.py --font TimeSpiralG --text Roz --trim \
+  --palette '#000000,#000088,#1F4FD8,#00AAAA,#AA0000,#AA00AA,#AA5500,#AAAAAA,#555555,#5555FF,#5C9DFF' -o roz.ans
+```
+
+`--trim` drops blank rows above and below the art. Install on the host itself with `sudo ./install.sh roz.ans`.
