@@ -9,7 +9,6 @@ provider = "anthropic"
 [[upstreams]]
 name = "codex"
 provider = "codex"
-effort = "high"
 
 [[models]]
 id = "gpt-6-astra"
@@ -31,3 +30,77 @@ display_name = "GPT-6 Luna"
 
 [models.upstream_model]
 codex = "gpt-6-luna"
+
+# Effort variants: one id per effort level, pinned, same upstream model.
+
+[[routes]]
+model = "gpt-6-astra-low"
+provider = "codex"
+upstream_model = "gpt-6-astra"
+effort = "low"
+
+[[routes]]
+model = "gpt-6-astra-medium"
+provider = "codex"
+upstream_model = "gpt-6-astra"
+effort = "medium"
+
+[[routes]]
+model = "gpt-6-astra-high"
+provider = "codex"
+upstream_model = "gpt-6-astra"
+effort = "high"
+
+[[routes]]
+model = "gpt-6-astra-xhigh"
+provider = "codex"
+upstream_model = "gpt-6-astra"
+effort = "xhigh"
+
+[[routes]]
+model = "gpt-6-sol-low"
+provider = "codex"
+upstream_model = "gpt-6-sol"
+effort = "low"
+
+[[routes]]
+model = "gpt-6-sol-medium"
+provider = "codex"
+upstream_model = "gpt-6-sol"
+effort = "medium"
+
+[[routes]]
+model = "gpt-6-sol-high"
+provider = "codex"
+upstream_model = "gpt-6-sol"
+effort = "high"
+
+[[routes]]
+model = "gpt-6-sol-xhigh"
+provider = "codex"
+upstream_model = "gpt-6-sol"
+effort = "xhigh"
+
+[[routes]]
+model = "gpt-6-luna-low"
+provider = "codex"
+upstream_model = "gpt-6-luna"
+effort = "low"
+
+[[routes]]
+model = "gpt-6-luna-medium"
+provider = "codex"
+upstream_model = "gpt-6-luna"
+effort = "medium"
+
+[[routes]]
+model = "gpt-6-luna-high"
+provider = "codex"
+upstream_model = "gpt-6-luna"
+effort = "high"
+
+[[routes]]
+model = "gpt-6-luna-xhigh"
+provider = "codex"
+upstream_model = "gpt-6-luna"
+effort = "xhigh"

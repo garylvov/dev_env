@@ -20,7 +20,8 @@
   "modelPicker": {
     "options": [
       { "model": "gpt-6-sol", "label": "GPT-6 Sol" },
-      { "model": "gpt-6-luna", "label": "GPT-6 Luna" }
+      { "model": "gpt-6-luna", "label": "GPT-6 Luna" },
+      { "model": "gpt-6-astra-high", "label": "GPT-6 Astra (high)" }
     ]
   }
 }
@@ -28,7 +29,8 @@
 Only one `ANTHROPIC_CUSTOM_MODEL_OPTION` slot exists, hence `modelPicker` for the rest. Start a new `claude` session afterwards.
 
 ## Notes
-- `effort = "high"` in `shunt.toml` overrides the `/effort` slider for Codex models. Delete that line to let the slider control it.
+- Base ids (`gpt-6-astra`, `-sol`, `-luna`) follow the `/effort` slider. Effort variants `gpt-6-<model>-<low|medium|high|xhigh>` are separate `[[routes]]` that pin effort and forward to the base upstream model; add any of them to `modelPicker` (the full list is generated, see `shunt.toml`).
+- Effort is not echoed in gateway headers; routing and upstream model are. Reasoning output tokens differ between low and xhigh, which is consistent with it working.
 - Claude Code assumes a 200k window for non-`claude-` ids. `CLAUDE_CODE_MAX_CONTEXT_TOKENS` is global, so set it only once the real window is known.
 - Launch the agents without a `model` override.
 
