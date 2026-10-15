@@ -1,11 +1,11 @@
 # shunt: GPT-6 Astra / Sol / Luna inside Claude Code
 
-[pleaseai/shunt](https://github.com/pleaseai/shunt) is a local gateway on `127.0.0.1:3001`. Claude models pass through to Anthropic with your normal login; `gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna` go to the Codex provider using your existing `codex login` (ChatGPT) credential. No tokens live in this folder.
+[pleaseai/shunt](https://github.com/pleaseai/shunt) is a local gateway on `127.0.0.1:3001`. Claude models pass through to Anthropic with your normal login; the effort-suffixed ids `gpt-6-<astra|sol|luna>-<low|medium|high|xhigh>` go to the Codex provider using your existing `codex login` (ChatGPT) credential. No tokens live in this folder.
 
 ## Contents
-- `shunt.toml`: upstreams (anthropic passthrough, codex with effort pinned to high) and the three model ids. No silent fallback.
+- `shunt.toml`: upstreams (anthropic passthrough, codex) and the 12 effort-suffixed model ids, each pinning its own effort. No silent fallback to another GPT model.
 - `shunt.service`: systemd user unit.
-- `agents/{astra,sol,luna}.md`: native Claude Code subagents, each pinned to its model.
+- `agents/{astra,sol,luna}.md`: native Claude Code subagents, each pinned to its `-high` model id.
 - `install.sh`: checksum-verified install of the pinned release (default `v0.55.1`), config, service and agents. Backs up anything it overwrites.
 
 ## Claude Code settings (merge into `~/.claude/settings.json`)
