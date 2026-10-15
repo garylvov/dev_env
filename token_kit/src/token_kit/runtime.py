@@ -1,0 +1,445 @@
+"""Managed lifecycle hooks and checkpoint-gated, same-engine rollover.
+
+The hook observes exact transcript paths supplied by the client, never scans a
+user's session history. Stop is a turn boundary, not proof external jobs finished.
+Current contracts: https://learn.chatgpt.com/docs/hooks and
+https://code.claude.com/docs/en/hooks .
+"""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+import time
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from token_kit.core import ledger, lifecycle
+from token_kit.core.store import Store, read_json, write_json
+from token_kit import inbox, rollover
+
+EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PostToolUse", "Stop",
+          "SubagentStart", "SubagentStop", "PreCompact")
+
+
+def token_limit(text: str) -> int:
+    value = text.lower()
+    multiplier = {"k": 1000, "m": 1000000}.get(value[-1:], 1)
+    try:
+        result = int(value[:-1] if multiplier != 1 else value) * multiplier
+    except ValueError as exc:
+        raise ValueError("Use a positive integer token count, optionally suffixed k or m") from exc
+    if result <= 0:
+        raise ValueError("Token count must be positive")
+    return result
+
+
+def hooks() -> dict:
+    command = shlex.join([sys.executable, str(Path(__file__).resolve())])
+    return {event: [{"hooks": [{"type": "command", "command": command,
+                               "timeout": 3 if event == "SessionEnd" else 15}]}]
+            for event in EVENTS}
+
+
+def codex_config() -> list[str]:
+    # JSON strings are valid TOML basic strings; inline objects need TOML '='.
+    result = ["--enable", "hooks"]
+    for event, groups in hooks().items():
+        command = json.dumps(groups[0]["hooks"][0]["command"])
+        timeout = groups[0]["hooks"][0]["timeout"]
+        value = '[{ hooks = [{ type = "command", command = ' + command + f', timeout = {timeout} }}] }}]'
+        result.extend(["-c", f"hooks.{event}={value}"])
+    return result
+
+
+class HookReviewRequired(ValueError):
+    """Required hooks are present but need user review/enabling."""
+
+
+def validate_hooks(result: dict) -> None:
+    expected = {event[0].lower() + event[1:] for event in EVENTS}
+    command = hooks()["Stop"][0]["hooks"][0]["command"]
+    found = {}
+    for group in result.get("data", []):
+        if group.get("errors"):
+            raise ValueError("Codex reported errors loading lifecycle hooks")
+        for hook in group.get("hooks", []):
+            if hook.get("command") == command and hook.get("source") == "sessionFlags":
+                found[hook.get("eventName")] = hook
+    if not expected.issubset(found):
+        raise ValueError("This Codex build did not load all required lifecycle hooks; protected rollover unavailable")
+    if any(not found[event].get("enabled") or found[event].get("trustStatus") != "trusted"
+           for event in expected):
+        raise HookReviewRequired("Codex hooks need trust: run token-kit hooks --engine codex, review Token Kit in /hooks, then retry")
+
+
+def verify_codex(executable: str = "codex", workspace: Path | None = None) -> None:
+    """Inspect local hook inventory/trust without creating a thread or model turn."""
+    from token_kit.codex.dispatch import AppServerClient, CodexUnavailable
+    try:
+        client = AppServerClient([executable, *codex_config(), "app-server", "--stdio"],
+                                 dict(os.environ), lambda *args: None)
+    except CodexUnavailable as exc:
+        raise ValueError("Codex hook inventory could not start") from exc
+    try:
+        def request(method, params):
+            identifier = client.request(method, params)
+            deadline = time.monotonic() + 15
+            while True:
+                message = client.read_message(deadline)
+                if message is None:
+                    raise ValueError("Codex hook preflight timed out")
+                if message.get("id") == identifier:
+                    if "error" in message:
+                        raise ValueError("Codex hook inventory unavailable; update the client before protected rollover")
+                    return message.get("result") or {}
+        request("initialize", {"clientInfo": {"name": "token_kit_hook_check", "version": "1"}})
+        client.notify("initialized", {})
+        validate_hooks(request("hooks/list", {"cwds": [str(workspace or Path.cwd())]}))
+    except CodexUnavailable as exc:
+        raise ValueError("Codex hook inventory could not be read") from exc
+    finally:
+        client.close()
+
+
+def ensure_codex_hooks(executable: str = "codex", workspace: Path | None = None) -> None:
+    """Offer one native review session, then verify actual trust before launch."""
+    try:
+        verify_codex(executable, workspace)
+        return
+    except HookReviewRequired:
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            raise
+    print("Token Kit: opening Codex for hook approval. Open /hooks, trust/enable "
+          "Token Kit's hooks, then exit; your task will continue automatically.", file=sys.stderr)
+    if review_hooks(executable, workspace) != 0:
+        raise ValueError("Codex hook review was cancelled or failed; task launch stopped")
+    # An ordinary exit does not establish approval. Never reopen in a loop.
+    verify_codex(executable, workspace)
+
+
+def review_hooks(executable: str = "codex", workspace: Path | None = None) -> int:
+    environment = dict(os.environ)
+    for name in ("TOKEN_KIT_TASK", "TOKEN_KIT_AGENT", "TOKEN_KIT_RUN"):
+        environment.pop(name, None)
+    print("Open /hooks and review Token Kit's lifecycle hooks, then exit.", file=sys.stderr)
+    return subprocess.call([executable, *codex_config()], env=environment, cwd=workspace)
+
+
+def initialize(store: Store, agent: str, run: Path, engine: str, threshold: int | str | None,
+               *, session_context: str | None = None, context_window: int | None = None) -> None:
+    # Keep the requested representation in the run record.  The effective
+    # numeric threshold is filled in only after usage telemetry is observed.
+    threshold = rollover.parse_limit(threshold) if threshold is not None else None
+    if context_window is not None and (type(context_window) is not int or context_window <= 0):
+        raise ValueError("context window must be a positive token count")
+    store.safe(run / "usage-cursors").mkdir()
+    write_json(run / "runtime.json", {"phase": "running", "engine": engine,
+               "threshold": threshold, "session_id": None, "active_children": [], "sample": None,
+               "effective_threshold": None, "observed_window": None, "context_window": context_window,
+               "session_context": session_context, "awaiting_input": session_context is not None})
+    ledger.record(store, agent, run.name, engine, {"status": "unavailable", "models": {}})
+
+
+def halt(control: dict, reason: str, *, halt_kind: str | None = None) -> dict:
+    control.update(phase="halted", reason=reason)
+    if halt_kind is not None:
+        control["halt_kind"] = halt_kind
+    else:
+        # A cause marker is meaningful only for the terminal halt that wrote
+        # it; never let a later generic safety stop inherit compaction
+        # eligibility.
+        control.pop("halt_kind", None)
+    return {"continue": False, "stopReason": reason, "systemMessage": "Token Kit: " + reason}
+
+
+def handle(store: Store, agent: str, run: Path, payload: dict) -> dict:
+    # Hooks for one run can overlap (native children). Serialize their markers.
+    with store.safe(run / "runtime.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        control = read_json(store.safe(run / "runtime.json"))
+        result = _handle(store, agent, run, payload, control)
+        event = payload.get("hook_event_name")
+        native = payload.get("agent_id") or (payload.get("session_id")
+                 if payload.get("session_id") != control["session_id"] else None)
+        # Parent notices survive message acknowledgement and coordinator restarts.
+        # Never override a safety stop or the coordinator's own checkpoint request.
+        recipient = agent if not native else None
+        worker = lifecycle.native_worker(store, agent, run.name, str(native)) if native else None
+        if worker and worker["phase"] in ("launching", "running"):
+            recipient = worker["agent_id"]
+        if recipient and not result and control["phase"] == "running" and event in (
+                "SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SubagentStop"):
+            notice = lifecycle.notice(store, recipient)
+            stopping = event in ("Stop", "SubagentStop")
+            key = ("worker_stop_notice:" if stopping else "worker_notice:") + recipient
+            if notice and control.get(key) != notice[0]:
+                control[key] = notice[0]
+                # Lifecycle bookkeeping is advisory: a stopped worker or stale
+                # record must never force another model turn or block handoff.
+                result = ({"systemMessage": notice[1]} if stopping else
+                          {"hookSpecificOutput": {"hookEventName": event, "additionalContext": notice[1]}})
+        # Inbox delivery never overrides lifecycle/rollover responses and never
+        # acknowledges messages. An idle client is not woken by file delivery.
+        if (recipient and (not result or set(result) == {"systemMessage"}) and control["phase"] == "running"
+                and event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "Stop", "SubagentStop")
+                and not (event in ("Stop", "SubagentStop") and payload.get("stop_hook_active") is True)):
+            key = "inbox_delivered:" + recipient
+            delivered = control.get(key, [])
+            identifiers, context = inbox.pending_batch(store, recipient, delivered)
+            if identifiers:
+                control[key] = delivered + identifiers
+            if context:
+                result.update({"decision": "block", "reason": context}
+                              if event in ("Stop", "SubagentStop") else
+                              {"hookSpecificOutput": {"hookEventName": event, "additionalContext": context}})
+        if (event in ("SessionStart", "UserPromptSubmit") and not native and control.get("session_context")
+                and not control.get("context_delivered") and result.get("continue") is not False):
+            output = result.setdefault("hookSpecificOutput", {"hookEventName": event})
+            context = control["session_context"]
+            if event == "UserPromptSubmit":
+                context = context.replace("New idle Token Kit session. No task has been submitted.",
+                                          "Token Kit session: the user has now submitted their first instruction.")
+            output["additionalContext"] = context + "\n" + output.get("additionalContext", "")
+            control["context_delivered"] = True
+        write_json(store.safe(run / "runtime.json"), control)
+        return result
+
+
+def _link_codex_identity(store, agent, run, transcript, native, parent_session):
+    """Read only the supplied transcript's bounded metadata header, not its conversation."""
+    if not parent_session:
+        return
+    with Path(transcript).open(encoding="utf-8") as stream:
+        line = stream.readline(262145)
+    if len(line) > 262144:
+        return
+    row = json.loads(line)
+    meta = row.get("payload", {})
+    if (row.get("type") == "session_meta" and meta.get("id") == native
+            and (meta.get("session_id") == parent_session or meta.get("parent_thread_id") == parent_session)):
+        alias = meta.get("agent_path")
+        if isinstance(alias, str):
+            lifecycle.record_native_identity(store, agent, run.name, alias, native)
+
+
+def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -> dict:
+    event = payload.get("hook_event_name")
+    if event not in EVENTS:
+        return {}
+    session = payload.get("session_id")
+    if (event in ("SessionStart", "UserPromptSubmit") and not payload.get("agent_id")
+            and not control["session_id"]):
+        if not session:
+            return halt(control, f"{event} did not identify its session")
+        control["session_id"] = session
+    if event in ("UserPromptSubmit", "PostToolUse", "Stop", "SubagentStart", "SubagentStop"):
+        control["awaiting_input"] = False
+        if not control["session_id"]:
+            return halt(control, "Work observed before a parent lifecycle handshake; refusing unverified execution")
+    native = str(payload.get("agent_id") or "")
+    if session and control["session_id"] and session != control["session_id"]:
+        native = native or str(session)
+    transcript = (payload.get("agent_transcript_path") if native else payload.get("transcript_path"))
+    if native and session and session != control["session_id"]:
+        transcript = transcript or payload.get("transcript_path")
+    if transcript and native and control["engine"] == "codex":
+        try:
+            _link_codex_identity(store, agent, run, transcript, native, control["session_id"])
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            control["identity_warning"] = str(exc)
+    if event == "SubagentStart":
+        control["active_children"] = sorted(set(control["active_children"]) | {native or "unknown"})
+        ledger.record(store, agent, run.name, control["engine"],
+                      {"status": "unavailable", "models": {}}, native or "unknown")
+        return {}
+    if event == "PreCompact":
+        if native:
+            lifecycle.observe_native(store, agent, run.name, native, "precompact")
+            # A child veto is a native-worker event.  Keep it explicitly
+            # distinct from a parent compaction halt so it can never qualify
+            # the parent for automatic recovery.
+            control["child_halt_kind"] = "child_compaction"
+            if control.get("phase") != "halted" or control.get("halt_kind") != "compaction":
+                control["halt_kind"] = "child_compaction"
+            return {"continue": False, "stopReason": "Token Kit: child compaction vetoed; parent reconciliation required"}
+        return halt(control, "Compaction requested; stopping rather than compacting. Inspect state and use a lower rollover threshold.",
+                    halt_kind="compaction")
+    # Parent transcript fields in child hooks must not be billed to the child.
+    if native and event != "SubagentStop" and not transcript:
+        return {}
+    sample = {}
+    if transcript:
+        try:
+            key = hashlib.sha256((str(transcript) + "\0" + native).encode()).hexdigest()
+            cache = store.safe(run / "usage-cursors" / (key + ".json"))
+            sample = ledger.summarize(Path(transcript), control["engine"], sidechain=bool(native), cache=cache)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            sample = {"status": "unavailable", "models": {}, "error": str(exc)}
+        ledger.record(store, agent, run.name, control["engine"], sample, native)
+        if not native:
+            control["sample"] = sample
+    if native:
+        worker = lifecycle.native_worker(store, agent, run.name, native)
+        if worker and event in ("PostToolUse", "SubagentStop", "Stop"):
+            nudge = lifecycle.budget_nudge(store, worker["agent_id"], worker["ticket"],
+                                           sample.get("context_tokens"), sample.get("context_window"),
+                                           **({"window_source": sample["context_window_source"]}
+                                              if sample.get("context_window_source") else {}))
+            if nudge:
+                if event == "PostToolUse":
+                    return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": nudge}}
+                return {"decision": "block", "reason": nudge}
+    if event == "SubagentStop":
+        # The native thread is stopping, not necessarily closed. Require the
+        # coordinator's checkpoint to reconcile any later continuation/jobs.
+        control["active_children"] = [item for item in control["active_children"] if item != native]
+        lifecycle.observe_native(store, agent, run.name, native, "stop")
+        return {}
+    if native:
+        return {}
+    if event == "Stop" and not transcript:
+        control["sample"] = {"status": "unavailable", "models": {}}
+        ledger.record(store, agent, run.name, control["engine"], control["sample"])
+    if control["phase"] in ("ready", "halted"):
+        if event == "UserPromptSubmit":
+            return {"decision": "block", "reason": "Token Kit is stopping this segment; wait for its successor."}
+        return {"continue": False, "stopReason": "Token Kit segment ended"}
+    if event not in ("Stop", "PostToolUse") or not control["threshold"]:
+        return {}
+    if event == "PostToolUse" and control["phase"] == "checkpoint_requested":
+        return {}
+    sample = control.get("sample") or {}
+    context = sample.get("context_tokens")
+    if sample.get("status") != "reported" or context is None:
+        if event == "PostToolUse" and not sample.get("error"):
+            return {}  # streaming usage may not be published until the next response
+        return halt(control, "Context usage unavailable; automatic rollover cannot proceed safely")
+    requested = control["threshold"]
+    observed_window = control.get("context_window") or sample.get("context_window")
+    control["context_window_source"] = ("explicit_override" if control.get("context_window") is not None
+                                        else sample.get("context_window_source", "reported" if observed_window else None))
+    try:
+        threshold = rollover.effective_limit(requested, observed_window)
+    except ValueError as exc:
+        # A percentage target cannot be evaluated until the client reports its
+        # context window.  At this point context usage is valid, so stopping
+        # is safer than silently treating the percentage as an absolute count.
+        control["effective_threshold"] = None
+        control["observed_window"] = observed_window
+        return halt(control, f"Cannot resolve rollover target: {exc}; set --context-window N "
+                    "for this deployment or use an absolute --rollover-tokens N")
+    if (control.get("effective_threshold") != threshold
+            or control.get("observed_window") != observed_window):
+        control["effective_threshold"] = threshold
+        control["observed_window"] = observed_window
+    if context < threshold and control["phase"] == "running":
+        return {}
+    bundle = store.resume_bundle(agent)
+    if control["phase"] == "running":
+        control.update(phase="checkpoint_requested", previous_checkpoint=bundle["checkpoint"])
+        command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
+        reason = (
+            "Token Kit rollover: stop starting new work. Drain/reconcile your native children and external jobs. "
+            "Update STATE.md with completed work, evidence, unresolved operations, next steps and user overrides; "
+            "if STATE needs compression, archive old detail to historical_state.md first, then write a fresh STATE.md; "
+            f"then run {command} with relevant --evidence and --incorporated IDs. "
+            "Return immediately afterward. A fresh same-engine session will continue from this checkpoint.")
+        if event == "PostToolUse":
+            return {"hookSpecificOutput": {"hookEventName": event, "additionalContext": reason}}
+        return {"decision": "block", "reason": reason}
+    if control["active_children"]:
+        return halt(control, "Native children are still active; reconcile them before restarting")
+    if (bundle["checkpoint"] == control["previous_checkpoint"]
+            or bundle.get("working_state_changed")
+            or bundle.get("history_changed") or bundle.get("historical_state_changed")):
+        return halt(control, "No fresh committed checkpoint after rollover request; refusing restart")
+    if bundle["changed_evidence"] or bundle["head_changed"]:
+        return halt(control, "Checkpoint evidence changed before rollover; refusing restart")
+    control.update(phase="ready", checkpoint=bundle["checkpoint"])
+    return {"continue": False, "stopReason": "Token Kit checkpoint committed; rolling over"}
+
+
+def wait_segment(child, store: Store, agent: str, run: Path, stop_child,
+                 *, startup_timeout: float = 30) -> tuple[int, dict]:
+    """Only stop a running client for an explicit hook marker; never kill at a token count."""
+    started = time.monotonic()
+    idle_warning_sent = False
+    while True:
+        control = read_json(store.safe(run / "runtime.json"))
+        phase = control["phase"]
+        if phase in ("ready", "halted"):
+            stop_child(child)
+            if phase == "ready":
+                bundle = store.resume_bundle(agent)
+                if (bundle["checkpoint"] != control["checkpoint"]
+                        or bundle.get("working_state_changed")
+                        or bundle.get("history_changed") or bundle.get("historical_state_changed")
+                        or bundle["changed_evidence"] or bundle["head_changed"]):
+                    halt(control, "Checkpoint changed while stopping the old session")
+            return child.wait(), control
+        rc = child.poll()
+        if rc is not None:
+            return rc, control
+        if not control["session_id"] and time.monotonic() - started > startup_timeout:
+            if control.get("awaiting_input"):
+                if not idle_warning_sent:
+                    print("Token Kit: waiting for the first input/hook; keeping the idle session open. "
+                          "Rollover is unverified until a hook arrives. If you already submitted work, "
+                          "stop and inspect /hooks.", file=sys.stderr)
+                    idle_warning_sent = True
+                # Do not write this stale snapshot: a concurrent first-input
+                # hook owns the state transition under runtime.lock.
+            else:
+                halt(control, "Lifecycle hook startup not confirmed; check client hook trust/settings")
+                stop_child(child)
+                write_json(run / "runtime.json", control)
+                return child.wait(), control
+        try:
+            child.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def main() -> int:
+    if not os.environ.get("TOKEN_KIT_TASK"):
+        # The explicit hook-review command does not start a managed task.
+        print("{}")
+        return 0
+    try:
+        task = os.environ["TOKEN_KIT_TASK"]
+        agent = os.environ["TOKEN_KIT_AGENT"]
+        run_id = os.environ["TOKEN_KIT_RUN"]
+        store = Store(Path(task))
+        run = store.safe(store.agent_path(agent) / "runs" / run_id)
+        raw = sys.stdin.read(1_048_577)
+        if len(raw) > 1_048_576:
+            raise ValueError("Hook input exceeds 1MB")
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("Expected hook object")
+        print(json.dumps(handle(store, agent, run, payload)))
+        return 0
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print(f"Token Kit lifecycle hook failed: {exc}", file=sys.stderr)
+        try:
+            with store.safe(run / "runtime.lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                control = read_json(store.safe(run / "runtime.json"))
+                halt(control, f"Lifecycle hook failed: {exc}")
+                write_json(store.safe(run / "runtime.json"), control)
+        except (OSError, ValueError, KeyError, UnboundLocalError):
+            pass
+        # Exit 2 at Stop would ask for another model turn and could loop.
+        print(json.dumps({"continue": False, "stopReason": "Token Kit lifecycle hook failed"}))
+        return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

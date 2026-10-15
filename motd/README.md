@@ -108,6 +108,35 @@ output is a deliberate departure.
 
 </details>
 
+## A banner for your Bash sessions
+
+From this directory, install the orange OSCAR banner for your account:
+
+```bash
+./install.sh --user oscar.ans --label OSCAR
+```
+
+This adds one managed `source` block to `~/.bashrc`, backing up any changed file
+without overwriting previous backups. Repeating the command is safe; choosing
+another banner replaces that block. Use `--bashrc PATH` for another startup file.
+Existing symlinks are followed, and unrelated content and permissions are kept.
+
+Any rendered banner works:
+
+```bash
+./install.sh --user minerva.ans --label Minerva
+./install.sh --user --remove
+```
+
+Only interactive shells with terminal output print the banner. `NO_COLOR=1` or
+`TERM=dumb` prints the label (default: banner filename without its extension).
+Startup uses the saved art and Bash helper: no network, Python, sudo, or system
+MOTD changes. Keep this checkout and the selected banner at their installed paths.
+The OSCAR art uses TimeSpiralG with dark orange `#CC5500` and bright orange `#FF8C00`.
+
+For manual configuration, source `banner.bash /absolute/banner.ans 'Machine name'`.
+`add_to_bashrc.bash` remains an OSCAR shortcut for existing configurations.
+
 ## Installing it
 
 ```

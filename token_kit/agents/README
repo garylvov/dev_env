@@ -1,0 +1,7 @@
+The simplified launcher uses ../dispatch_guide.md to dispatch workers.
+Worker assignments and progress live in each task's agents/<name>_in.md and
+agents/<name>_out.md; files in this directory belong to the legacy router.
+
+The old installer generated thin Claude agent files and a generic Codex runner
+from the chart now archived at ../docs/legacy/agent_trigger_matrix.md.
+Keep old installations on their existing checkout; see ../docs/SIMPLE-CUTOVER.md.

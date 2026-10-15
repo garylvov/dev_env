@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# token-kit-prompts -- write what the user typed, verbatim, to one markdown file.
+# See token_kit/prompts.py.
+#
+# The interpreter resolution `uv run` performs costs more than this program
+# does, so it is resolved ONCE and cached; the cache is validated by executing
+# it, and a miss falls back to uv and re-writes the cache. Same shape as the
+# hook shims beside it.
+set -euo pipefail
+# This shim is LINKED into ~/.config/token_kit/bin, so its own path must be
+# resolved before anything is computed relative to it: dirname of the SYMLINK
+# points at the bin dir, not at the clone, and the import would fail there.
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SRC="$(cd "$(dirname "$SELF")/../.." && pwd)"   # .../token_kit/src
+CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/token_kit/python"
+if [ ! -x "$CACHE" ]; then
+  mkdir -p "$(dirname "$CACHE")"
+  uv run --python '>=3.11' --no-project python -c 'import sys;print(sys.executable)' \
+    > "$CACHE.tmp.$$" 2>/dev/null && ln -sf "$(cat "$CACHE.tmp.$$")" "$CACHE"
+  rm -f "$CACHE.tmp.$$"
+fi
+if [ -x "$CACHE" ]; then
+  exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" "$CACHE" \
+    -m token_kit.prompts "$@"
+fi
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python '>=3.11' --no-project python -m token_kit.prompts "$@"

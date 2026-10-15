@@ -1,0 +1,560 @@
+"""token-kit-supervise -- external rollover supervisor for a long-running
+interactive Claude Code session.
+
+    supervise launch [--state-file F] [--cwd D] [--config F] [dials]
+                     [-- <claude flags>]
+    supervise watch  --session-pid N [--transcript F] [--status-override S]
+    supervise once   --session-pid N [...]      one bounded pass (step mode)
+    supervise status
+    supervise stop
+
+It watches the session's own transcript, asks the session to bring its handoff
+file current at SOFT, lets in-flight work drain, and rolls the session over at
+HARD. There is NO global token cap: this is a rollover supervisor, not a
+rationer.
+
+The handoff file is an ARGUMENT (`--state-file`, default ./STATE.md), so the
+supervisor runs in any directory. Every state change appends a ROW to the run
+directory's ccsup.log, under the XDG state dir keyed by a hash of that file's
+absolute path. Nothing here rewrites a file in place; every hold or refusal is
+a row with a reason.
+The seed reaches a relaunched session as ONE short CLI argument naming the seed
+FILE -- never `tmux send-keys` into a prompt.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+from token_kit.supervisor import config as cfgmod
+from token_kit.supervisor import session as S
+
+
+def stamp() -> str:
+    return datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+def row(cfg, event: str, detail: str = "") -> None:
+    """Append one tab-separated row. Append-only, one open, no rewrite."""
+    cfg.run_dir.mkdir(parents=True, exist_ok=True)
+    with cfg.log.open("a") as fh:
+        fh.write(f"{stamp()}\t{event}\t{detail}\n")
+
+
+def say(*msg) -> None:
+    print("supervise:", *msg, file=sys.stderr)
+
+
+def claim(marker: Path, payload: str) -> bool:
+    """Claim a marker exclusively (O_EXCL). True only if WE claimed it."""
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w") as fh:
+        fh.write(f"{stamp()}\t{payload}\n")
+    return True
+
+
+# --------------------------------------------------------------------- actions
+def note_supervised(cfg) -> None:
+    """One appended row saying which state file is watched for which directory.
+
+    The run directory is keyed by a HASH of the state file's path, so nothing
+    could map the other way: a Stop hook that knows only its cwd had no way to
+    find the handoff file it should be nudging about. This is the reader's half.
+    """
+    try:
+        cfg.registry.parent.mkdir(parents=True, exist_ok=True)
+        with cfg.registry.open("a") as fh:
+            fh.write(f"{stamp()}\t{cfg.work_dir}\t{cfg.state_path}\n")
+    except OSError as exc:                     # noqa: BLE001 -- never fatal
+        say(f"registry not updated ({exc})")
+
+
+def state_mtime(cfg) -> float:
+    try:
+        return cfg.state_path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def record_state_at_soft(cfg) -> None:
+    """Freeze the state file's mtime at the moment we asked for it.
+
+    "Has it been written since we asked?" cannot be answered from an mtime
+    alone, so the mtime AT THE ASK is written down here and compared later.
+    """
+    try:
+        cfg.run_dir.mkdir(parents=True, exist_ok=True)
+        cfg.state_at_soft.write_text(f"{state_mtime(cfg)}\t{stamp()}\n")
+    except OSError as exc:                     # noqa: BLE001 -- never fatal
+        say(f"could not record the state file's mtime ({exc})")
+
+
+def _soft_stamp(cfg) -> str:
+    """When the soft request was made, ISO, or "-" when there was none."""
+    try:
+        return cfg.state_at_soft.read_text().strip().split("\t")[1]
+    except (OSError, IndexError):
+        return "-"
+
+
+def state_freshness(cfg, now: float | None = None) -> tuple[bool, float, str]:
+    """(fresh, the state file's mtime, why).
+
+    With a soft request on record, fresh means WRITTEN SINCE WE ASKED. Without
+    one (a session that went from below SOFT to past HARD between two polls),
+    fresh means written inside `state_stale_mins`.
+    """
+    now = time.time() if now is None else now
+    mtime = state_mtime(cfg)
+    if not mtime:
+        return False, 0.0, "no_state_file"
+    try:
+        asked = float(cfg.state_at_soft.read_text().split("\t")[0])
+    except (OSError, ValueError, IndexError):
+        window = cfg.state_stale_mins * 60
+        fresh = (now - mtime) <= window
+        return fresh, mtime, f"no_soft_request window={cfg.state_stale_mins}m"
+    return mtime > asked, mtime, "since_soft_request"
+
+
+def stale_warning(cfg, mtime: float, pid, now: float | None = None) -> str:
+    """The FIRST lines of the seed when the handoff was not brought current.
+
+    It names the one other place the truth still exists: the outgoing session's
+    own transcript, whose tail says what was actually in flight. Bounded on
+    purpose, because reading a whole transcript is how the fresh session spends
+    its cheap early context on the expensive old one.
+    """
+    from token_kit import timefmt
+
+    now = time.time() if now is None else now
+    minutes = max(0, int((now - mtime) // 60)) if mtime else 0
+    when = timefmt.human(mtime) if mtime else "never (the file is not there)"
+    transcript = None
+    try:
+        transcript = S.transcript_of_pid(cfg.claude_home, pid) if pid else None
+    except OSError:
+        transcript = None
+    where = (f"The previous session's transcript is {transcript} . Read only its "
+             "TAIL, bounded (the last few hundred lines), to see what was in "
+             "flight.\n" if transcript else
+             "The previous session's transcript could not be resolved.\n")
+    return ("WARNING: THE HANDOFF IS OUT OF DATE.\n"
+            f"{cfg.state_path} was last written at {when}, {minutes} minutes "
+            "before this restart, so treat every claim in it as stale and "
+            "verify before acting.\n"
+            f"Read {prompts_path(cfg)} for what the user actually asked, in "
+            "their own words.\n"
+            + where +
+            "Bring the handoff current early in this session.\n\n")
+
+
+def soft_request(cfg, pid, tokens) -> None:
+    """The SOFT channel: an appended request the session's own tick reads.
+
+    Not send-keys, not a terminal write -- the session brings its own handoff
+    file current while its context is still cached.
+    """
+    cfg.request.parent.mkdir(parents=True, exist_ok=True)
+    with cfg.request.open("a") as fh:
+        fh.write(f"## {stamp()}  SOFT threshold crossed\n")
+        fh.write(f"- session pid: {pid}  context tokens: {tokens}"
+                 f"  soft: {cfg.soft_tokens}  hard: {cfg.hard_tokens}\n")
+        fh.write(f"- ACTION FOR THE SESSION: bring {cfg.state_path} current now, "
+                 "in this turn.\n")
+        fh.write("- Rollover follows once in-flight work drains, or at HARD regardless.\n\n")
+    record_state_at_soft(cfg)
+    say(f"SOFT {tokens}/{cfg.soft_tokens} -- asked session {pid} to bring STATE.md current")
+    row(cfg, "soft_request",
+        f"pid={pid} tokens={tokens} soft={cfg.soft_tokens} request={cfg.request}"
+        f" state_mtime={int(state_mtime(cfg))}")
+
+
+def _signal(cfg, pid: int, sig: str) -> None:
+    if cfg.kill_cmd:
+        subprocess.run([cfg.kill_cmd, sig, str(pid)], check=False)
+        return
+    try:
+        os.kill(pid, signal.SIGTERM if sig == "TERM" else signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def end_session(cfg, pid: int) -> bool:
+    """SIGTERM, then SIGKILL after a bounded wait. Verified by START TIME.
+
+    An exit code proves nothing here: whole jobs have ignored SIGTERM for
+    minutes with every rank alive. The only evidence accepted is that the pid's
+    kernel start time no longer matches the one the registry recorded.
+    """
+    if not S.is_live_session(cfg.claude_home, pid):
+        return True
+    _signal(cfg, pid, "TERM")
+    waited = 0
+    while waited < cfg.term_wait_secs:
+        if not S.is_live_session(cfg.claude_home, pid):
+            return True
+        time.sleep(cfg.kill_poll_secs)
+        waited += cfg.kill_poll_secs
+    if S.is_live_session(cfg.claude_home, pid):
+        row(cfg, "kill_escalated", f"pid={pid} after={waited}s signal=KILL")
+        _signal(cfg, pid, "KILL")
+        time.sleep(cfg.kill_poll_secs)
+    return not S.is_live_session(cfg.claude_home, pid)
+
+
+def rollover(cfg, pid, tokens, reason) -> bool:
+    if not claim(cfg.run_dir / f"rolled.{pid}.marker", f"reason={reason} tokens={tokens}"):
+        row(cfg, "rollover_skipped", f"pid={pid} reason=already_rolled")
+        return True
+    row(cfg, "rollover_begin", f"pid={pid} tokens={tokens} reason={reason}")
+    if cfg.rollover_cmd:
+        rc = subprocess.run([cfg.rollover_cmd, str(pid), str(tokens), str(reason)],
+                            check=False).returncode
+        row(cfg, "rollover_stub", f"pid={pid} rc={rc} cmd={cfg.rollover_cmd}")
+        return True
+    if not end_session(cfg, int(pid)):
+        row(cfg, "rollover_failed", f"pid={pid} reason=session_still_alive_after_sigkill")
+        say(f"ROLLOVER FAILED: pid {pid} still alive after SIGKILL")
+        return False
+    row(cfg, "rollover_ended", f"pid={pid}")
+    # Release our watcher lock BEFORE relaunching, or the watcher we are about
+    # to spawn either refuses (our heartbeat is still fresh) or has its lock
+    # removed out from under it by our own exit.
+    release_lock(cfg)
+    launch_from_file(cfg, outgoing_pid=pid)
+    return True
+
+
+# --------------------------------------------------------------------- launch
+def seed_arg(seed: Path) -> str:
+    """The initial prompt, as ONE short CLI argument pointing at the seed FILE.
+
+    argv is not a place for a multi-line handoff, and send-keys is forbidden.
+    """
+    return (f"Rollover seed: read the file {seed} and do exactly what it says, "
+            "starting now. Treat every claim in it as a lead to verify.")
+
+
+def prompts_path(cfg) -> Path:
+    """The verbatim prompt file, beside the handoff it complements."""
+    return cfg.state_path.parent / "PROMPTS.md"
+
+
+def refresh_prompts(cfg) -> Path | None:
+    """Bring the verbatim prompt file current just before the relaunch.
+
+    The handoff is the outgoing session's summary of what was asked; this is
+    what was actually asked, in the user's own words, so the fresh session can
+    check the summary against the source.
+
+    FAIL OPEN: an extraction error is a ROW, never a blocked rollover. A
+    rollover that refuses because a nice-to-have file could not be written is a
+    far worse defect than a rollover with one file missing.
+    """
+    out = prompts_path(cfg)
+    try:
+        from token_kit import prompts as prompts_mod
+
+        stats = prompts_mod.refresh(str(cfg.work_dir), out)
+    except Exception as exc:                       # noqa: BLE001 -- fail open
+        row(cfg, "prompts_failed", f"path={out} error={type(exc).__name__}: {exc}")
+        say(f"prompt extraction failed ({exc}) -- rollover continues without it")
+        return None
+    row(cfg, "prompts_refreshed", f"path={out} {stats.line()}")
+    return out
+
+
+def seed_text(cfg, prompts: Path | None = None, warning: str = "") -> str:
+    """The handoff, naming the state file the operator pointed us at.
+
+    A staleness warning goes FIRST, before anything else: the fresh session
+    reads this top to bottom, and being told after the instruction to trust the
+    handoff is being told too late.
+    """
+    state = cfg.state_path
+    said = f"What the user said, verbatim: {prompts}\n" if prompts else ""
+    return (warning
+            + "Rollover: the previous session ended at its context ceiling.\n"
+            f"Working directory: {cfg.work_dir}\n"
+            f"Read {state} -- the handoff -- and continue from it.\n"
+            + said
+            + f"Anything {state.parent} names as required reading, read too.\n"
+            "Treat every claim in it as a lead to verify.\n")
+
+
+def resolve_session_pid(cfg, tmux_name: str) -> int | None:
+    """The new session's pid: descend from the tmux pane pid, confirm in the registry."""
+    deadline = time.time() + cfg.launch_pid_wait_secs
+    while True:
+        panes = subprocess.run(
+            [cfg.tmux_bin, "list-panes", "-t", tmux_name, "-F", "#{pane_pid}"],
+            capture_output=True, text=True, check=False).stdout.split()
+        if panes:
+            for pid in S.subtree(panes[0]):
+                if S.is_live_session(cfg.claude_home, pid):
+                    return pid
+        if time.time() >= deadline:
+            return None
+        time.sleep(1)
+
+
+def launch_from_file(cfg, outgoing_pid=None) -> int | None:
+    flags = ""
+    if cfg.flags_file.is_file():
+        flags = cfg.flags_file.read_text().strip()
+    name = f"{cfg.tmux_prefix}-{datetime.now().strftime('%H%M%S')}"
+    seed = cfg.run_dir / f"seed.{name}.md"
+    cfg.run_dir.mkdir(parents=True, exist_ok=True)
+
+    # Is the handoff we are about to hand over actually current? This NEVER
+    # delays or blocks the relaunch: it decides what the seed says, and it
+    # leaves a row either way.
+    warning = ""
+    try:
+        if outgoing_pid is None and cfg.pid_file.is_file():
+            outgoing_pid = cfg.pid_file.read_text().strip() or None
+        fresh, mtime, why = state_freshness(cfg)
+        age = int((time.time() - mtime) // 60) if mtime else -1
+        if fresh:
+            row(cfg, "state_fresh", f"state={cfg.state_path} written={int(mtime)} "
+                                    f"age_mins={age} basis={why}")
+        else:
+            warning = stale_warning(cfg, mtime, outgoing_pid)
+            row(cfg, "state_stale",
+                f"state={cfg.state_path} written={int(mtime)} age_mins={age} "
+                f"basis={why} asked_at={_soft_stamp(cfg)} restart_at={stamp()}")
+            say(f"handoff is STALE (last written {age} minutes ago); "
+                "the seed says so")
+    except Exception as exc:                   # noqa: BLE001 -- never block a rollover
+        row(cfg, "state_check_failed", f"error={type(exc).__name__}: {exc}")
+
+    seed.write_text(seed_text(cfg, refresh_prompts(cfg), warning))
+
+    cmd = f"{cfg.claude_bin} {flags}".strip()
+    if cfg.seed_as_arg:
+        cmd = f"{cmd} {shlex.quote(seed_arg(seed))}"
+    # Detached tmux: the server is reparented to init, so it outlives us.
+    rc = subprocess.run([cfg.tmux_bin, "new-session", "-d", "-s", name,
+                         "-c", str(cfg.work_dir), cmd],
+                        check=False).returncode
+    if rc != 0:
+        row(cfg, "launch_failed", f"name={name} rc={rc}")
+        say(f"tmux new-session failed (rc {rc})")
+        return None
+    row(cfg, "launch",
+        f"tmux={name} flags=[{flags}] seed={seed} seed_as_arg={int(cfg.seed_as_arg)}")
+    say(f"launched tmux session {name} (flags: {flags}); seed: {seed}")
+
+    pid = resolve_session_pid(cfg, name)
+    if pid is None:
+        row(cfg, "launch_pid_unresolved", f"tmux={name} waited={cfg.launch_pid_wait_secs}s")
+        say("could not resolve the new session's pid; start the watcher by hand")
+        return None
+    cfg.pid_file.write_text(f"{pid}\n")
+    row(cfg, "launch_pid", f"tmux={name} pid={pid}")
+    note_supervised(cfg)
+    if cfg.autowatch:
+        out = (cfg.run_dir / "watch.out").open("a")
+        cmdline = [cfg.supervisor_cmd, "watch", "--session-pid", str(pid)]
+        if getattr(cfg, "config_file", ""):
+            cmdline += ["--config", str(cfg.config_file)]
+        child = subprocess.Popen(
+            cmdline, stdout=out, stderr=out, stdin=subprocess.DEVNULL,
+            start_new_session=True)
+        row(cfg, "watch_spawned", f"pid={pid} watcher={child.pid}")
+        say(f"watcher spawned for pid {pid}")
+    else:
+        say(f"start the watcher with: {cfg.supervisor_cmd} watch --session-pid {pid}")
+    return pid
+
+
+# ---------------------------------------------------------------------- watch
+def acquire_lock(cfg, pid) -> bool:
+    """One watcher per state file. An atomic mkdir is the lock; a stale heartbeat
+    is a takeover, and both outcomes are a ledger row with a reason."""
+    try:
+        cfg.lock_dir.mkdir(parents=True)
+        return True
+    except FileExistsError:
+        pass
+    if cfg.heartbeat.is_file():
+        age = time.time() - cfg.heartbeat.stat().st_mtime
+        if age < cfg.heartbeat_stale_secs:
+            row(cfg, "watch_refused",
+                f"pid={pid} reason=live_watcher_holds_lock heartbeat_age={int(age)}s"
+                f" release=heartbeat_older_than_{cfg.heartbeat_stale_secs}s")
+            return False
+    row(cfg, "watch_takeover", f"pid={pid} reason=stale_heartbeat")
+    return True
+
+
+def release_lock(cfg) -> None:
+    try:
+        cfg.lock_dir.rmdir()
+    except OSError:
+        pass
+    try:
+        cfg.heartbeat.unlink()
+    except OSError:
+        pass
+
+
+def one_pass(cfg, pid, transcript, status_override="") -> str:
+    """ONE bounded pass. Returns the decision word: below|soft|drain|rolled|failed."""
+    cfg.heartbeat.parent.mkdir(parents=True, exist_ok=True)
+    cfg.heartbeat.touch()
+    tokens = S.context_tokens(transcript)
+    status = status_override or S.session_status(cfg.claude_home, pid)
+    row(cfg, "poll", f"pid={pid} tokens={tokens} status={status}")
+    if tokens >= cfg.hard_tokens:
+        return "rolled" if rollover(cfg, pid, tokens, "hard") else "failed"
+    if tokens < cfg.soft_tokens:
+        return "below"
+    marker = cfg.run_dir / f"soft.{pid}.marker"
+    if claim(marker, f"tokens={tokens}"):
+        soft_request(cfg, pid, tokens)
+        return "soft"
+    age = int(time.time() - marker.stat().st_mtime)
+    if status == "idle":
+        row(cfg, "drain_done", f"pid={pid} reason=session_idle age={age}")
+        return "rolled" if rollover(cfg, pid, tokens, "drain_idle") else "failed"
+    if age >= cfg.drain_wait_secs:
+        row(cfg, "drain_done", f"pid={pid} reason=drain_wait_expired age={age}")
+        return "rolled" if rollover(cfg, pid, tokens, "drain_timeout") else "failed"
+    row(cfg, "drain_hold", f"pid={pid} reason=work_in_flight status={status} age={age}"
+                           f" release=idle_or_age_ge_{cfg.drain_wait_secs}s")
+    return "drain"
+
+
+def cmd_watch(cfg, pid, transcript, status_override, once) -> int:
+    if not transcript:
+        resolved = S.transcript_of_pid(cfg.claude_home, pid)
+        if resolved is None:
+            row(cfg, "watch_failed", f"pid={pid} reason=no_transcript_in_registry")
+            say(f"cannot resolve transcript for pid {pid}")
+            return 1
+        transcript = str(resolved)
+    if not acquire_lock(cfg, pid):
+        say("another watcher holds the lock and its heartbeat is fresh")
+        return 1
+    # watcher_pid makes the chain auditable after the fact: a `watch_start` row
+    # whose watcher_pid equals the `watcher=` of an earlier `watch_spawned` row
+    # proves the pass that follows was driven by the spawned watcher, not by an
+    # operator running `once` by hand.
+    row(cfg, "watch_start",
+        f"pid={pid} watcher_pid={os.getpid()} transcript={transcript} soft={cfg.soft_tokens}"
+        f" hard={cfg.hard_tokens} poll={cfg.poll_secs} once={int(once)}")
+    note_supervised(cfg)
+    try:
+        while True:
+            verdict = one_pass(cfg, pid, transcript, status_override)
+            if verdict in ("rolled", "failed") or once:
+                return 0 if verdict != "failed" else 1
+            time.sleep(cfg.poll_secs)
+    finally:
+        # A rollover releases the lock itself before relaunching; rmdir of an
+        # absent dir is harmless.
+        try:
+            cfg.lock_dir.rmdir()
+        except OSError:
+            pass
+
+
+def cmd_status(cfg) -> int:
+    from token_kit import timefmt
+
+    state, age = "DEAD", "-"
+    if cfg.heartbeat.is_file():
+        age = int(time.time() - cfg.heartbeat.stat().st_mtime)
+        state = "ALIVE" if age < cfg.heartbeat_stale_secs else "DEAD"
+    print(f"watcher={state} heartbeat={age} stale_after={cfg.heartbeat_stale_secs}s "
+          f"lock={'held' if cfg.lock_dir.is_dir() else 'free'}")
+    print(f"state_file={cfg.state_path} cwd={cfg.work_dir} key={cfg.session_key}")
+    mtime = state_mtime(cfg)
+    fresh, _m, why = state_freshness(cfg)
+    print(f"handoff last written {timefmt.human(mtime) if mtime else 'never'} "
+          f"({'current' if fresh else 'STALE'}, {why}); "
+          f"soft request {_soft_stamp(cfg)}")
+    print(f"run_dir={cfg.run_dir} soft={cfg.soft_tokens} hard={cfg.hard_tokens} "
+          f"poll={cfg.poll_secs} drain={cfg.drain_wait_secs}")
+    if cfg.pid_file.is_file():
+        pid = cfg.pid_file.read_text().strip()
+        print(f"session_pid={pid} live={S.is_live_session(cfg.claude_home, pid)}")
+    if cfg.log.is_file():
+        print("last rows:")
+        for line in cfg.log.read_text().splitlines()[-3:]:
+            print(line)
+    return 0 if state == "ALIVE" else 1
+
+
+def cmd_stop(cfg) -> int:
+    row(cfg, "watch_stop_requested", "reason=operator release=next_poll")
+    release_lock(cfg)
+    say("lock released; a running watcher exits at its next poll")
+    return 0
+
+
+# ------------------------------------------------------------------------ cli
+DIALS = ("soft_tokens", "hard_tokens", "drain_wait_secs", "poll_secs",
+         "state_file", "cwd", "run_root", "claude_home", "claude_bin", "claude_flags",
+         "tmux_bin", "tmux_prefix", "seed_as_arg", "autowatch",
+         "launch_pid_wait_secs", "supervisor_cmd", "term_wait_secs",
+         "kill_poll_secs", "heartbeat_stale_secs", "rollover_cmd", "kill_cmd",
+         "state_stale_mins", "nudge_min_calls", "nudge_every_mins")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="supervise", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("command", choices=["launch", "watch", "once", "status", "stop"])
+    p.add_argument("--config", default="")
+    p.add_argument("--session-pid", default=None)
+    p.add_argument("--transcript", default="")
+    p.add_argument("--status-override", default="")
+    for dial in DIALS:                      # every dial is also a CLI argument
+        p.add_argument(f"--{dial.replace('_', '-')}", dest=dial, default=None)
+    p.add_argument("flags", nargs="*", help="after --, the claude flags to record")
+    return p
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    passthrough: list[str] = []
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, passthrough = argv[:cut], argv[cut + 1:]
+    args = build_parser().parse_args(argv)
+    cfg = cfgmod.load(args.config or None,
+                      {d: getattr(args, d) for d in DIALS})
+    cfg.config_file = args.config
+
+    if args.command == "launch":
+        cfg.run_dir.mkdir(parents=True, exist_ok=True)
+        flags = " ".join(passthrough) or " ".join(args.flags) or cfg.claude_flags
+        cfg.flags_file.write_text(flags + "\n")
+        return 0 if launch_from_file(cfg) is not None else 1
+    if args.command in ("watch", "once"):
+        if not args.session_pid:
+            raise SystemExit("supervise: --session-pid is required")
+        return cmd_watch(cfg, args.session_pid, args.transcript,
+                         args.status_override, once=(args.command == "once"))
+    if args.command == "status":
+        return cmd_status(cfg)
+    return cmd_stop(cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

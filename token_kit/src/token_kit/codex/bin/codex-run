@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# codex-run -- start INTERACTIVE codex the way the kit does: with CODEX_HOME on
+# node-local disk when the profile says the codex home must be node-local, the
+# config refreshed, auth.json newer-wins in both directions, and the small
+# history DBs seeded once per node.  See token_kit/codex/launcher.py, which is
+# where all of that lives; this file is a shim and nothing else.
+#
+#   codex-run                    # interactive
+#   codex-run --reseed           # wipe the node-local home first
+#   codex-run exec "fix the bug"
+#   codex-run update             # runs against the SHARED home, on purpose
+set -euo pipefail
+# This shim is LINKED into ~/.config/token_kit/bin, so its own path must be
+# resolved before anything is computed relative to it: dirname of the SYMLINK
+# points at the bin dir, not at the clone, and the import would fail there.
+SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+SRC="$(cd "$(dirname "$SELF")/../../.." && pwd)"   # .../token_kit/src
+exec env PYTHONPATH="$SRC${PYTHONPATH:+:$PYTHONPATH}" \
+  uv run --python 3.11 --no-project python -m token_kit.codex.launcher "$@"
