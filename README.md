@@ -20,7 +20,7 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 ## Vibe Coding
 
-I prefer Claude Code, driven with Token Kit, as my main agent. Other models plug in underneath it: [Shunt](shunt/README.md) is a local gateway that adds GPT-6 Astra, Sol and Luna (per-effort variants too) to Claude Code as native subagents and `/model` entries, using my existing Codex login.
+I prefer Claude Code, driven with Token Kit, as my main agent. Other models plug in underneath it: [Shunt](shunt/README.md) is a local gateway that adds GPT-6 Astra, Sol and Luna to Claude Code (every model id sets its effort, e.g. `gpt-6-astra-high`) as native subagents and `/model` entries, using my existing Codex login.
 
 Token Kit: [shared Claude/Codex tasks, checkpoints, and resumable workers](token_kit/README.md), with a [dispatch guide](token_kit/dispatch_guide.md).
 
