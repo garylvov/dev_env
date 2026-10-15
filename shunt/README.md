@@ -5,7 +5,7 @@
 ## Contents
 - `shunt.toml`: upstreams (anthropic passthrough, codex) and the 12 effort-suffixed model ids, each pinning its own effort. No silent fallback to another GPT model.
 - `shunt.service`: systemd user unit.
-- `agents/{astra,sol,luna}.md`: native Claude Code subagents, each pinned to its `-high` model id.
+- `agents/{astra-gpt-6-astra,sol-gpt-6-sol,luna-gpt-6-luna}.md`: native Claude Code subagents on the unpinned `gpt-6-<model>` ids with `effort: high` in frontmatter (Shunt honors the client effort on unpinned ids; the `-low/-medium/-high/-xhigh` ids pin it and are for the picker). Delegation and naming rules live in `token_kit/AGENTS.md`.
 - `install.sh`: checksum-verified install of the pinned release (default `v0.55.1`), config, service and agents. Backs up anything it overwrites.
 
 ## Claude Code settings (merge into `~/.claude/settings.json`)
@@ -37,7 +37,7 @@ Only one `ANTHROPIC_CUSTOM_MODEL_OPTION` slot exists, hence `modelPicker` for th
 ## Rollback
 ```sh
 systemctl --user disable --now shunt.service
-rm ~/.config/systemd/user/shunt.service ~/.local/bin/shunt ~/.claude/agents/{astra,sol,luna}.md
+rm ~/.config/systemd/user/shunt.service ~/.local/bin/shunt ~/.claude/agents/{astra,sol,luna}-gpt-6-*.md
 rm -r ~/.config/shunt
 ```
 Then remove the keys above from `settings.json`.

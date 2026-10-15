@@ -14,7 +14,7 @@ install -m755 "$T/shunt" ~/.local/bin/shunt
 backup() { [ -e "$1" ] && cp -p "$1" "$1.bak-$TS" || true; }
 backup ~/.config/shunt/shunt.toml; cp "$HERE/shunt.toml" ~/.config/shunt/shunt.toml
 backup ~/.config/systemd/user/shunt.service; cp "$HERE/shunt.service" ~/.config/systemd/user/shunt.service
-for f in astra sol luna; do backup ~/.claude/agents/$f.md; cp "$HERE/agents/$f.md" ~/.claude/agents/$f.md; done
+for f in astra sol luna; do rm -f ~/.claude/agents/$f.md; backup ~/.claude/agents/$f-gpt-6-$f.md; cp "$HERE/agents/$f-gpt-6-$f.md" ~/.claude/agents/$f-gpt-6-$f.md; done
 ~/.local/bin/shunt check --config ~/.config/shunt/shunt.toml
 systemctl --user daemon-reload && systemctl --user enable --now shunt.service
 echo "Done. Run 'codex login' if ~/.codex/auth.json is missing, then merge the settings.json snippet from shunt/README.md."

@@ -81,3 +81,18 @@ model = "gpt-6-luna-xhigh"
 provider = "codex"
 upstream_model = "gpt-6-luna"
 effort = "xhigh"
+
+[[routes]]
+model = "gpt-6-astra"
+provider = "codex"
+upstream_model = "gpt-6-astra"
+
+[[routes]]
+model = "gpt-6-sol"
+provider = "codex"
+upstream_model = "gpt-6-sol"
+
+[[routes]]
+model = "gpt-6-luna"
+provider = "codex"
+upstream_model = "gpt-6-luna"
