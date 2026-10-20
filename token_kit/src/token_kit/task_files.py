@@ -275,10 +275,11 @@ def append_ask(root: Path, assignment: Path, prompt: str) -> int:
     records.mkdir(exist_ok=True)
     with locked(_inside(root.resolve(), records / (assignment.name + '.lock'))):
         text = assignment.read_text() if assignment.exists() else ''
-        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. \[[- x~]\]', text, re.MULTILINE)]
+        # Entries are dated; older files may carry [ ] [x] [-] [~] status marks instead.
+        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. (?:\[[- x~]\]|[0-9]{4}-[0-9]{2}-[0-9]{2}T)', text, re.MULTILINE)]
         number = max(numbers, default=0) + 1
         with assignment.open('a') as stream:
-            stream.write(f"\n{number}. [ ] {datetime.now().astimezone().isoformat()}\n{prompt}\n")
+            stream.write(f"\n{number}. {datetime.now().astimezone().isoformat()}\n{prompt}\n")
             stream.flush()
             os.fsync(stream.fileno())
         return number

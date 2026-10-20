@@ -37,7 +37,7 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_named_asks_and_flat_worker_notes_recover_in_place(self):
         view = self.plain()
-        self.assertIn('1. [ ]', view.assignment.read_text())
+        self.assertRegex(view.assignment.read_text(), r'(?m)^1\. [0-9]{4}-')
         self.assertIn('Do useful work', view.assignment.read_text())
         self.assertEqual(view.state, view.output)
         agents = view.root / 'agents'

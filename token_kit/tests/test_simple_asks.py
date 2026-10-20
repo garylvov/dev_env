@@ -36,35 +36,47 @@ class AsksTests(unittest.TestCase):
         (view.root / 'asks.md').write_text(ASKS_SKELETON + '- [ ] Ship the installer (from #1)\n')
         self.assertTrue(has_work_context(view))
 
-    def test_many_asks_append_only_and_status_marks_keep_numbering(self):
+    def test_many_asks_append_only_without_status_marks(self):
         view = create_task(self.root / 'tasks', 'Long', self.root, 'Ask 1')
         for n in range(2, 201):
-            self.assertEqual(append_ask(view.root, view.assignment, f'Ask {n}'), n)
-        before = view.assignment.read_bytes()
-        # Agents mark progress in place, including the newest ask.
-        view.assignment.write_text(before.decode().replace('\n200. [ ]', '\n200. [~]').replace('\n7. [ ]', '\n7. [x]'))
-        marked = view.assignment.read_bytes()
-        self.assertEqual(append_ask(view.root, view.assignment, 'Ask 201'), 201)
-        self.assertTrue(view.assignment.read_bytes().startswith(marked))
+            before = view.assignment.read_bytes()
+            self.assertEqual(append_ask(view.root, view.assignment, f'Ask {n}\n{n + 5}. not an entry'), n)
+            self.assertTrue(view.assignment.read_bytes().startswith(before))
+        self.assertNotRegex(view.assignment.read_text(), r'\[[- x~]\]')
+
+    def test_legacy_status_marks_still_count(self):
+        view = create_task(self.root / 'tasks', 'Legacy', self.root)
+        view.assignment.write_text('1. [x] 2026-10-01T00:00:00\nold\n\n2. [~] 2026-10-02T00:00:00\nolder\n')
+        self.assertEqual(append_ask(view.root, view.assignment, 'next'), 3)
 
     def test_guidance_names_both_records_briefly(self):
         rules = guidance.TASK_RULES
-        self.assertIn('Never rewrite it', rules)
+        self.assertIn('Never edit it; status lives only in asks.md', rules)
+        self.assertNotIn('mark [x]', rules)
         self.assertIn('asks.md', rules)
         self.assertIn('(from #3, #7)', rules)
         self.assertIn('never delete', rules)
         self.assertIn('create it if missing', rules)
-        # Scope creep: asides count, open asks stay on top, conflicts name a winner, finish lists open asks.
-        self.assertIn('including asides buried in longer messages', rules)
-        self.assertIn('open and in-progress asks at the top', rules)
-        self.assertIn('say which wins', rules)
-        self.assertIn('Re-read it before declaring work finished and before rollover', rules)
-        self.assertIn('final reply lists every still-open ask', rules)
         self.assertLessEqual(len(rules.splitlines()), 11)
-        self.assertLess(ASKS_SKELETON.index('## Open'), ASKS_SKELETON.index('## Done'))
         note = guidance.summary_request('80%', 'out.md', 'in.md', None, '/task/asks.md')
         self.assertIn('Re-read /task/asks.md; make sure every request from every message has a line, open ones first.', note)
         self.assertNotIn('asks.md', guidance.summary_request('80%', 'out.md', 'in.md'))
+
+    # Scope creep: requests pile up mid-task; none may be silently dropped.
+    def test_every_aside_gets_a_line(self):
+        self.assertIn('every request in every user message gets a line, including asides buried in longer messages',
+                      guidance.TASK_RULES)
+
+    def test_open_asks_stay_on_top(self):
+        self.assertIn('Keep open and in-progress asks at the top, done and dropped below', guidance.TASK_RULES)
+        self.assertLess(ASKS_SKELETON.index('## Open'), ASKS_SKELETON.index('## Done'))
+
+    def test_reread_before_finishing_and_report_open_asks(self):
+        self.assertIn('Re-read it before declaring work finished, ending a turn or rollover', guidance.TASK_RULES)
+        self.assertIn('your final reply lists every still-open ask', guidance.TASK_RULES)
+
+    def test_conflicting_asks_name_the_winner(self):
+        self.assertIn('When an ask conflicts with or supersedes another, mark both and say which wins', guidance.TASK_RULES)
 
     def test_guide_routes_gpt_workers_through_shunt_when_active(self):
         for text in (guidance.load_dispatch_guide(), guidance.EFFORT):

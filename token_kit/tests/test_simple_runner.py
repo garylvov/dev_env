@@ -181,9 +181,9 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                     text = assignment.read_text()
                     self.assertNotIn('Token Kit successor kickoff', text)
                     self.assertEqual(text.count(ask), 2)
-                    self.assertIn('1. [ ]', text)
-                    self.assertIn('2. [ ]', text)
-                    self.assertRegex(text, r'1\. \[ \] [0-9]{4}-[0-9]{2}-[0-9]{2}')
+                    self.assertRegex(text, r'(?m)^1\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
+                    self.assertRegex(text, r'(?m)^2\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
+                    self.assertNotIn('[ ]', text)
                     self.assertEqual(read(run / 'control.json')['last_ask'], 2)
                     for _ in range(2):
                         handle(run, dict(base, hook_event_name='UserPromptSubmit',

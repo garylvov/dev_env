@@ -1,6 +1,7 @@
 """Real launcher/adapter/hook integration with disposable local fake clients."""
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -76,8 +77,8 @@ class IntegrationTests(unittest.TestCase):
             self.assertNotIn('ordinary note from segment 1', view.state.read_text())
             self.assertEqual((view.state.read_text() + archived).count('### rollover '), 2)
             self.assertLess(len(view.state.read_text()), 8000)
-            self.assertEqual(view.assignment.read_text().count('1. [ ]'), 1)
-            self.assertNotIn('2. [ ]', view.assignment.read_text())
+            self.assertEqual(len(re.findall(r'^1\. [0-9]{4}-', view.assignment.read_text(), re.M)), 1)
+            self.assertNotRegex(view.assignment.read_text(), r'(?m)^2\. [0-9]{4}-')
             self.assertFalse((view.root / 'agents/coordinator/checkpoints').exists())
             self.assertFalse((view.root / 'agents/coordinator/lifecycle.json').exists())
             self.assertEqual(len(list((view.root / '.token-kit/runs').glob('*/control.json'))), 3)
