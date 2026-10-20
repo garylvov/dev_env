@@ -113,6 +113,56 @@ print('Previous Token Kit command and shell configuration restored.')
     return rollback
 
 
+def _shell_block(home: Path, directory: Path) -> tuple[Path, dict]:
+    rc = home / '.bashrc'
+    if rc.is_symlink():
+        raise ValueError('Shell configuration is symlinked; refusing to replace it')
+    body = rc.read_text() if rc.exists() else ''
+    block = (f'{OPEN}\nexport PATH={shlex.quote(str(directory))}:"$PATH"\n{CLOSE}')
+    if OPEN in body or CLOSE in body:
+        if body.count(OPEN) != 1 or body.count(CLOSE) != 1 or body.index(OPEN) > body.index(CLOSE):
+            raise ValueError('Ambiguous launcher block in shell configuration')
+        left, right = body.index(OPEN), body.index(CLOSE) + len(CLOSE)
+        previous = (f'{OPEN}\n'
+                    'if [[ -z ${TOKEN_KIT_RUN:-} || -n ${TOKEN_KIT_SIMPLE_RUN:-} ]]; then\n'
+                    f'  case ":$PATH:" in *:{shlex.quote(str(directory))}:*) ;; *) export PATH={shlex.quote(str(directory))}:"$PATH" ;; esac\n'
+                    f'fi\n{CLOSE}')
+        if body[left:right] not in (previous, block):
+            raise ValueError('Customized launcher block preserved')
+        body = body[:left] + block + body[right:]
+    else:
+        body += '\n' + block + '\n'
+    return rc, {'kind': 'file', 'hex': body.encode().hex(),
+                'mode': rc.stat().st_mode & 0o777 if rc.exists() else 0o644}
+
+
+def fresh_install_plan(release: Path, home: Path) -> list[dict]:
+    """Install the launcher when no previous Token Kit checkout exists."""
+    release, home = release.resolve(), home.absolute()
+    new = release / 'token_kit/src/token_kit/bin/token-kit'
+    if not new.is_file():
+        raise ValueError(f'Launcher not found: {new}')
+    directory = home / '.local/share/token-kit/simple-bin'
+    dispatcher = directory / 'token-kit'
+    marker = '# Token Kit release dispatcher\n'
+    script = '#!/usr/bin/env bash\n' + marker + f'exec {shlex.quote(str(new))} "$@"\n'
+    current = _capture(dispatcher)
+    installed = bytes.fromhex(current['hex']).decode(errors='replace') if current['kind'] == 'file' else None
+    if installed is not None and installed != script:
+        if marker not in installed or f'exec {shlex.quote(str(new))} "$@"' not in installed:
+            # A dispatcher that routes to a pinned legacy release must not lose that route.
+            raise ValueError(f'Existing dispatcher differs: {dispatcher}; pass --legacy-root to upgrade it')
+        script = installed  # Already dispatches to this release (with its legacy routes).
+    link = home / '.local/bin/token-kit'
+    if link.exists() and not link.is_symlink():
+        raise ValueError(f'Existing command is not a symlink; refusing to replace it: {link}')
+    changes = [(dispatcher, {'kind': 'file', 'hex': script.encode().hex(), 'mode': 0o755}),
+               (link, {'kind': 'symlink', 'target': str(dispatcher)}),
+               _shell_block(home, directory)]
+    return [{'path': str(path), 'before': _capture(path), 'after': after}
+            for path, after in changes if _capture(path) != after]
+
+
 def launcher_install_plan(release: Path, legacy: Path, home: Path) -> list[dict]:
     """Upgrade cached old command paths as well as the per-user entrypoint."""
     release, legacy, home = release.resolve(), legacy.resolve(), home.absolute()
@@ -160,27 +210,8 @@ def launcher_install_plan(release: Path, legacy: Path, home: Path) -> list[dict]
                    f'exec bash {shlex.quote(str(release / "token_kit/install.sh"))} '
                    f'--legacy-root {shlex.quote(str(legacy))} "$@"\n')
         changes.append((old_install, {'kind': 'file', 'hex': forward.encode().hex(), 'mode': 0o755}))
-    rc = home / '.bashrc'
-    if rc.is_symlink():
-        raise ValueError('Shell configuration is symlinked; refusing to replace it')
-    body = rc.read_text() if rc.exists() else ''
-    block = (f'{OPEN}\nexport PATH={shlex.quote(str(directory))}:"$PATH"\n{CLOSE}')
-    if OPEN in body or CLOSE in body:
-        if body.count(OPEN) != 1 or body.count(CLOSE) != 1 or body.index(OPEN) > body.index(CLOSE):
-            raise ValueError('Ambiguous launcher block in shell configuration')
-        left, right = body.index(OPEN), body.index(CLOSE) + len(CLOSE)
-        previous = (f'{OPEN}\n'
-                    'if [[ -z ${TOKEN_KIT_RUN:-} || -n ${TOKEN_KIT_SIMPLE_RUN:-} ]]; then\n'
-                    f'  case ":$PATH:" in *:{shlex.quote(str(directory))}:*) ;; *) export PATH={shlex.quote(str(directory))}:"$PATH" ;; esac\n'
-                    f'fi\n{CLOSE}')
-        if body[left:right] not in (previous, block):
-            raise ValueError('Customized launcher block preserved')
-        body = body[:left] + block + body[right:]
-    else:
-        body += '\n' + block + '\n'
     changes.extend(((home / '.local/bin/token-kit', {'kind': 'symlink', 'target': str(dispatcher)}),
-                    (rc, {'kind': 'file', 'hex': body.encode().hex(),
-                          'mode': rc.stat().st_mode & 0o777 if rc.exists() else 0o644})))
+                    _shell_block(home, directory)))
     return [{'path': str(path), 'before': _capture(path), 'after': after}
             for path, after in changes if _capture(path) != after]
 
@@ -189,12 +220,13 @@ def main() -> None:
     import argparse
     from datetime import datetime
     parser = argparse.ArgumentParser(description='Install the simplified Token Kit launcher; leave task and client configuration intact.')
-    parser.add_argument('--legacy-root', type=Path, required=True)
+    parser.add_argument('--legacy-root', type=Path, help='previous Token Kit checkout to keep serving hooks; omit for a fresh install')
     parser.add_argument('--home', type=Path, default=Path.home())
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     release = Path(__file__).resolve().parents[3]
-    plan = launcher_install_plan(release, args.legacy_root, args.home)
+    plan = (launcher_install_plan(release, args.legacy_root, args.home) if args.legacy_root
+            else fresh_install_plan(release, args.home))
     if args.dry_run:
         print(json.dumps({'changed': [row['path'] for row in plan]}, indent=2))
     elif not plan:
@@ -202,7 +234,8 @@ def main() -> None:
     else:
         backup = args.home / '.local/share/token-kit' / ('launcher-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
         rollback = apply_activation(plan, backup)
-        print('Token Kit installed. Existing command paths now use the simplified launcher.')
+        print('Token Kit installed. Existing command paths now use the simplified launcher.' if args.legacy_root
+              else f'Token Kit installed: {args.home / ".local/bin/token-kit"} (open a new shell or source ~/.bashrc).')
         print(f'Rollback: python3.11 {shlex.quote(str(rollback))}')
 
 

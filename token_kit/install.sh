@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the simplified launcher. Historical hook setup is in install-legacy.sh.
-# Usage: bash token_kit/install.sh --legacy-root /path/to/previous/checkout [--dry-run]
+# Usage: bash token_kit/install.sh [--legacy-root /path/to/previous/checkout] [--dry-run]
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="$HERE/src${PYTHONPATH:+:$PYTHONPATH}"
