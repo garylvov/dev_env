@@ -21,11 +21,13 @@ Run unattended with `token-kit run "Title" --engine codex --headless --prompt ".
 Client stdout/stderr streams into `.token-kit/runs/<run>/stdout.log`; the launcher prints each log path and returns the final client exit code.
 Pass `--yolo` explicitly (Codex: `--dangerously-bypass-approvals-and-sandbox`) or choose `--sandbox workspace-write`; headless never enables bypass automatically.
 
-Client trust and permissions remain in effect; Token Kit does not enable `--yolo`.
+Client trust and permissions remain in effect unless you pass `--yolo`; with Codex
+it also adds `--dangerously-bypass-hook-trust` so the rollover hooks fire.
 
 ```text
 <task>/
-  <task>_in.md             objective and user asks
+  <task>_in.md             verbatim conversation of user messages, append-only
+  asks.md                 every request upsampled into Open/Done lines
   <task>_out.md            running state and results
   models.md               main-agent model choices, sources and dated probes
   docs/                   longer findings and decisions, linked from output
@@ -36,10 +38,13 @@ Client trust and permissions remain in effect; Token Kit does not enable `--yolo
 ```
 
 The filenames use the actual task folder name. Managed `UserPromptSubmit` hooks
-record every user ask verbatim with a date and numbered `[ ]` status, before the
-agent works. Initial assignments are saved on creation; Token Kit's kickoff and
-successor prompts are excluded. Mark `[x]` done or `[-] dropped (why)`. If managed
-hooks are unavailable, the agent must record asks itself.
+append every user message verbatim, dated and numbered, before the agent works;
+the file is never edited. Initial assignments are saved on creation; Token Kit's
+kickoff and successor prompts are excluded. `asks.md` holds status: every request
+in every message gets a line (asides too), open asks first, superseded or
+conflicting asks are marked with which one wins. Agents re-read it before ending a
+turn and before rollover, and the final reply lists open asks. If managed hooks are
+unavailable, the agent must record messages itself.
 
 Read input and output first at session start; re-read input about every five
 minutes and when edited. Keep a sparse `Current state` at the output's top: done,
@@ -91,14 +96,30 @@ session overrides could replace those arrays. Unreadable hook settings are repor
 For Codex, explicit `--yolo` also bypasses hook trust when the client supports it. Stop an unmanaged active session normally
 before launching `continue`.
 
-## Installing the candidate
+## Turning it on and off
 
-Keep the old checkout available for sessions that depend on it; read the
-[cutover guide](docs/SIMPLE-CUTOVER.md) before changing an installed command.
+Token Kit is opt-in per session. It never edits `~/.claude/settings.json`,
+`~/.codex/config.toml` or `~/.codex/hooks.json`; its hooks are passed only to the
+session it launches (Claude `--settings`, Codex `-c`) and vanish when it exits.
+Plain `claude` and `codex` sessions, including ones already running, are unaffected.
+
+- On: `token-kit run ...` or `token-kit continue ...`.
+- Off for a session: start `claude` or `codex` directly.
+- Keep recording but no restarts: `--no-rollover`.
+- Uninstall: run the `rollback.py` command the installer printed; it removes the
+  command and the `~/.bashrc` block.
+
+## Installing
 
 ```bash
-bash token_kit/install.sh --legacy-root /path/to/previous/checkout
+bash token_kit/install.sh --dry-run   # preview
+bash token_kit/install.sh             # fresh machine
+bash token_kit/install.sh --legacy-root /path/to/previous/checkout   # replacing an old install
 ```
+
+The installer adds only the `token-kit` command (a symlink in `~/.local/bin` and a
+PATH block in `~/.bashrc`, backed up first). See the
+[cutover guide](docs/SIMPLE-CUTOVER.md) when replacing an older install.
 
 Use `--dry-run` first to preview. The installer preserves a legacy launcher and
 prints a rollback command for changed installations. Task files and client hook
