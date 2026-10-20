@@ -54,9 +54,16 @@ class AsksTests(unittest.TestCase):
         self.assertIn('(from #3, #7)', rules)
         self.assertIn('never delete', rules)
         self.assertIn('create it if missing', rules)
-        self.assertLessEqual(len(rules.splitlines()), 10)
+        # Scope creep: asides count, open asks stay on top, conflicts name a winner, finish lists open asks.
+        self.assertIn('including asides buried in longer messages', rules)
+        self.assertIn('open and in-progress asks at the top', rules)
+        self.assertIn('say which wins', rules)
+        self.assertIn('Re-read it before declaring work finished and before rollover', rules)
+        self.assertIn('final reply lists every still-open ask', rules)
+        self.assertLessEqual(len(rules.splitlines()), 11)
+        self.assertLess(ASKS_SKELETON.index('## Open'), ASKS_SKELETON.index('## Done'))
         note = guidance.summary_request('80%', 'out.md', 'in.md', None, '/task/asks.md')
-        self.assertIn('Make sure /task/asks.md reflects every message.', note)
+        self.assertIn('Re-read /task/asks.md; make sure every request from every message has a line, open ones first.', note)
         self.assertNotIn('asks.md', guidance.summary_request('80%', 'out.md', 'in.md'))
 
     def test_guide_routes_gpt_workers_through_shunt_when_active(self):

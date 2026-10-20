@@ -11,10 +11,12 @@ TASK_RULES = (
     "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
     "_in.md is the conversation: managed prompt hooks append each user message verbatim, dated and numbered. "
     "Never rewrite it; only mark [x] done or [-] dropped (why). If hooks are unavailable, append asks before work yourself.\n"
-    "<task>/asks.md is the upsampled ask list: one line per distinct request, rewritten as a full sentence a newcomer "
-    "understands (expand terse wording; merge refining messages), with [ ] [~] [x] [-] status, where/why and sources (from #3, #7). "
-    "Mark superseded asks; never delete. Update it before ending each turn that had a user message (create it if missing); "
-    "successors read it first.\n"
+    "<task>/asks.md guards against dropped asks as requests pile up: every request in every user message gets a line, "
+    "including asides buried in longer messages, written as a full sentence a newcomer understands, with [ ] [~] [x] [-] status, "
+    "where/why and sources (from #3, #7). Keep open and in-progress asks at the top, done and dropped below.\n"
+    "When an ask conflicts with or supersedes another, mark both and say which wins; never delete. Update asks.md before ending "
+    "each turn that had a user message (create it if missing). Re-read it before declaring work finished and before rollover; "
+    "your final reply lists every still-open ask. Successors read it first.\n"
     "Keep a sparse Current state at the top of _out.md (done, in progress, next, open decisions). "
     "Append progress every few minutes and never rewrite History.\n"
     "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
@@ -66,6 +68,6 @@ def summary_request(percent, output, assignment, state=None, asks=None):
             "your last update; refresh Current state (sparse, with links to docs/). "
             f"Ensure every ask in {assignment} has a History entry; record any unrecorded asks "
             "verbatim with a date. "
-            + (f"Make sure {asks} reflects every message. " if asks else "")
+            + (f"Re-read {asks}; make sure every request from every message has a line, open ones first. " if asks else "")
             + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
             + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")
