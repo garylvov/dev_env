@@ -151,8 +151,9 @@ session only: Claude `--mcp-config`, Codex `-c mcp_servers.codegraph.*`. Without
 flag it attaches when the repo already has a `.codegraph/` index. Before launch and
 at each rollover Token Kit runs `codegraph sync` (120 s cap); a failure prints a
 warning and the session starts without the server. A worktree without an index
-copies its main checkout's index and syncs it (ProtoMotions, 20k files: 74 s
-fresh build vs about 2 s copy and sync); otherwise `--codegraph` builds one.
+copies its main checkout's index and syncs it (ProtoMotions, 20k files, 310 MB index:
+74 s fresh build vs 1.5 s copy and sync at the same commit, 14 s with 68 files
+different; each copy costs the index size on disk); otherwise `--codegraph` builds one.
 No client or project config is written; `.codegraph/` holds its own `.gitignore`.
 Install with `npm install -g @colbymchenry/codegraph`.
 `token-kit codegraph-hooks MAIN` prints git hook lines that resync indexed
