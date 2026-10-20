@@ -21,7 +21,6 @@ class TaskView:
 
 @dataclass(frozen=True)
 class LaunchOptions:
-    engine: str = "claude"
     model: str | None = None
     effort: str | None = None
     yolo: bool = False
@@ -31,7 +30,6 @@ class LaunchOptions:
     executable: str | None = None
     non_interactive: bool = False
     headless: bool = False
-    sandbox: str | None = None
     codegraph: bool | None = None  # None: attach only when the repo already has an index
 
 

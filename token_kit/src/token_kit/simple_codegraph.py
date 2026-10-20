@@ -1,4 +1,4 @@
-"""Opt-in CodeGraph MCP for one launched session; never writes client config files.
+"""Opt-in CodeGraph MCP for one launched Claude session; never writes client config files.
 
 The index lives in <repo>/.codegraph (CODEGRAPH_DIR overrides the name). Sync
 skips files whose (size, mtime) match and content-hashes the rest, so a worktree
@@ -91,14 +91,10 @@ def _run(argv: list[str], timeout: int) -> str | None:
     return None
 
 
-def mcp_argv(engine: str, executable: str, root: Path) -> tuple[str, ...]:
-    args = ["serve", "--mcp", "--path", str(root)]
-    if engine == "claude":
-        server = {"type": "stdio", "command": executable, "args": args, "env": ENV, "alwaysLoad": True}
-        return ("--mcp-config", json.dumps({"mcpServers": {"codegraph": server}}))
-    return ("-c", "mcp_servers.codegraph.command=" + json.dumps(executable),
-            "-c", "mcp_servers.codegraph.args=" + json.dumps(args),
-            "-c", "mcp_servers.codegraph.env.CODEGRAPH_TELEMETRY=\"0\"")
+def mcp_argv(executable: str, root: Path) -> tuple[str, ...]:
+    server = {"type": "stdio", "command": executable, "args": ["serve", "--mcp", "--path", str(root)],
+              "env": ENV, "alwaysLoad": True}
+    return ("--mcp-config", json.dumps({"mcpServers": {"codegraph": server}}))
 
 
 def exclude(root: Path) -> None:
@@ -122,7 +118,7 @@ def guidance(root: Path) -> str:
             "In another checkout pass its root as projectPath; if that has no .codegraph/ index, read files directly.\n")
 
 
-def attach(workspace: Path, engine: str, requested: bool | None) -> Attachment:
+def attach(workspace: Path, requested: bool | None) -> Attachment:
     """Sync (or seed/build) the index, then return MCP argv for this session only.
 
     requested None means auto: attach only when the repo already has an index.
@@ -157,7 +153,7 @@ def attach(workspace: Path, engine: str, requested: bool | None) -> Attachment:
         exclude(root)
     except (OSError, subprocess.TimeoutExpired) as exc:
         notes += (f"Could not add .codegraph/ to the local git exclude file: {exc}",)
-    return Attachment(mcp_argv(engine, executable, root), notes, guidance(root))
+    return Attachment(mcp_argv(executable, root), notes, guidance(root))
 
 
 def hook_lines(main: Path) -> str:

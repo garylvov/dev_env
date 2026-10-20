@@ -9,7 +9,7 @@ import sys
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from token_kit.simple_process import locked, read, write, identity
+from token_kit.simple_process import locked, read, write
 
 EVENTS = ('SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'PreCompact')
 
@@ -18,15 +18,6 @@ def hooks():
     command = shlex.join([sys.executable, str(Path(__file__).resolve())])
     return {event: [{'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}]
             for event in EVENTS}
-
-
-def codex_config():
-    result = ['--enable', 'hooks']
-    for event, groups in hooks().items():
-        command = json.dumps(groups[0]['hooks'][0]['command'])
-        value = '[{ hooks = [{ type = "command", command = ' + command + ', timeout = 5 }] }]'
-        result.extend(['-c', f'hooks.{event}={value}'])
-    return result
 
 
 def usage_sample(path: Path, expected: str) -> dict:
@@ -60,34 +51,10 @@ def usage_sample(path: Path, expected: str) -> dict:
     return {}
 
 
-def owned_hook_ancestry(run: Path) -> bool:
-    """Prove this hook descends from the owned Codex process, not a nested CLI."""
-    record = read(run / 'process.json')
-    owned = record.get('child_pid')
-    if not isinstance(owned, int) or identity(owned) != record.get('child_identity'):
-        return False
-    try:
-        executable = Path(f'/proc/{owned}/exe').resolve(strict=True)
-        if 'codex' not in executable.name.lower():
-            return False
-        pid = os.getppid()
-        for _ in range(64):
-            actual = Path(f'/proc/{pid}/exe').resolve(strict=True)
-            if actual == executable or 'codex' in actual.name.lower():
-                return pid == owned and identity(pid) == record['child_identity']
-            fields = Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()
-            pid = int(fields[1])
-            if pid <= 1:
-                return False
-    except (OSError, ValueError, IndexError):
-        return False
-    return False
-
-
 def initialize(run: Path, options, expected_session: str | None, state: Path,
                assignment: Path | None = None, output: Path | None = None,
                kickoff_prompt: str | None = None):
-    write(run / 'control.json', {'run_id': run.name, 'engine': options.engine,
+    write(run / 'control.json', {'run_id': run.name,
           'expected_session': expected_session, 'armed': False, 'phase': 'running',
           'threshold': options.rollover, 'context_window': options.context_window,
           'state': str(state), 'assignment': str(assignment) if assignment else None,
@@ -114,22 +81,6 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         if nonce != control.get('run_id') or nonce != run.name:
             return {}
         expected = control.get('expected_session')
-        event = payload.get('hook_event_name')
-        if control.get('engine') == 'codex':
-            from token_kit.simple_adapters import codex_root_session
-            if not owned_hook_ancestry(run):
-                return {}
-            child_notice = (event in ('SubagentStart', 'SubagentStop') and
-                            control.get('armed') and expected and
-                            payload.get('session_id') == expected and
-                            not payload.get('parent_thread_id') and
-                            not payload.get('parent_session_id'))
-            if not child_notice:
-                proven = codex_root_session(payload)
-                if not proven or (expected and expected != proven):
-                    return {}
-                expected = proven
-                control['expected_session'] = proven
         # Unknown and child events never bind or control a parent. Environment
         # inheritance alone is not identity evidence.
         if not expected or payload.get('session_id') != expected:
@@ -186,11 +137,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         transcript = payload.get('transcript_path')
         if transcript:
             try:
-                if control['engine'] == 'codex':
-                    from token_kit.simple_adapters import codex_usage_sample
-                    sample = codex_usage_sample(Path(transcript))
-                else:
-                    sample = usage_sample(Path(transcript), expected)
+                sample = usage_sample(Path(transcript), expected)
             except (OSError, ValueError, ImportError, TypeError):
                 sample = {}
         used = sample.get('context_tokens')

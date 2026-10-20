@@ -93,8 +93,8 @@ class CodegraphTest(unittest.TestCase):
         (root / ".codegraph").mkdir(parents=True, exist_ok=True)
         (root / ".codegraph/codegraph.db").write_bytes(b"db")
 
-    def prepare(self, engine="claude", **kwargs):
-        return adapters.prepare(self.view, LaunchOptions(engine=engine, rollover="off", **kwargs), "go", self.root / "run")
+    def prepare(self, **kwargs):
+        return adapters.prepare(self.view, LaunchOptions(rollover="off", **kwargs), "go", self.root / "run")
 
     def ok(self, argv, **kwargs):
         return subprocess.CompletedProcess(argv, 0, "", "")
@@ -115,16 +115,6 @@ class CodegraphTest(unittest.TestCase):
         self.assertIn(f"CodeGraph MCP is attached for {self.ws.resolve()}", guidance)
         self.assertIn("pass its root as projectPath", guidance)
 
-    def test_codex_mcp_overrides(self):
-        self.index(self.ws)
-        with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
-                patch.object(codegraph.subprocess, "run", side_effect=self.ok):
-            plan = self.prepare(engine="codex")
-        argv = list(plan.argv)
-        self.assertIn('mcp_servers.codegraph.command="/x/codegraph"', argv)
-        self.assertIn('mcp_servers.codegraph.args=["serve", "--mcp", "--path", "%s"]' % self.ws.resolve(), argv)
-        self.assertEqual(argv[argv.index('mcp_servers.codegraph.command="/x/codegraph"') - 1], "-c")
-
     def test_sync_failure_continues_without_server(self):
         self.index(self.ws)
         failed = lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "locked\n")
@@ -142,21 +132,21 @@ class CodegraphTest(unittest.TestCase):
             raise subprocess.TimeoutExpired(argv, kw["timeout"])
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=slow):
-            result = codegraph.attach(self.ws, "codex", None)
+            result = codegraph.attach(self.ws, None)
         self.assertFalse(result.attached)
         self.assertIn("timed out", result.diagnostics[0])
 
     def test_missing_executable_warns_with_install_hint(self):
         with patch.object(codegraph.shutil, "which", return_value=None):
-            result = codegraph.attach(self.ws, "claude", True)
+            result = codegraph.attach(self.ws, True)
         self.assertFalse(result.attached)
         self.assertIn("npm install -g @colbymchenry/codegraph", result.diagnostics[0])
 
     def test_no_index_auto_and_explicit_off_do_nothing(self):
         with patch.object(codegraph.subprocess, "run") as run, patch.object(codegraph.shutil, "which") as which:
-            self.assertFalse(codegraph.attach(self.ws, "claude", None).attached)
+            self.assertFalse(codegraph.attach(self.ws, None).attached)
             self.index(self.ws)
-            self.assertFalse(codegraph.attach(self.ws, "claude", False).attached)
+            self.assertFalse(codegraph.attach(self.ws, False).attached)
         run.assert_not_called()
         which.assert_not_called()
 
@@ -169,7 +159,7 @@ class CodegraphTest(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, listing if "worktree" in argv else "", "")
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=run) as called:
-            result = codegraph.attach(self.ws, "claude", True)
+            result = codegraph.attach(self.ws, True)
         self.assertTrue(result.attached)
         self.assertEqual((self.ws / ".codegraph/codegraph.db").read_bytes(), b"db")
         self.assertFalse((self.ws / ".codegraph/daemon.pid").exists())
@@ -180,7 +170,7 @@ class CodegraphTest(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, f"worktree {self.ws}\n" if "worktree" in argv else "", "")
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=run) as called:
-            result = codegraph.attach(self.ws, "claude", True)
+            result = codegraph.attach(self.ws, True)
         init = called.call_args_list[1]
         self.assertEqual(init.args[0], ["/x/codegraph", "init", "--yes", str(self.ws)])
         self.assertEqual(init.kwargs["timeout"], codegraph.INIT_TIMEOUT)
@@ -192,7 +182,7 @@ class CodegraphTest(unittest.TestCase):
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=self.ok):
             self.prepare()
-            self.prepare(engine="codex")
+            self.prepare(headless=True)
         self.assertEqual(snapshot(self.ws), before_ws)
         self.assertEqual(snapshot(self.root), before_home)
 
@@ -229,8 +219,8 @@ class CodegraphTest(unittest.TestCase):
         self.assertIn("?? .codegraph/", git(worktree, "status", "--porcelain"))
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph, "_run", return_value=None):
-            self.assertTrue(codegraph.attach(worktree, "claude", None).attached)
-            codegraph.attach(worktree, "claude", None)
+            self.assertTrue(codegraph.attach(worktree, None).attached)
+            codegraph.attach(worktree, None)
         exclude = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"))
         self.assertEqual(exclude.read_text().count("/.codegraph/"), 1)
         self.assertEqual(git(worktree, "status", "--porcelain"), "")

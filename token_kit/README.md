@@ -1,28 +1,28 @@
 # Token Kit
 
-Token Kit keeps work in task folders and starts a fresh Claude or Codex session
+Token Kit keeps work in task folders and starts a fresh Claude session
 when context reaches 60%. Save the work in the folder so the next session can continue.
+GPT models are used only as Shunt-backed Claude Code subagents, never as the main session.
 
 ## Everyday use
 
 ```bash
-token-kit run "Fix parser" --engine codex --prompt "Investigate and fix the parser failure"
-token-kit continue retread --engine codex
-token-kit run "My task" --engine claude
+token-kit run "Fix parser" --prompt "Investigate and fix the parser failure"
+token-kit continue retread
+token-kit run "My task"
 ```
 
-Without `--prompt`, a new task opens an idle session. New tasks default to Claude
-and 60% rollover; continuation reuses saved settings unless overridden. Use
+Without `--prompt`, a new task opens an idle session. New tasks default to 60%
+rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.
 `pick` selects a task; `status` displays records; `resume` is a read-only preview.
-Run unattended with `token-kit run "Title" --engine codex --headless --prompt "..."`; Claude headless uses its print mode.
-`token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches. If hooks do not arm, Codex telemetry triggers a summary turn after client exit, then a fresh successor; missing telemetry stops with an error.
+Run unattended with `token-kit run "Title" --headless --prompt "..."` (Claude print mode).
+`token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches.
+Tasks saved by the old Codex engine continue on Claude with a one-line notice; their model, effort and `--yolo` are reset.
 Client stdout/stderr streams into `.token-kit/runs/<run>/stdout.log`; the launcher prints each log path and returns the final client exit code.
-Pass `--yolo` explicitly (Codex: `--dangerously-bypass-approvals-and-sandbox`) or choose `--sandbox workspace-write`; headless never enables bypass automatically.
-
-Client trust and permissions remain in effect unless you pass `--yolo`; with Codex
-it also adds `--dangerously-bypass-hook-trust` so the rollover hooks fire.
+Client permissions remain in effect unless you pass `--yolo`
+(`--dangerously-skip-permissions`); headless never enables it automatically.
 
 ```text
 <task>/
@@ -63,9 +63,9 @@ remain readable in place. No migration or checkpoint commands are needed.
 command templates. The main agent chooses models in `<task>/models.md`, refreshing
 missing or >~24h-old decisions from local catalogs and available official docs,
 with bounded availability probes. Workers and rollover successors reuse it unless
-stale or a model fails. Codex is preferred wherever capable and available;
-cross-family verification still applies. The launcher injects this guidance for
-both engines on startup and successor launch; it only passes a top-level model
+stale or a model fails. GPT options are Shunt subagents (when `shunt` is active);
+cross-family verification uses them for Claude-authored work. The launcher injects
+this guidance on startup and successor launch; it only passes a top-level model
 when the operator explicitly supplies `--model`. The built-in missing-guide fallback
 uses the same decision process.
 
@@ -87,24 +87,17 @@ compaction available. Active workers defer managed rollover. Missing fresh notes
 produce a recovery limitation; process ownership checks prevent overlapping launches.
 Check uncertain external outcomes before retrying operations.
 
-Codex 0.159.0 empirically merges `$CODEX_HOME/hooks.json` with session `-c` hooks,
-so user JSON hooks can coexist with rollover without being copied or overwritten.
-Token Kit inspects home and ancestor project `.codex/hooks.json` files, including
-legacy-hook conflicts; project-file execution was not observed in the disposable
-probe. Overlapping TOML hook tables still disable automatic rollover because
-session overrides could replace those arrays. Unreadable hook settings are reported.
-For Codex, explicit `--yolo` also bypasses hook trust when the client supports it. Stop an unmanaged active session normally
-before launching `continue`.
+Legacy Token Kit hooks in Claude settings block a launch until cleaned up; unrelated
+hooks are preserved. Stop an unmanaged active session normally before launching `continue`.
 
 ## Turning it on and off
 
-Token Kit is opt-in per session. It never edits `~/.claude/settings.json`,
-`~/.codex/config.toml` or `~/.codex/hooks.json`; its hooks are passed only to the
-session it launches (Claude `--settings`, Codex `-c`) and vanish when it exits.
-Plain `claude` and `codex` sessions, including ones already running, are unaffected.
+Token Kit is opt-in per session. It never edits `~/.claude/settings.json`; its hooks
+are passed only to the session it launches (`--settings`) and vanish when it exits.
+Plain `claude` sessions, including ones already running, are unaffected.
 
 - On: `token-kit run ...` or `token-kit continue ...`.
-- Off for a session: start `claude` or `codex` directly.
+- Off for a session: start `claude` directly.
 - Keep recording but no restarts: `--no-rollover`.
 - Uninstall: run the `rollback.py` command the installer printed; it removes the
   command and the `~/.bashrc` block.
@@ -147,7 +140,7 @@ stale). It never creates, edits or commits `docs/agents/` itself.
 
 `--codegraph` (saved like other options; `--no-codegraph` turns it off) attaches the
 [CodeGraph](https://github.com/colbymchenry/codegraph) MCP server to the launched
-session only: Claude `--mcp-config`, Codex `-c mcp_servers.codegraph.*`. Without the
+session only (`--mcp-config`). Without the
 flag it attaches when the repo already has a `.codegraph/` index. Before launch and
 at each rollover Token Kit runs `codegraph sync` (120 s cap); a failure prints a
 warning and the session starts without the server. A worktree without an index

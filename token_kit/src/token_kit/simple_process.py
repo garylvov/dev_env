@@ -177,11 +177,11 @@ class Slot:
             self.close()
             raise
 
-    def claim(self, engine: str) -> Path:
+    def claim(self) -> Path:
         run_id = uuid.uuid4().hex
         run = safe(self.root, self.root / '.token-kit' / 'runs' / run_id)
         run.mkdir(parents=True)
-        self.record = {'run_id': run_id, 'agent_id': self.agent, 'engine': engine,
+        self.record = {'run_id': run_id, 'agent_id': self.agent, 'engine': 'claude',
                        'host': socket.gethostname(), 'supervisor_pid': os.getpid(),
                        'supervisor_identity': identity(os.getpid()), 'status': 'starting',
                        'schema_version': 1, 'simple_launcher': True}

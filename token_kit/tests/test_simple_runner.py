@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import tempfile
@@ -30,7 +29,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_alias_and_surviving_child_refuse_duplicate(self):
         slot = Slot(self.root, 'coordinator').acquire()
-        slot.claim('claude')
+        slot.claim()
         child = slot.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
         slot.close()  # supervisor disappears, child remains alive
         try:
@@ -47,7 +46,7 @@ import os, sys
 from pathlib import Path
 from token_kit.simple_process import Slot
 slot = Slot(Path(sys.argv[1]), 'coordinator').acquire()
-slot.claim('claude')
+slot.claim()
 def crash(**fields):
     os._exit(17)
 slot.publish = crash
@@ -62,7 +61,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
     def test_legacy_durable_claim_and_fence(self):
         (self.root / 'task.json').write_text('{}')
         slot = Slot(self.root, 'coordinator').acquire()
-        run = slot.claim('claude')
+        run = slot.claim()
         import fcntl
         with (self.root / '.continue.lock').open('a') as old:
             with self.assertRaises(BlockingIOError):
@@ -85,7 +84,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         agent.mkdir(parents=True)
         write(agent / 'agent.json', {'schema_version': 1, 'agent_id': 'coordinator'})
         slot = Slot(self.root, 'coordinator').acquire()
-        slot.claim('claude')
+        slot.claim()
         child = slot.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
         slot.close()
         script = "from token_kit.core.store import Store; import sys; Store(sys.argv[1]).claim_run('coordinator','claude',False)"
@@ -126,71 +125,60 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         self.assertFalse(handle(run, dict(base, hook_event_name='Stop'), run.name)['continue'])
         self.assertEqual(read(run / 'control.json')['phase'], 'ready')
 
-    def test_summary_message_is_model_context_for_both_engines(self):
-        for engine in ('claude', 'codex'):
-            for event in ('PostToolUse', 'Stop'):
-                with self.subTest(engine=engine, event=event):
-                    run = self.root / (engine + event)
-                    run.mkdir()
-                    assignment = self.root / 'task_in.md'
-                    output = self.root / 'task_out.md'
-                    initialize(run, LaunchOptions(engine=engine, context_window=100_000),
-                               'parent', self.state, assignment, output)
-                    transcript = self.root / 'transcript.jsonl'
-                    transcript.write_text(json.dumps({'type': 'assistant', 'message':
-                        {'usage': {'input_tokens': 60_000}}}) + '\n')
-                    base = {'session_id': 'parent', 'transcript_path': str(transcript)}
-                    with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
-                         patch('token_kit.simple_adapters.codex_root_session', return_value='parent'), \
-                         patch('token_kit.simple_adapters.codex_usage_sample', return_value={
-                             'context_tokens': 60_000, 'context_window': 100_000}):
-                        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
-                        current = read(run / 'control.json')
-                        current['startup_tokens'] = 10_000
-                        write(run / 'control.json', current)
-                        response = handle(run, dict(base, hook_event_name=event), run.name)
-                        note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
-                        self.assertIn('Context is at 60%', note)
-                        self.assertIn('Append one brief History entry', note)
-                        self.assertIn(str(assignment), note)
-                        self.assertIn(str(output), note)
-                        self.assertIn('End your turn', note)
-                        self.assertEqual(read(run / 'control.json')['phase'], 'requested')
-                        stopped = handle(run, dict(base, hook_event_name='Stop'), run.name)
-                        self.assertFalse(stopped['continue'])
-                        self.assertEqual(read(run / 'control.json')['phase'], 'ready')
-
-    def test_managed_prompts_record_verbatim_and_skip_kickoff_for_both_engines(self):
-        for engine in ('claude', 'codex'):
-            with self.subTest(engine=engine):
-                run = self.root / (engine + '-prompts')
+    def test_summary_message_is_model_context(self):
+        for event in ('PostToolUse', 'Stop'):
+            with self.subTest(event=event):
+                run = self.root / event
                 run.mkdir()
-                assignment = self.root / (engine + '_in.md')
-                assignment.write_text('# Objective\nFix it\n\n# Asks\n')
-                initialize(run, LaunchOptions(engine=engine), 'parent', self.state,
-                           assignment, self.state, kickoff_prompt='Token Kit successor kickoff')
-                base = {'session_id': 'parent'}
-                with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
-                     patch('token_kit.simple_adapters.codex_root_session', return_value='parent'):
-                    handle(run, dict(base, hook_event_name='SessionStart'), run.name)
-                    handle(run, dict(base, hook_event_name='UserPromptSubmit',
-                                     prompt='Token Kit successor kickoff'), run.name)
-                    ask = 'Please keep this exact.\n  Including whitespace and `$stuff`.'
-                    for _ in range(2):
-                        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=ask), run.name)
-                    text = assignment.read_text()
-                    self.assertNotIn('Token Kit successor kickoff', text)
-                    self.assertEqual(text.count(ask), 2)
-                    self.assertRegex(text, r'(?m)^1\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
-                    self.assertRegex(text, r'(?m)^2\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
-                    self.assertNotIn('[ ]', text)
-                    self.assertEqual(read(run / 'control.json')['last_ask'], 2)
-                    for _ in range(2):
-                        handle(run, dict(base, hook_event_name='UserPromptSubmit',
-                                         prompt='One ask with a replayed hook', prompt_id='unique'), run.name)
-                    self.assertEqual(assignment.read_text().count('One ask with a replayed hook'), 1)
-                    self.assertEqual(read(run / 'control.json')['last_ask'], 3)
+                assignment = self.root / 'task_in.md'
+                output = self.root / 'task_out.md'
+                initialize(run, LaunchOptions(context_window=100_000), 'parent', self.state, assignment, output)
+                transcript = self.root / 'transcript.jsonl'
+                transcript.write_text(json.dumps({'type': 'assistant', 'message':
+                    {'usage': {'input_tokens': 60_000}}}) + '\n')
+                base = {'session_id': 'parent', 'transcript_path': str(transcript)}
+                handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                current = read(run / 'control.json')
+                current['startup_tokens'] = 10_000
+                write(run / 'control.json', current)
+                response = handle(run, dict(base, hook_event_name=event), run.name)
+                note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
+                self.assertIn('Context is at 60%', note)
+                self.assertIn('Append one brief History entry', note)
+                self.assertIn(str(assignment), note)
+                self.assertIn(str(output), note)
+                self.assertIn('End your turn', note)
+                self.assertEqual(read(run / 'control.json')['phase'], 'requested')
+                stopped = handle(run, dict(base, hook_event_name='Stop'), run.name)
+                self.assertFalse(stopped['continue'])
+                self.assertEqual(read(run / 'control.json')['phase'], 'ready')
 
+    def test_managed_prompts_record_verbatim_and_skip_kickoff(self):
+        run = self.root / 'prompts'
+        run.mkdir()
+        assignment = self.root / 'claude_in.md'
+        assignment.write_text('# Objective\nFix it\n\n# Asks\n')
+        initialize(run, LaunchOptions(), 'parent', self.state,
+                   assignment, self.state, kickoff_prompt='Token Kit successor kickoff')
+        base = {'session_id': 'parent'}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        handle(run, dict(base, hook_event_name='UserPromptSubmit',
+                         prompt='Token Kit successor kickoff'), run.name)
+        ask = 'Please keep this exact.\n  Including whitespace and `$stuff`.'
+        for _ in range(2):
+            handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=ask), run.name)
+        text = assignment.read_text()
+        self.assertNotIn('Token Kit successor kickoff', text)
+        self.assertEqual(text.count(ask), 2)
+        self.assertRegex(text, r'(?m)^1\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
+        self.assertRegex(text, r'(?m)^2\. [0-9]{4}-[0-9]{2}-[0-9]{2}T')
+        self.assertNotIn('[ ]', text)
+        self.assertEqual(read(run / 'control.json')['last_ask'], 2)
+        for _ in range(2):
+            handle(run, dict(base, hook_event_name='UserPromptSubmit',
+                             prompt='One ask with a replayed hook', prompt_id='unique'), run.name)
+        self.assertEqual(assignment.read_text().count('One ask with a replayed hook'), 1)
+        self.assertEqual(read(run / 'control.json')['last_ask'], 3)
 
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
@@ -253,23 +241,6 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
         self.assertEqual(read(run / 'control.json')['activity'], 0)
 
-    def test_codex_child_notices_observed_after_parent_proof(self):
-        run = self.root / 'run'
-        run.mkdir()
-        initialize(run, LaunchOptions(engine='codex'), 'parent', self.state)
-        current = read(run / 'control.json')
-        current['armed'] = True
-        write(run / 'control.json', current)
-        adapters = types.ModuleType('token_kit.simple_adapters')
-        adapters.codex_root_session = lambda payload: None if payload.get('agent_id') else 'parent'
-        with patch.dict(sys.modules, {'token_kit.simple_adapters': adapters}), patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True):
-            handle(run, {'session_id': 'parent', 'agent_id': 'worker', 'hook_event_name': 'SubagentStart'}, run.name)
-            self.assertEqual(read(run / 'control.json')['children'], ['worker'])
-            handle(run, {'session_id': 'parent', 'hook_event_name': 'PreCompact'}, run.name)
-            self.assertEqual(read(run / 'control.json')['phase'], 'running')
-            handle(run, {'session_id': 'child', 'agent_id': 'worker', 'hook_event_name': 'SubagentStop'}, run.name)
-            self.assertEqual(read(run / 'control.json')['children'], ['worker'])
-
     def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False, headless=False, substantive=False):
         launched = []
         def prepare(view, options, prompt, run, agent='coordinator'):
@@ -325,85 +296,6 @@ p.write_text(json.dumps(s))
         self.assertEqual(code, 7)
         self.assertEqual(len(launched), 1)
 
-    def test_exec_telemetry_fallback_identity_threshold_and_resume(self):
-        from token_kit.simple_headless import fallback_summary, summary_argv
-        session = '12345678-1234-1234-1234-123456789abc'
-        log = self.root / 'stdout.log'
-        log.write_text(f'session id: {session}\n')
-        directory = self.root / 'sessions/2026/10/06'
-        directory.mkdir(parents=True)
-        transcript = directory / f'rollout-date-{session}.jsonl'
-        meta = {'id': session, 'source': 'exec', 'cwd': str(self.root)}
-        def emit(tokens, baseline=10):
-            transcript.write_text(json.dumps({'type': 'session_meta', 'payload': meta}) + '\n' +
-                json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
-                    'last_token_usage': {'total_tokens': baseline}, 'model_context_window': 100_000}}}) + '\n' +
-                json.dumps({'type': 'event_msg', 'payload': {'type': 'token_count', 'info': {
-                    'last_token_usage': {'total_tokens': tokens}, 'model_context_window': 100_000}}}) + '\n')
-        emit(30_000)
-        summary = fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
-        self.assertEqual(summary[0], session)
-        emit(43_001, baseline=43_000)
-        observed = {}
-        self.assertIsNone(fallback_summary(log, self.root, self.root, self.view,
-            LaunchOptions(rollover='5%'), control=observed))
-        self.assertEqual(observed['startup_tokens'], 43_000)
-        self.assertEqual(observed['token_growth'], 1)
-        self.assertIn('continuing', observed['loop_warning'])
-        emit(30_000)
-        self.assertIn('Append one brief History entry', summary[1])
-        self.assertIn(str(self.view.assignment), summary[1])
-        self.assertEqual(summary_argv(('codex', 'exec', '--', 'old'), session, 'summary'),
-                         ('codex', 'exec', 'resume', session, '--', 'summary'))
-        emit(1)
-        self.assertIsNone(fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%')))
-        meta['source'] = {'subagent': {}}
-        emit(30_000)
-        with self.assertRaisesRegex(ValueError, 'identity mismatch'):
-            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
-        meta['source'] = 'exec'
-        emit(30_000)
-        with transcript.open('a') as stream:
-            stream.write(json.dumps({'type': 'response_item', 'payload': {'type': 'function_call', 'name': 'spawn_agent'}}) + '\n')
-        with self.assertRaisesRegex(ValueError, 'native-worker'):
-            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
-        transcript.unlink()
-        with self.assertRaisesRegex(ValueError, 'unavailable'):
-            fallback_summary(log, self.root, self.root, self.view, LaunchOptions(rollover='5%'))
-
-    def test_failed_spawn_evidence_and_unknown_worker_refusal(self):
-        from token_kit.simple_headless import native_workers_may_have_run
-        transcript = self.root / 'spawn.jsonl'
-        def event(**payload):
-            return {'type': 'response_item', 'payload': payload}
-        spawn = event(type='function_call', name='collaboration.spawn_agent', call_id='spawn-1')
-        registered = event(type='function_call_output', call_id='spawn-1',
-                           output=json.dumps({'task_name': '/root/helper'}))
-        startup_failure = event(type='agent_message', author='/root/helper', content=[{
-            'type': 'input_text', 'text': 'Agent errored: ' + json.dumps({'type': 'error', 'status': 400,
-            'error': {'type': 'invalid_request_error', 'message':
-                      "The 'gpt-5.4' model is not supported when using Codex with a ChatGPT account."}})}])
-        cases = [
-            ([], False),
-            ([spawn], True),
-            ([spawn, event(type='function_call_output', call_id='spawn-1', output='{}')], True),
-            ([spawn, event(type='function_call_output', call_id='other', output='{"error":"failed"}')], True),
-            ([spawn, event(type='function_call_output', call_id='spawn-1', output='{"error":"spawn failed"}')], False),
-            ([spawn, registered], True),
-            ([spawn, registered, startup_failure], False),
-            ([spawn, registered, startup_failure, event(type='function_call', name='followup_task')], True),
-            ([spawn, registered, event(type='agent_message', author='/root/helper',
-                content=[{'text': 'Agent errored: runtime failure after work'}])], True),
-            ([spawn, registered, startup_failure, event(type='function_call', name='spawn_agent', call_id='spawn-2')], True),
-            ([spawn, registered, dict(startup_failure, payload=dict(startup_failure['payload'], author='/root/other'))], True),
-            ([spawn, registered, startup_failure, event(type='agent_message', author='/root/helper',
-                content=[{'text': 'Successfully edited files'}])], True),
-        ]
-        for rows, expected in cases:
-            with self.subTest(rows=rows):
-                transcript.write_text(''.join(json.dumps(row) + '\n' for row in rows))
-                self.assertEqual(native_workers_may_have_run(transcript), expected)
-
     def test_startup_failure_leaves_steering_pending(self):
         marked = []
         code, launched = self._run_fake(failures=True, resume=True, marked=marked)
@@ -445,7 +337,7 @@ p.write_text(json.dumps(s))
 
     def test_definite_spawn_failure_allows_retry(self):
         slot = Slot(self.root, 'coordinator').acquire()
-        slot.claim('claude')
+        slot.claim()
         with self.assertRaises(FileNotFoundError):
             slot.spawn([sys.executable, '-c', 'pass'], self.root / 'missing', dict(os.environ))
         slot.close()
@@ -486,7 +378,7 @@ p.write_text(json.dumps(s))
 
     def test_continue_timeout_cancels_exact_request(self):
         owner = Slot(self.root, 'coordinator').acquire()
-        run = owner.claim('claude')
+        run = owner.claim()
         initialize(run, LaunchOptions(), 'parent', self.state)
         current = read(run / 'control.json')
         current['armed'] = True
@@ -537,36 +429,29 @@ p.write_text(json.dumps(s))
         self.assertEqual(len(launched), 4)
         self.assertIsNotNone(launched[-1][0].rollover)
 
-    def test_startup_growth_guard_for_both_engines(self):
-        for engine in ('claude', 'codex'):
-            with self.subTest(engine=engine):
-                run = self.root / engine
-                run.mkdir()
-                initialize(run, LaunchOptions(engine=engine, rollover='10%', context_window=200_000),
-                           'parent', self.state)
-                base = {'session_id': 'parent', 'transcript_path': str(self.root / 'telemetry')}
-                def sample(tokens):
-                    (self.root / 'telemetry').write_text(json.dumps({'type': 'assistant',
-                        'sessionId': 'parent', 'message': {'usage': {'input_tokens': tokens}}}) + '\n')
-                    return patch('token_kit.simple_adapters.codex_usage_sample',
-                                 return_value={'context_tokens': tokens, 'context_window': 200_000})
-                with patch('token_kit.simple_runtime.owned_hook_ancestry', return_value=True), \
-                     patch('token_kit.simple_adapters.codex_root_session', return_value='parent'):
-                    with sample(43_000):
-                        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
-                        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
-                        warning = read(run / 'control.json')['loop_warning']
-                        self.assertEqual(handle(run, dict(base, hook_event_name='PreCompact'), run.name), {})
-                    with sample(62_999):
-                        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
-                        self.assertEqual(read(run / 'control.json')['loop_warning'], warning)
-                    with sample(63_000):
-                        result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-                        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
-                        control = read(run / 'control.json')
-                        self.assertEqual(control['startup_tokens'], 43_000)
-                        self.assertEqual(control['token_growth'], 20_000)
-                        self.assertEqual(control['phase'], 'requested')
+    def test_startup_growth_guard(self):
+        run = self.root / 'growth'
+        run.mkdir()
+        initialize(run, LaunchOptions(rollover='10%', context_window=200_000), 'parent', self.state)
+        base = {'session_id': 'parent', 'transcript_path': str(self.root / 'telemetry')}
+        def sample(tokens):
+            (self.root / 'telemetry').write_text(json.dumps({'type': 'assistant',
+                'sessionId': 'parent', 'message': {'usage': {'input_tokens': tokens}}}) + '\n')
+        sample(43_000)
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
+        warning = read(run / 'control.json')['loop_warning']
+        self.assertEqual(handle(run, dict(base, hook_event_name='PreCompact'), run.name), {})
+        sample(62_999)
+        self.assertEqual(handle(run, dict(base, hook_event_name='PostToolUse'), run.name), {})
+        self.assertEqual(read(run / 'control.json')['loop_warning'], warning)
+        sample(63_000)
+        result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
+        control = read(run / 'control.json')
+        self.assertEqual(control['startup_tokens'], 43_000)
+        self.assertEqual(control['token_growth'], 20_000)
+        self.assertEqual(control['phase'], 'requested')
 
     def test_claude_baseline_is_retained_while_window_is_unknown(self):
         run = self.root / 'unknown-window'

@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 import os
 import json
-from pathlib import Path
 import signal
 import subprocess
 import sys
@@ -76,7 +75,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             output_before = view.output.read_text() if view.output.exists() else ''
             launch_started = False
             try:
-                run = slot.claim(options.engine)
+                run = slot.claim()
                 plan = prepare(view, effective, next_prompt, run, agent=agent)
                 try:
                     from .simple_recovery import native_recipe
@@ -93,7 +92,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                 except (ValueError, AttributeError):
                     diagnostics = []
                 for diagnostic in diagnostics:
-                    if diagnostic not in notices or diagnostic == 'Hook trust is bypassed because --yolo was given.':
+                    if diagnostic not in notices:
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
                 simple_runtime.initialize(run, effective,
@@ -143,9 +142,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         notices.add(warning)
                     diagnostic = control.get('degraded')
                     if effective.rollover is not None and not control.get('armed') and time.monotonic() - started_at >= 5:
-                        diagnostic = ('Managed exec hooks not observed; rollover will check exact-session telemetry after exit'
-                                      if headless and options.engine == 'codex' else
-                                      'Managed rollover handshake not observed; native compaction remains available')
+                        diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
                     if diagnostic and diagnostic not in notices:
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
@@ -191,50 +188,12 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if output_thread:
                 output_thread.join(timeout=5)
             final_control = _observe(run / 'control.json', notices)
-            if (headless and options.engine == 'codex' and effective.rollover is not None
-                    and not final_control.get('armed') and child.returncode == 0):
-                from .simple_headless import fallback_summary, summary_argv
-                home = Path(environment.get('CODEX_HOME', str(Path.home() / '.codex')))
-                print('Token Kit: exec hooks did not arm; checking exact-session telemetry after verified exit.', file=sys.stderr)
-                try:
-                    summary = fallback_summary(log, home, plan.cwd, view, effective, control=final_control)
-                    write(run / 'control.json', final_control)
-                except (OSError, ValueError):
-                    slot.publish(status='exited', exit_code=child.returncode)
-                    raise
-                if summary:
-                    session, note, used = summary
-                    from datetime import datetime
-                    entry = (f'\n### rollover {datetime.now().astimezone().isoformat()} at {used} tokens\n'
-                             'Exec hooks unavailable; summary requested after verified process exit.\n')
-                    final_control['rollover_entry'] = entry
-                    with view.output.open('a') as history:
-                        history.write(entry)
-                    with log.open('ab') as target:
-                        target.write(('\nToken Kit summary request: ' + note + '\n').encode())
-                        target.flush()
-                        child = slot.spawn(summary_argv(plan.argv, session, note), plan.cwd,
-                                           environment, stdin=subprocess.DEVNULL, stdout=target,
-                                           stderr=subprocess.STDOUT)
-                        try:
-                            child.wait()
-                        except KeyboardInterrupt:
-                            _stop(child, slot.record)
-                            if child.poll() is not None:
-                                slot.publish(status='exited', exit_code=child.returncode)
-                            return 130
-                    if child.returncode == 0:
-                        final_control.update(phase='ready', activity=1, valid_usage=True,
-                                             context_tokens=used, telemetry_fallback=True)
-                        write(run / 'control.json', final_control)
             if effective.rollover is not None and not final_control.get('armed'):
-                diagnostic = ('Managed exec hooks not observed; rollover will check exact-session telemetry after exit'
-                                      if headless and options.engine == 'codex' else
-                                      'Managed rollover handshake not observed; native compaction remains available')
+                diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
                 if diagnostic not in notices:
                     print('Token Kit: ' + diagnostic, file=sys.stderr)
                     notices.add(diagnostic)
-            if pending_ids and (final_control.get('armed') or final_control.get('telemetry_fallback')) and (final_control.get('valid_usage') or final_control.get('activity')):
+            if pending_ids and final_control.get('armed') and (final_control.get('valid_usage') or final_control.get('activity')):
                 try:
                     mark_messages_presented(view, pending_ids, agent=agent)
                     pending_ids = ()

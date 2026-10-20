@@ -222,7 +222,9 @@ def save_settings(view: TaskView, settings: dict, *, agent: str | None = None) -
         if view.workspace is not None:
             container['workspace'] = str(view.workspace.expanduser().resolve())
         previous = container.get('settings', {})
-        container['settings'] = {**(previous if isinstance(previous, dict) else {}), **settings}
+        previous = {key: value for key, value in (previous.items() if isinstance(previous, dict) else ())
+                    if key not in ('engine', 'sandbox')}  # Codex-era settings
+        container['settings'] = {**previous, **settings}
 
 
 def load_settings(view: TaskView, *, agent: str | None = None) -> dict:

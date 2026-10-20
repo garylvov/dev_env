@@ -38,20 +38,46 @@ class CLITests(unittest.TestCase):
         from token_kit.task_files import load_task, save_settings, load_settings
         task = self.create()
         view = load_task(task)
-        args = cli.parser_for('run').parse_args(['Title', '--engine', 'codex', '--headless', '--sandbox', 'workspace-write'])
+        args = cli.parser_for('run').parse_args(['Title', '--headless'])
         options = cli.resolve_options(args)
         save_settings(view, asdict(options))
         continued = cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), load_settings(view))
         self.assertTrue(continued.headless)
-        self.assertEqual(continued.sandbox, 'workspace-write')
         overridden = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--no-headless']), load_settings(view))
         self.assertFalse(overridden.headless)
         legacy = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--no-headless']), {'non_interactive': True})
         self.assertFalse(legacy.non_interactive)
-        switched = cli.resolve_options(cli.parser_for('continue').parse_args([str(task), '--engine', 'claude']), load_settings(view))
-        self.assertIsNone(switched.sandbox)
         with self.assertRaisesRegex(ValueError, 'headless'):
             cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), {'headless': 'bad'})
+
+    def test_saved_codex_task_continues_on_claude(self):
+        from dataclasses import asdict
+        from token_kit.task_files import load_task, save_settings, load_settings
+        task = self.create()
+        # Shape of a real Codex-era session.json settings object.
+        session = task / '.token-kit/session.json'
+        data = json.loads(session.read_text())
+        data['settings'] = {'engine': 'codex', 'model': 'gpt-x', 'effort': 'medium', 'yolo': True,
+                            'rollover': '60%', 'max_rollovers': None, 'context_window': None,
+                            'executable': None, 'non_interactive': False, 'headless': True, 'sandbox': None}
+        session.write_text(json.dumps(data))
+        code, out, err = self.call('continue', str(task), '--root', self.tasks, '--dry-run')
+        self.assertEqual(code, 0, err)
+        self.assertIn('saved for Codex and now continues on Claude', err)
+        settings = json.loads(out)['settings']
+        self.assertEqual((settings['model'], settings['effort'], settings['yolo'], settings['headless']),
+                         (None, None, False, True))
+        self.assertNotIn('engine', settings)
+        self.assertEqual(json.loads(session.read_text())['settings']['engine'], 'codex')
+        view = load_task(task)
+        save_settings(view, asdict(cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), load_settings(view))))
+        self.assertNotIn('engine', load_settings(view))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), load_settings(view))
+        self.assertEqual(err.getvalue(), '')
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            cli.parser_for('continue').parse_args([str(task), '--engine', 'codex'])
 
     def test_preview_create_does_not_write(self):
         code, out, err = self.call('run', 'Draft', '--root', self.tasks, '--workspace', self.work, '--dry-run')
@@ -133,16 +159,6 @@ class CLITests(unittest.TestCase):
         args = parser.parse_args(['X', '--no-rollover', '--max-rollovers', '5'])
         with self.assertRaises(ValueError):
             cli.resolve_options(args)
-
-    def test_engine_override_drops_provider_specific_defaults(self):
-        args = cli.parser_for('run').parse_args(['X', '--engine', 'codex'])
-        options = cli.resolve_options(args, {'engine': 'claude', 'model': 'opus', 'effort': 'high', 'yolo': False})
-        self.assertIsNone(options.model)
-        self.assertIsNone(options.effort)
-        self.assertFalse(options.yolo)
-        switched = cli.resolve_options(args, {'engine': 'claude', 'yolo': True, 'context_window': 123})
-        self.assertFalse(switched.yolo)
-        self.assertIsNone(switched.context_window)
 
     def test_saved_zero_and_explicit_unlimited(self):
         args = cli.parser_for('continue').parse_args(['X'])

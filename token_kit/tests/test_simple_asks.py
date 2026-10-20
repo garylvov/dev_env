@@ -83,9 +83,9 @@ class AsksTests(unittest.TestCase):
             self.assertIn('systemctl --user is-active shunt', text)
             self.assertIn('~/.claude/agents/', text)
             self.assertIn('<task>-<model>-<effort>', text)
-            self.assertIn('Use codex exec when Shunt is inactive', text)
-            self.assertIn('Codex main sessions keep claude -p', text)
-            self.assertIn('route (Shunt subagent or codex exec)', text)
+            self.assertIn('otherwise every role uses Claude models', text)
+            self.assertIn('Claude-authored work is checked by a Shunt GPT agent', text)
+            self.assertNotIn('codex', text.lower())
 
 
 class FreshInstallTests(unittest.TestCase):

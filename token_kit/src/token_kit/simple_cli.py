@@ -57,7 +57,6 @@ def _budget(value: str) -> int | None:
 
 def _launch_options(parser):
     # SUPPRESS distinguishes an absent flag from explicit off/zero/unlimited.
-    parser.add_argument("--engine", choices=("claude", "codex"), default=argparse.SUPPRESS)
     parser.add_argument("--model", default=argparse.SUPPRESS)
     parser.add_argument("--effort", default=argparse.SUPPRESS)
     parser.add_argument("--workspace", type=Path)
@@ -72,7 +71,6 @@ def _launch_options(parser):
     parser.add_argument("--max-rollovers", type=_budget, default=argparse.SUPPRESS)
     parser.add_argument("--context-window", type=_window, default=argparse.SUPPRESS)
     parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
-    parser.add_argument("--sandbox", choices=("read-only", "workspace-write", "danger-full-access"), default=argparse.SUPPRESS)
     parser.add_argument("--codegraph", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS,
                         help="Attach CodeGraph MCP to this session (default: when an index exists)")
     parser.add_argument("--dry-run", "--print", dest="preview", action="store_true")
@@ -113,13 +111,13 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     values = dict(saved or {})
     if "rollover" not in values and values.get("rollover_tokens") is not None:
         values["rollover"] = values["rollover_tokens"]
-    if "engine" in vars(args) and values.get("engine") != args.engine:
-        # Provider-specific choices cannot be silently translated.
-        values.pop("model", None)
-        values.pop("effort", None)
-        values.pop("context_window", None)
-        values.pop("sandbox", None)
+    if values.get("engine", "claude") != "claude":
+        # Codex-era choices cannot be silently translated to Claude.
+        for key in ("model", "effort", "context_window", "sandbox"):
+            values.pop(key, None)
         values["yolo"] = False
+        print("Token Kit: this task was saved for Codex and now continues on Claude "
+              "(model, effort and --yolo reset); GPT models are Shunt subagents.", file=sys.stderr)
     supplied = vars(args)
     if supplied.get("rollover", "absent") is None and supplied.get("max_rollovers") not in (None, 0):
         raise ValueError("--no-rollover cannot be combined with a positive restart limit")
@@ -133,12 +131,8 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     if "headless" in supplied:
         result["non_interactive"] = False
     options = LaunchOptions(**result)
-    if options.engine not in ("claude", "codex"):
-        raise ValueError("Saved engine is invalid; select --engine claude or codex")
     if type(options.headless) is not bool or type(options.non_interactive) is not bool:
         raise ValueError("Saved headless setting is invalid; select --headless or --no-headless")
-    if options.sandbox not in (None, "read-only", "workspace-write", "danger-full-access"):
-        raise ValueError("Saved sandbox setting is invalid")
     if options.codegraph is not None and type(options.codegraph) is not bool:
         raise ValueError("Saved CodeGraph setting is invalid; select --codegraph or --no-codegraph")
     if type(options.yolo) is not bool:
