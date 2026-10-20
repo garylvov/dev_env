@@ -1,0 +1,10 @@
+[Unit]
+Description=shunt LLM gateway for Claude Code (127.0.0.1:3001)
+
+[Service]
+ExecStart=%h/.local/bin/shunt run --config %h/.config/shunt/shunt.toml
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

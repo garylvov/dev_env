@@ -168,6 +168,21 @@ def sgr(attr, palette=None, transparent=False):
     return f"\x1b[0;{code};{back}m"
 
 
+def trim(canvas):
+    """Drop leading and trailing rows that hold no ink.
+
+    A row is blank when every cell is a space over background slot 0, i.e.
+    nothing is drawn and nothing is painted. Many fonts pad a row or two above
+    the letters; that gap is wasted space in a login banner."""
+    blank = lambda row: all(ch == 32 and not ((attr >> 4) & 7) for ch, attr in row)
+    rows = list(canvas)
+    while rows and blank(rows[0]):
+        rows.pop(0)
+    while rows and blank(rows[-1]):
+        rows.pop()
+    return rows
+
+
 def to_ansi(canvas, palette=None, transparent=False):
     out = []
     for row in canvas:
@@ -227,6 +242,8 @@ def main():
                          "from slot 0; overrides --ansi16")
     ap.add_argument("--show-palette", action="store_true",
                     help="print the color slots and exit")
+    ap.add_argument("--trim", action="store_true",
+                    help="drop blank rows above and below the art")
     a = ap.parse_args()
 
     # 24-bit color over a see-through background is the default: it is what the
@@ -249,8 +266,10 @@ def main():
     fonts = parse_fonts(data)
     if font not in fonts:
         sys.exit(f"font {font} not in set; available: {', '.join(sorted(fonts))}")
-    ansi = to_ansi(render(fonts[font], text),
-                   None if a.ansi16 else palette, not a.opaque_bg)
+    canvas = render(fonts[font], text)
+    if a.trim:
+        canvas = trim(canvas)
+    ansi = to_ansi(canvas, None if a.ansi16 else palette, not a.opaque_bg)
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:
             f.write(ansi)
