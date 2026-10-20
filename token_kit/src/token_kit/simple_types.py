@@ -32,6 +32,7 @@ class LaunchOptions:
     non_interactive: bool = False
     headless: bool = False
     sandbox: str | None = None
+    codegraph: bool | None = None  # None: attach only when the repo already has an index
 
 
 @dataclass(frozen=True)

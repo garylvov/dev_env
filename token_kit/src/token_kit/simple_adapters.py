@@ -15,7 +15,7 @@ import uuid
 
 from .adapters.base import AdapterError, LaunchPlan
 from .simple_types import LaunchOptions, TaskView
-from .simple_guidance import CONCURRENCY, TASK_RULES, load_dispatch_guide
+from .simple_guidance import CODEGRAPH, CONCURRENCY, REPO_DOCS, TASK_RULES, load_dispatch_guide
 
 
 @dataclass(frozen=True)
@@ -145,14 +145,14 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
     return result
 
 
-def folder_guidance(view: TaskView) -> str:
+def folder_guidance(view: TaskView, repo_notes: str = "") -> str:
     return (f"Task folder: {view.root.resolve()}\n"
             f"Input (objective and asks): {view.assignment.resolve()}\n"
             f"Asks (every request, open first; update each turn with a user message): {view.root.resolve() / 'asks.md'}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
             f"Continuation notes: {view.state.resolve()}\n"
             f"Model decisions: {view.root.resolve() / 'models.md'} — main agent builds only if missing; reuse unchanged across starts and successors/workers; rebuild or edit only when the user asks (record in _in.md); runtime fallbacks go in _out.md History.\n"
-            + TASK_RULES + load_dispatch_guide()
+            + TASK_RULES + REPO_DOCS + repo_notes + load_dispatch_guide()
             + (f"Optional task preferences: {view.preferences}\n" if view.preferences else "")
             + "This supersedes older generated Token Kit workflow rules. Follow user and site permissions; the parallel-work preference above applies to single-threading guidance.\n"
             + CONCURRENCY)
@@ -192,7 +192,10 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     env["TOKEN_KIT_SIMPLE_RUN"] = str(Path(run_dir).resolve())
     env["TOKEN_KIT_TASK"] = str(view.root.resolve())
     env["TOKEN_KIT_AGENT"] = agent
-    guidance = folder_guidance(view)
+    from .simple_codegraph import attach
+    from .simple_repo_docs import kickoff_note
+    codegraph = attach(workspace, options.engine, options.codegraph)
+    guidance = folder_guidance(view, kickoff_note(workspace) + (CODEGRAPH if codegraph.attached else ""))
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
     enabled = options.rollover not in (None, 0, "off")
     cap = capabilities(options) if enabled or (options.engine == "codex" and options.yolo) else Capabilities(False, ())
@@ -213,7 +216,7 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
              "ask the agent to read this file when starting work."),), bypass_hook_trust=cap.bypass_hook_trust)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
-        "diagnostics": cap.diagnostics})
+        "diagnostics": cap.diagnostics + codegraph.diagnostics})
     argv = [executable, *(["exec", "--skip-git-repo-check"] if options.engine == "codex" and headless else []), "--add-dir", str(view.root.resolve())]
     if options.engine == "claude":
         argv.extend(("--append-system-prompt", guidance))
@@ -247,6 +250,7 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
             argv.extend(("-c", "model_reasoning_effort=" + json.dumps(options.effort)))
     if options.model is not None:
         argv.extend(("--model", options.model))
+    argv.extend(codegraph.argv)
     if prompt is not None:
         if options.engine == "codex":
             prompt = guidance + "\n\n" + prompt

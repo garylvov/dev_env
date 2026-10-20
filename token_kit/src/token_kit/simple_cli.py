@@ -21,6 +21,7 @@ HELP = """Token Kit — folders and automatic session rollover.
   token-kit run \"Title\"             Start a named session
   token-kit continue NAME_OR_PATH    Resume a task
   token-kit status PATH              Show saved state paths
+  token-kit codegraph-hooks MAIN     Print git hook lines that keep CodeGraph indexes fresh
 
 Sessions start idle; --prompt TEXT starts work immediately.
 Rollover defaults to 60%, unlimited. --no-rollover disables automatic restarts.
@@ -72,6 +73,8 @@ def _launch_options(parser):
     parser.add_argument("--context-window", type=_window, default=argparse.SUPPRESS)
     parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--sandbox", choices=("read-only", "workspace-write", "danger-full-access"), default=argparse.SUPPRESS)
+    parser.add_argument("--codegraph", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS,
+                        help="Attach CodeGraph MCP to this session (default: when an index exists)")
     parser.add_argument("--dry-run", "--print", dest="preview", action="store_true")
     parser.add_argument("--prompt")
     parser.add_argument("--non-interactive", action="store_true", default=argparse.SUPPRESS,
@@ -136,6 +139,8 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
         raise ValueError("Saved headless setting is invalid; select --headless or --no-headless")
     if options.sandbox not in (None, "read-only", "workspace-write", "danger-full-access"):
         raise ValueError("Saved sandbox setting is invalid")
+    if options.codegraph is not None and type(options.codegraph) is not bool:
+        raise ValueError("Saved CodeGraph setting is invalid; select --codegraph or --no-codegraph")
     if type(options.yolo) is not bool:
         raise ValueError("Saved permission setting is invalid; select --yolo or --no-yolo")
     if options.max_rollovers is not None and (type(options.max_rollovers) is not int or options.max_rollovers < 0):
@@ -288,6 +293,12 @@ def main(argv=None) -> int:
         command = args.pop(0)
         if command in ("worker", "close-run", "agent", "migrate"):
             raise ValueError(f"'{command}' is no longer required. Edit task/agent files directly and use continue to resume. No records changed.")
+        if command == "codegraph-hooks":
+            from .simple_codegraph import hook_lines
+            if len(args) != 1 or args[0].startswith("-"):
+                raise ValueError("Usage: token-kit codegraph-hooks MAIN_CHECKOUT")
+            print(hook_lines(Path(args[0]).expanduser().resolve()), end="")
+            return 0
         if command not in ("run", "new", "continue", "pick", "launch", "status", "resume", "list", "find", "send", "checkpoint", "done", "reopen", "retitle"):
             raise ValueError(f"Unknown command: {command}. Use token-kit --help.")
         parsed = parser_for(command).parse_args(args)

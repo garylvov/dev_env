@@ -7,6 +7,15 @@ DISPATCH_GUIDE = Path(__file__).resolve().parents[2] / "dispatch_guide.md"
 
 CONCURRENCY = "Use scoped ownership or locks for overlapping writes and shared resources.\n"
 
+REPO_DOCS = (
+    "Repo knowledge outlives tasks in the workspace repo's docs/agents/: README.md indexes one line per doc "
+    "(- [topic](topic.md) -- hook); read the index and open docs only when relevant. Docs hold only what code cannot say "
+    "(how to run/test, gotchas, decisions and why, dead ends), first line <!-- verified: <commit> files: <paths> -->.\n"
+    "At rollover and when the task finishes, promote durable repo knowledge from the task docs/ into docs/agents/, "
+    "refreshing its index line and verified commit. Never write docs/agents/ in repos other than the task workspace.\n"
+)
+CODEGRAPH = "CodeGraph MCP is attached: query codegraph before grepping or reading files to locate code.\n"
+
 TASK_RULES = (
     "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
     "_in.md is the conversation: managed prompt hooks append each user message verbatim, dated and numbered. "
@@ -70,4 +79,5 @@ def summary_request(percent, output, assignment, state=None, asks=None):
             "verbatim with a date. "
             + (f"Re-read {asks}; make sure every request from every message has a line, open ones first. " if asks else "")
             + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
+            + "Promote durable repo knowledge to the workspace docs/agents/ (index line, verified commit). "
             + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")

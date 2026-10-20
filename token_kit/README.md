@@ -131,6 +131,33 @@ Automatic rollover requires growth since the first session telemetry sample of a
 
 Startup and successor prompts pass task-file paths without embedding their contents. Read Current state and recent History; open docs/ only when needed. At rollover, whole older History entries above roughly 8,000 characters move verbatim to `docs/history.md` in chronological order, with a link left in the output. A single oversized newest entry remains intact.
 
+## Repo docs
+
+Knowledge that should outlive a task goes in the workspace repo's `docs/agents/`,
+committed with the code: `README.md` is an index of one line per doc
+(`- [topic](topic.md) -- hook`), and each doc starts with
+`<!-- verified: <commit> files: <paths> -->`. Docs hold what code cannot say: how
+to run and test, gotchas, decisions and why, dead ends. Agents promote durable
+findings from the task's `docs/` there at rollover and when the task finishes.
+At launch and rollover Token Kit passes only the index path and the names of docs
+whose covered files changed after their verified commit (missing markers count as
+stale). It never creates, edits or commits `docs/agents/` itself.
+
+## CodeGraph
+
+`--codegraph` (saved like other options; `--no-codegraph` turns it off) attaches the
+[CodeGraph](https://github.com/colbymchenry/codegraph) MCP server to the launched
+session only: Claude `--mcp-config`, Codex `-c mcp_servers.codegraph.*`. Without the
+flag it attaches when the repo already has a `.codegraph/` index. Before launch and
+at each rollover Token Kit runs `codegraph sync` (120 s cap); a failure prints a
+warning and the session starts without the server. A worktree without an index
+copies its main checkout's index and syncs it (ProtoMotions, 20k files: 74 s
+fresh build vs about 2 s copy and sync); otherwise `--codegraph` builds one.
+No client or project config is written; `.codegraph/` holds its own `.gitignore`.
+Install with `npm install -g @colbymchenry/codegraph`.
+`token-kit codegraph-hooks MAIN` prints git hook lines that resync indexed
+checkouts after merge, checkout and rebase; it installs nothing.
+
 ## Global agent rules
 
 `AGENTS.md` is the single source of personal rules for Claude Code and Codex. Put it at `~/.config/agents/AGENTS.md`, make `~/.claude/CLAUDE.md` a one-line `@~/.config/agents/AGENTS.md` import, and run `sync_agents.sh` to copy everything above the `## Claude Code only` heading into `~/.codex/AGENTS.md`.
