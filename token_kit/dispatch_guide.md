@@ -19,4 +19,6 @@ Workers read agents/<name>_in.md and append progress to agents/<name>_out.md; re
 Codex: codex exec -m <model> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox -C <dir> "Task: <abs>/agents/<name>_in.md" < /dev/null
 Claude: claude -p --model <model> --effort <effort> --dangerously-skip-permissions "Task: <abs>/agents/<name>_in.md" < /dev/null
 Long workers (>~30 min): token-kit run --headless --yolo ... for rollover and recording.
+Shunt: when the main session is Claude and `systemctl --user is-active shunt` prints active, run GPT workers as Agent-tool subagents from the Shunt agent files in ~/.claude/agents/ (no model override; name each <task>-<model>-<effort>) instead of codex exec. Use codex exec when Shunt is inactive or for long workers needing rollover; Codex main sessions keep claude -p for Claude workers.
+When building models.md, record Shunt status (with date) as a source, read each Shunt agent file for its pinned model rather than assuming the newest slug, and note each GPT option's route (Shunt subagent or codex exec).
 Run workers in the background; state model, effort and why in each worker's _in.md.

@@ -58,7 +58,8 @@ def fallback_summary(log: Path, home: Path, workspace: Path, view, options, cont
         raise ValueError('Headless rollover cannot verify native-worker shutdown without hooks; no successor launched')
     from .simple_guidance import summary_request
     note = summary_request(f'{used / window * 100:.0f}%', view.output.resolve(),
-                           view.assignment.resolve(), view.state.resolve())
+                           view.assignment.resolve(), view.state.resolve(),
+                           view.root.resolve() / 'asks.md' if view.assignment.parent == view.root else None)
     return session, note, used
 
 

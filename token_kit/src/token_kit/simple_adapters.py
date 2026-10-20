@@ -148,6 +148,7 @@ def _codex_hook_settings(workspace: Path, env: dict[str, str]) -> list[str]:
 def folder_guidance(view: TaskView) -> str:
     return (f"Task folder: {view.root.resolve()}\n"
             f"Input (objective and asks): {view.assignment.resolve()}\n"
+            f"Asks (upsampled list; update every turn with a user message): {view.root.resolve() / 'asks.md'}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
             f"Continuation notes: {view.state.resolve()}\n"
             f"Model decisions: {view.root.resolve() / 'models.md'} — main agent builds only if missing; reuse unchanged across starts and successors/workers; rebuild or edit only when the user asks (record in _in.md); runtime fallbacks go in _out.md History.\n"

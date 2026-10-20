@@ -9,8 +9,12 @@ CONCURRENCY = "Use scoped ownership or locks for overlapping writes and shared r
 
 TASK_RULES = (
     "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
-    "Managed prompt hooks record dated, numbered verbatim asks automatically. Mark [x] done or [-] dropped (why); "
-    "if hooks are unavailable, record asks before work yourself.\n"
+    "_in.md is the conversation: managed prompt hooks append each user message verbatim, dated and numbered. "
+    "Never rewrite it; only mark [x] done or [-] dropped (why). If hooks are unavailable, append asks before work yourself.\n"
+    "<task>/asks.md is the upsampled ask list: one line per distinct request, rewritten as a full sentence a newcomer "
+    "understands (expand terse wording; merge refining messages), with [ ] [~] [x] [-] status, where/why and sources (from #3, #7). "
+    "Mark superseded asks; never delete. Update it before ending each turn that had a user message (create it if missing); "
+    "successors read it first.\n"
     "Keep a sparse Current state at the top of _out.md (done, in progress, next, open decisions). "
     "Append progress every few minutes and never rewrite History.\n"
     "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
@@ -42,6 +46,8 @@ EFFORT = (
     'Codex: codex exec -m <model> -c model_reasoning_effort=<effort> --dangerously-bypass-approvals-and-sandbox -C <dir> "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
     'Claude: claude -p --model <model> --effort <effort> --dangerously-skip-permissions "Task: <abs>/agents/<name>_in.md" < /dev/null\n'
     'Long workers (>~30 min): token-kit run --headless --yolo ... for rollover and recording.\n'
+    'Shunt: when the main session is Claude and `systemctl --user is-active shunt` prints active, run GPT workers as Agent-tool subagents from the Shunt agent files in ~/.claude/agents/ (no model override; name each <task>-<model>-<effort>) instead of codex exec. Use codex exec when Shunt is inactive or for long workers needing rollover; Codex main sessions keep claude -p for Claude workers.\n'
+    "When building models.md, record Shunt status (with date) as a source, read each Shunt agent file for its pinned model rather than assuming the newest slug, and note each GPT option's route (Shunt subagent or codex exec).\n"
     "Run workers in the background; state model, effort and why in each worker's _in.md.\n"
 )
 
@@ -54,11 +60,12 @@ def load_dispatch_guide() -> str:
         return EFFORT
 
 
-def summary_request(percent, output, assignment, state=None):
+def summary_request(percent, output, assignment, state=None, asks=None):
     """One bounded handoff request shared by trusted hooks and exec fallback."""
     return (f"Context is at {percent}. Append one brief History entry to {output} for work since "
             "your last update; refresh Current state (sparse, with links to docs/). "
             f"Ensure every ask in {assignment} has a History entry; record any unrecorded asks "
             "verbatim with a date. "
+            + (f"Make sure {asks} reflects every message. " if asks else "")
             + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
             + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")

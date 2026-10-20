@@ -42,6 +42,7 @@ if len(rows) < 3:
     note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
     assert 'Context is at 90%' in note and 'Append one brief History entry' in note
     assert task.name + '_in.md' in note and task.name + '_out.md' in note
+    assert 'Make sure ' + str(task.resolve() / 'asks.md') + ' reflects every message.' in note, note
     with (task / (task.name + '_out.md')).open('a') as notes:
         notes.write('ordinary note from segment '+str(len(rows))+'\n' + 'detail ' * 900 + '\n')
     hook('Stop')

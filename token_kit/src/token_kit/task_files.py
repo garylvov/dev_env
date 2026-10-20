@@ -17,6 +17,9 @@ from .simple_guidance import CONCURRENCY
 MAX_FILE = 16_384
 MAX_BUNDLE = 65_536
 MAX_ENTRIES = 4096
+ASKS = 'asks.md'
+ASKS_SKELETON = ('# Asks\n\nOne line per distinct request, upsampled from the numbered messages in _in.md: '
+                 '[ ] open, [~] in progress, [x] done, [-] dropped or superseded; where/why; (from #N).\n')
 PREFACE = ("Token Kit uses ordinary editable files. Historical Token Kit checkpoint, ticket, "
            "closure, retirement, reconciliation, required STATE-format and model-routing protocols "
            "are superseded; no such commands or approvals are required. Actual user/site instructions "
@@ -272,7 +275,7 @@ def append_ask(root: Path, assignment: Path, prompt: str) -> int:
     records.mkdir(exist_ok=True)
     with locked(_inside(root.resolve(), records / (assignment.name + '.lock'))):
         text = assignment.read_text() if assignment.exists() else ''
-        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. \[[- x]\]', text, re.MULTILINE)]
+        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. \[[- x~]\]', text, re.MULTILINE)]
         number = max(numbers, default=0) + 1
         with assignment.open('a') as stream:
             stream.write(f"\n{number}. [ ] {datetime.now().astimezone().isoformat()}\n{prompt}\n")
@@ -293,6 +296,7 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     input_path = path / f'{path.name}_in.md'
     input_path.write_text(f'# Objective\n\n{assignment}\n\n# Asks\n' if assignment is not None else '')
     (path / f'{path.name}_out.md').write_text('# Current state\n\n# History\n')
+    (path / ASKS).write_text(ASKS_SKELETON)
     (path / 'docs').mkdir()
     if assignment is not None:
         append_ask(path, input_path, assignment)
@@ -361,6 +365,9 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
             budget -= allowance + 2
 
     include('Assignment', view.assignment)
+    asks = view.root / ASKS
+    if agent == 'coordinator' and asks.is_file():
+        include('Asks (upsampled list; read before _in.md)', asks, limit=8192)
     include('Working STATE (authoritative working path)', view.state)
     if not _read(view.root, view.state, []).strip():
         fallback = _inside(view.root, view.root / '.token-kit' / 'slots' / _component(agent) / 'state-snapshot.md')
@@ -455,6 +462,8 @@ def has_work_context(view: TaskView, agent: str = 'coordinator') -> bool:
                 return True
         elif _strip_wrapper(_read(view.root, path, [])).strip():
             if path == view.output and _read(view.root, path, []).strip() == '# Current state\n\n# History':
+                continue
+            if path == view.root / ASKS and _read(view.root, path, []) == ASKS_SKELETON:
                 continue
             return True
     return False

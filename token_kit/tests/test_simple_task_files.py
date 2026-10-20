@@ -27,7 +27,7 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_create_minimal_and_read_only_load(self):
         view = self.plain()
-        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', 'docs', '.token-kit'})
+        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', 'asks.md', 'docs', '.token-kit'})
         (view.state).write_text('anything I want')
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in view.root.rglob('*') if p.is_file()}
         loaded = load_task(view.root)
