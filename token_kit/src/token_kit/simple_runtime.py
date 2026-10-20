@@ -235,8 +235,11 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 control['phase'] = 'requested'
                 percent = f"{used / window * 100:.0f}%" if window else f"{used} tokens"
                 from token_kit.simple_guidance import summary_request
+                assignment = control.get('assignment')
+                task_root = Path(control['task_root'])
                 note = summary_request(percent, control.get('output') or control['state'],
-                                       control.get('assignment') or 'the assignment file', control['state'])
+                                       assignment or 'the assignment file', control['state'],
+                                       task_root / 'asks.md' if assignment and Path(assignment).resolve().parent == task_root.resolve() else None)
                 output_path = Path(control.get('output') or control['state'])
                 from token_kit.task_files import safe_task_path
                 from token_kit.simple_types import TaskView

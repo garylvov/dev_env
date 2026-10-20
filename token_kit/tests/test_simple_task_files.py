@@ -27,7 +27,7 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_create_minimal_and_read_only_load(self):
         view = self.plain()
-        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', 'docs', '.token-kit'})
+        self.assertEqual({p.name for p in view.root.iterdir()}, {f'{view.root.name}_in.md', f'{view.root.name}_out.md', 'asks.md', 'docs', '.token-kit'})
         (view.state).write_text('anything I want')
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in view.root.rglob('*') if p.is_file()}
         loaded = load_task(view.root)
@@ -37,7 +37,7 @@ class TaskFilesTests(unittest.TestCase):
 
     def test_named_asks_and_flat_worker_notes_recover_in_place(self):
         view = self.plain()
-        self.assertIn('1. [ ]', view.assignment.read_text())
+        self.assertRegex(view.assignment.read_text(), r'(?m)^1\. [0-9]{4}-')
         self.assertIn('Do useful work', view.assignment.read_text())
         self.assertEqual(view.state, view.output)
         agents = view.root / 'agents'
