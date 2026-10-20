@@ -18,12 +18,14 @@ SYNC_TIMEOUT = 120
 INIT_TIMEOUT = 900
 # Database files only; daemon pid, sockets and locks belong to the source checkout.
 SEED_FILES = ("codegraph.db", "codegraph.db-wal", ".gitignore")
+ENV = {"CODEGRAPH_TELEMETRY": "0"}
 
 
 @dataclass(frozen=True)
 class Attachment:
     argv: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()
+    guidance: str = ""
 
     @property
     def attached(self) -> bool:
@@ -78,7 +80,7 @@ def _run(argv: list[str], timeout: int) -> str | None:
     """None on success, else a short failure reason."""
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                                stdin=subprocess.DEVNULL, check=False)
+                                stdin=subprocess.DEVNULL, env={**os.environ, **ENV}, check=False)
     except subprocess.TimeoutExpired:
         return f"timed out after {timeout}s"
     except OSError as exc:
@@ -92,10 +94,32 @@ def _run(argv: list[str], timeout: int) -> str | None:
 def mcp_argv(engine: str, executable: str, root: Path) -> tuple[str, ...]:
     args = ["serve", "--mcp", "--path", str(root)]
     if engine == "claude":
-        server = {"type": "stdio", "command": executable, "args": args, "alwaysLoad": True}
+        server = {"type": "stdio", "command": executable, "args": args, "env": ENV, "alwaysLoad": True}
         return ("--mcp-config", json.dumps({"mcpServers": {"codegraph": server}}))
     return ("-c", "mcp_servers.codegraph.command=" + json.dumps(executable),
-            "-c", "mcp_servers.codegraph.args=" + json.dumps(args))
+            "-c", "mcp_servers.codegraph.args=" + json.dumps(args),
+            "-c", "mcp_servers.codegraph.env.CODEGRAPH_TELEMETRY=\"0\"")
+
+
+def exclude(root: Path) -> None:
+    """Hide the index from git status via the local exclude file, never .gitignore."""
+    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
+                            capture_output=True, text=True, timeout=10, check=False)
+    if result.returncode or not result.stdout.strip():
+        return
+    path = Path(result.stdout.strip())
+    line = "/" + index_dir(root).name + "/"
+    text = path.read_text() if path.is_file() else ""
+    if line in text.splitlines():
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as stream:
+        stream.write(("" if not text or text.endswith("\n") else "\n") + line + "\n")
+
+
+def guidance(root: Path) -> str:
+    return (f"CodeGraph MCP is attached for {root}: query it before grepping or reading files to locate code. "
+            "In another checkout pass its root as projectPath; if that has no .codegraph/ index, read files directly.\n")
 
 
 def attach(workspace: Path, engine: str, requested: bool | None) -> Attachment:
@@ -129,7 +153,11 @@ def attach(workspace: Path, engine: str, requested: bool | None) -> Attachment:
         action = "index build"
     if failure:
         return Attachment(diagnostics=notes + (f"CodeGraph {action} failed ({failure}); continuing without the CodeGraph server.",))
-    return Attachment(mcp_argv(engine, executable, root), notes)
+    try:
+        exclude(root)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        notes += (f"Could not add .codegraph/ to the local git exclude file: {exc}",)
+    return Attachment(mcp_argv(engine, executable, root), notes, guidance(root))
 
 
 def hook_lines(main: Path) -> str:

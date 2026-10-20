@@ -154,7 +154,10 @@ warning and the session starts without the server. A worktree without an index
 copies its main checkout's index and syncs it (ProtoMotions, 20k files, 310 MB index:
 74 s fresh build vs 1.5 s copy and sync at the same commit, 14 s with 68 files
 different; each copy costs the index size on disk); otherwise `--codegraph` builds one.
-No client or project config is written; `.codegraph/` holds its own `.gitignore`.
+No client or project config is written; `/.codegraph/` goes in the local git exclude
+file (never `.gitignore`), and CodeGraph telemetry is off (`CODEGRAPH_TELEMETRY=0`).
+In another checkout (an agent-made worktree or clone) agents pass its root as
+`projectPath`; unindexed checkouts get a "not indexed" reply and agents read files.
 Install with `npm install -g @colbymchenry/codegraph`.
 `token-kit codegraph-hooks MAIN` prints git hook lines that resync indexed
 checkouts after merge, checkout and rebase; it installs nothing.

@@ -104,12 +104,16 @@ class CodegraphTest(unittest.TestCase):
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=self.ok) as run:
             plan = self.prepare()
-        self.assertEqual(run.call_args.args[0], ["/x/codegraph", "sync", "--quiet", str(self.ws.resolve())])
+        self.assertEqual(run.call_args_list[0].args[0], ["/x/codegraph", "sync", "--quiet", str(self.ws.resolve())])
+        self.assertEqual(run.call_args_list[0].kwargs["env"]["CODEGRAPH_TELEMETRY"], "0")
         config = json.loads(plan.argv[plan.argv.index("--mcp-config") + 1])
         self.assertEqual(config["mcpServers"]["codegraph"]["command"], "/x/codegraph")
+        self.assertEqual(config["mcpServers"]["codegraph"]["env"], {"CODEGRAPH_TELEMETRY": "0"})
         self.assertEqual(config["mcpServers"]["codegraph"]["args"], ["serve", "--mcp", "--path", str(self.ws.resolve())])
         self.assertLess(plan.argv.index("--mcp-config"), plan.argv.index("--"))
-        self.assertIn("query codegraph before grepping", plan.argv[plan.argv.index("--append-system-prompt") + 1])
+        guidance = plan.argv[plan.argv.index("--append-system-prompt") + 1]
+        self.assertIn(f"CodeGraph MCP is attached for {self.ws.resolve()}", guidance)
+        self.assertIn("pass its root as projectPath", guidance)
 
     def test_codex_mcp_overrides(self):
         self.index(self.ws)
@@ -128,7 +132,7 @@ class CodegraphTest(unittest.TestCase):
                 patch.object(codegraph.subprocess, "run", side_effect=failed):
             plan = self.prepare()
         self.assertNotIn("--mcp-config", plan.argv)
-        self.assertNotIn("query codegraph", plan.argv[plan.argv.index("--append-system-prompt") + 1])
+        self.assertNotIn("CodeGraph MCP", plan.argv[plan.argv.index("--append-system-prompt") + 1])
         diagnostics = json.loads(plan.env["TOKEN_KIT_SIMPLE_CAPABILITIES"])["diagnostics"]
         self.assertTrue(any("sync failed (exit 1: locked)" in d for d in diagnostics))
 
@@ -169,7 +173,7 @@ class CodegraphTest(unittest.TestCase):
         self.assertTrue(result.attached)
         self.assertEqual((self.ws / ".codegraph/codegraph.db").read_bytes(), b"db")
         self.assertFalse((self.ws / ".codegraph/daemon.pid").exists())
-        self.assertEqual(called.call_args.args[0][1], "sync")
+        self.assertEqual(called.call_args_list[1].args[0][1], "sync")
 
     def test_builds_fresh_without_any_index(self):
         def run(argv, **kw):
@@ -177,8 +181,9 @@ class CodegraphTest(unittest.TestCase):
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=run) as called:
             result = codegraph.attach(self.ws, "claude", True)
-        self.assertEqual(called.call_args.args[0], ["/x/codegraph", "init", "--yes", str(self.ws)])
-        self.assertEqual(called.call_args.kwargs["timeout"], codegraph.INIT_TIMEOUT)
+        init = called.call_args_list[1]
+        self.assertEqual(init.args[0], ["/x/codegraph", "init", "--yes", str(self.ws)])
+        self.assertEqual(init.kwargs["timeout"], codegraph.INIT_TIMEOUT)
         self.assertTrue(result.attached)
 
     def test_launch_writes_no_config_files(self):
@@ -210,3 +215,24 @@ class CodegraphTest(unittest.TestCase):
         self.assertIn("post-checkout", text)
         self.assertIn("codegraph sync --quiet .", text)
         self.assertEqual(sorted(p.name for p in (repo / ".git/hooks").iterdir() if not p.name.endswith(".sample")), [])
+
+    def test_exclude_appends_once_to_local_exclude_of_linked_worktree(self):
+        main_repo = self.root / "main"
+        git(self.root, "init", "-q", str(main_repo))
+        (main_repo / ".gitignore").write_text("build/\n")
+        (main_repo / "a.py").write_text("x = 1\n")
+        git(main_repo, "add", ".")
+        git(main_repo, "commit", "-qm", "base")
+        worktree = self.root / "fork"
+        git(main_repo, "worktree", "add", "-q", str(worktree))
+        self.index(worktree)
+        self.assertIn("?? .codegraph/", git(worktree, "status", "--porcelain"))
+        with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
+                patch.object(codegraph, "_run", return_value=None):
+            self.assertTrue(codegraph.attach(worktree, "claude", None).attached)
+            codegraph.attach(worktree, "claude", None)
+        exclude = Path(git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"))
+        self.assertEqual(exclude.read_text().count("/.codegraph/"), 1)
+        self.assertEqual(git(worktree, "status", "--porcelain"), "")
+        self.assertEqual((main_repo / ".gitignore").read_text(), "build/\n")
+        self.assertEqual((worktree / ".gitignore").read_text(), "build/\n")

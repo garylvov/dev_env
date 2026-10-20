@@ -14,7 +14,6 @@ REPO_DOCS = (
     "At rollover and when the task finishes, promote durable repo knowledge from the task docs/ into docs/agents/, "
     "refreshing its index line and verified commit. Never write docs/agents/ in repos other than the task workspace.\n"
 )
-CODEGRAPH = "CodeGraph MCP is attached: query codegraph before grepping or reading files to locate code.\n"
 
 TASK_RULES = (
     "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"

@@ -15,7 +15,7 @@ import uuid
 
 from .adapters.base import AdapterError, LaunchPlan
 from .simple_types import LaunchOptions, TaskView
-from .simple_guidance import CODEGRAPH, CONCURRENCY, REPO_DOCS, TASK_RULES, load_dispatch_guide
+from .simple_guidance import CONCURRENCY, REPO_DOCS, TASK_RULES, load_dispatch_guide
 
 
 @dataclass(frozen=True)
@@ -195,7 +195,7 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     from .simple_codegraph import attach
     from .simple_repo_docs import kickoff_note
     codegraph = attach(workspace, options.engine, options.codegraph)
-    guidance = folder_guidance(view, kickoff_note(workspace) + (CODEGRAPH if codegraph.attached else ""))
+    guidance = folder_guidance(view, kickoff_note(workspace) + codegraph.guidance)
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
     enabled = options.rollover not in (None, 0, "off")
     cap = capabilities(options) if enabled or (options.engine == "codex" and options.yolo) else Capabilities(False, ())
