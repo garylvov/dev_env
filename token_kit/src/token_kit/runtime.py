@@ -344,7 +344,7 @@ def _handle(store: Store, agent: str, run: Path, payload: dict, control: dict) -
     bundle = store.resume_bundle(agent)
     if control["phase"] == "running":
         control.update(phase="checkpoint_requested", previous_checkpoint=bundle["checkpoint"])
-        command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
+        command = shlex.join(["token-kit", "legacy", "workflow", "checkpoint", str(store.path), "--agent", agent])
         reason = (
             "Token Kit rollover: stop starting new work. Drain/reconcile your native children and external jobs. "
             "Update STATE.md with completed work, evidence, unresolved operations, next steps and user overrides; "

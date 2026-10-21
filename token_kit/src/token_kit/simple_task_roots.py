@@ -87,6 +87,13 @@ def visibility(repo: Path) -> str | None:
     return result.stdout.strip().upper() or None
 
 
+def exclude_runtime(task: Path) -> None:
+    """On every launch: a cloned or checked-out task gets runtime records in a fresh checkout."""
+    repo = repo_of(task)
+    if repo is not None:
+        add_exclude(repo, RUNTIME_EXCLUDE)
+
+
 def protect(task: Path) -> list[str]:
     """Keep runtime records out of commits; keep the whole task local in public repos."""
     repo = repo_of(task)

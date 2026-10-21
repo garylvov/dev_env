@@ -82,9 +82,9 @@ class UnifiedTests(unittest.TestCase):
         with patch.dict(os.environ, {"XDG_STATE_HOME": str(self.root / "state"),
                                      "XDG_CONFIG_HOME": str(self.root / "config"),
                                      "CLAUDE_CONFIG_DIR": str(self.root / "claude")}):
-            rc, out, err = self.call("new", "default", "--workspace", self.project)
+            rc, out, err = self.call("run", "default", "--workspace", self.project, "--dry-run")
         self.assertEqual(rc, 0, err)
-        self.assertEqual(Path(out.strip()).parent, self.root / "config/token_kit")
+        self.assertEqual(Path(json.loads(out)["root"]), self.root / "config/token_kit")
         self.assertFalse((self.project / "tasks").exists())
 
     def test_project_install_is_default_and_no_global_hooks_are_created(self):
@@ -150,7 +150,7 @@ class UnifiedTests(unittest.TestCase):
         rc, out, err = self.call("launch", folder, "--engine", "claude", "--dry-run")
         self.assertEqual(rc, 0, err)
         prompt = json.loads(out)["argv"][-1]
-        self.assertIn("token-kit checkpoint", prompt)
+        self.assertIn("token-kit legacy workflow checkpoint", prompt)
         self.assertNotIn("token-kit-workflow", prompt)
 
 

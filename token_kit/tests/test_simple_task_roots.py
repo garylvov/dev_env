@@ -167,6 +167,61 @@ class TaskRootTests(unittest.TestCase):
         self.assertEqual(view.workspace, moved)
         self.assertEqual(view.title, "Fix parser")
 
+    def committed(self, title="Fix parser"):
+        task, _ = self.create(self.repo, title)
+        git(self.repo, "add", "agent_tasks")
+        git(self.repo, "commit", "-qm", "task")
+        return task
+
+    def test_continue_in_fresh_clone_excludes_runtime_records(self):
+        task = self.committed()
+        clone = self.root / "clone"
+        git(self.root, "clone", "-q", "--local", str(self.repo), str(clone))
+        code, out, err, run = self.call(clone, "continue", task.name)
+        self.assertEqual(code, 0, err)
+        (clone / "agent_tasks" / task.name / ".token-kit").mkdir()
+        (clone / "agent_tasks" / task.name / ".token-kit/session.json").write_text("{}")
+        self.assertEqual(git(clone, "status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_missing_relative_workspace_never_falls_back_to_old_checkout(self):
+        (self.repo / "sub").mkdir()
+        task, _ = self.create(self.repo / "sub")
+        copy = self.root / "copy"
+        shutil.copytree(self.repo, copy)
+        shutil.rmtree(copy / "sub")
+        view = load_task(copy / "agent_tasks" / task.name)
+        self.assertIsNone(view.workspace)
+        self.assertTrue(any(str(copy / "sub") in note for note in view.diagnostics))
+
+    def test_worker_relative_workspace_resolves_first(self):
+        from token_kit.task_files import save_settings
+        task, _ = self.create(self.repo)
+        (self.repo / "w").mkdir()
+        save_settings(load_task(task, workspace=self.repo / "w", agent="editor"), {"model": "m"})
+        copy = self.root / "copy"
+        shutil.copytree(self.repo, copy)
+        self.assertEqual(load_task(copy / "agent_tasks" / task.name, agent="editor").workspace, copy / "w")
+
+    def test_current_copy_survives_limit_and_other_choices_are_not_blocked(self):
+        early = self.root / "early"
+        git(self.repo, "worktree", "add", "-q", str(early))
+        task = self.committed()
+        late = self.root / "late"
+        git(self.repo, "worktree", "add", "-q", "--detach", str(late))
+        os.utime(task, (2_000_000_000, 2_000_000_000))  # main's copy sorts first
+        code, out, err, run = self.call(late, "continue", task.name, "--limit", "1")
+        self.assertEqual(run.call_args.args[0].root, late / "agent_tasks" / task.name)
+        other, _ = self.create(self.repo, "Fix parser two")
+        os.chdir(early)
+        args = cli.parser_for("continue").parse_args(["parser"])
+        rows = cli.task_candidates(cli.search_roots(args), ["parser"])
+        self.assertEqual(sorted(view.root.name for view in rows), sorted([task.name, other.name]))
+        args.select = [view.root for view in rows].index(other) + 1
+        self.assertEqual(cli.select_task(args), other)
+        args.select = [view.root.name for view in rows].index(task.name) + 1
+        with self.assertRaisesRegex(ValueError, "--root"):
+            cli.select_task(args)
+
     def test_visibility_uses_origin_and_treats_failures_as_unknown(self):
         self.visibility.stop()
         self.assertIsNone(roots.visibility(self.repo))  # no origin remote: gh is not asked

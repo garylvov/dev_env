@@ -155,7 +155,8 @@ def task_candidates(roots: list[Path], words=(), limit=20) -> list[TaskView]:
     query = [word.casefold() for phrase in words for word in phrase.split()]
     rows = [row for root in roots for row in _scan(root, query)]
     rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    return [row[2] for row in rows[:limit]]
+    # Deduplicate before the limit so a copy in the current checkout is never cut off.
+    return _unique([row[2] for row in rows], roots)[:limit]
 
 
 def _scan(root: Path, query: list[str]) -> list:
@@ -189,22 +190,28 @@ def _scan(root: Path, query: list[str]) -> list:
 
 
 def _unique(rows: list[TaskView], roots: list[Path]) -> list[TaskView]:
-    """The current repo's copy of a task shadows other copies; elsewhere a repeated name is ambiguous."""
+    """One row per task name: the current checkout's copy wins, otherwise the first copy stands for all."""
     first = roots[0].resolve()
-    kept = []
+    kept, seen = [], set()
     for view in rows:
+        if view.root.name in seen:
+            continue
+        seen.add(view.root.name)
         copies = [other for other in rows if other.root.name == view.root.name]
-        if len(copies) == 1:
-            kept.append(view)
-            continue
         local = [other for other in copies if other.root.parent.resolve() == first]
-        if local:
-            if view is local[0]:
-                kept.append(view)
-            continue
-        raise ValueError(f"Task {view.root.name} exists in several places; choose one with --root DIR:\n"
-                         + "\n".join(f"  {other.root.parent}" for other in copies))
+        kept.append(local[0] if local else view)
     return kept
+
+
+def _unambiguous(path: Path, roots: list[Path]) -> Path:
+    """A chosen name found in several places outside the current checkout needs --root."""
+    if len(roots) < 2 or path.parent.resolve() == roots[0].resolve():
+        return path
+    copies = [root for root in roots if (root / path.name).is_dir()]
+    if len(copies) > 1:
+        raise ValueError(f"Task {path.name} exists in several places; choose one with --root DIR:\n"
+                         + "\n".join(f"  {root}" for root in copies))
+    return path
 
 
 def _show_candidates(rows):
@@ -225,7 +232,7 @@ def select_task(args) -> Path:
             raise ValueError(f"Task folder does not exist: {candidate}")
         return candidate
     roots = search_roots(args)
-    rows = _unique(task_candidates(roots, words, max(1, args.limit)), roots)
+    rows = task_candidates(roots, words, max(1, args.limit))
     if not rows and candidate is not None and candidate.is_dir():
         return candidate
     if not rows:
@@ -233,16 +240,16 @@ def select_task(args) -> Path:
     if args.select is not None:
         if not 1 <= args.select <= len(rows):
             raise ValueError("Selection is outside the displayed candidates")
-        return rows[args.select - 1].root
+        return _unambiguous(rows[args.select - 1].root, roots)
     if len(rows) == 1:
-        return rows[0].root
+        return _unambiguous(rows[0].root, roots)
     _show_candidates(rows)
     if not sys.stdin.isatty():
         raise ValueError("Several tasks match; use an exact path or --select N")
     choice = input("Task number: ").strip()
     if not choice.isdecimal() or not 1 <= int(choice) <= len(rows):
         raise ValueError("No task selected")
-    return rows[int(choice) - 1].root
+    return _unambiguous(rows[int(choice) - 1].root, roots)
 
 
 def _preview(view, options, prompt):
@@ -286,6 +293,8 @@ def _launch(args, path: Path | None, *, create=False):
     if args.preview:
         _preview(view, options, prompt)
         return 0
+    from .simple_task_roots import exclude_runtime
+    exclude_runtime(view.root)
     from .simple_runner import run_session
     return run_session(view, options, prompt=prompt, agent=args.agent, resume=not create)
 

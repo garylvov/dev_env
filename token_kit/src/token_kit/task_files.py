@@ -72,17 +72,25 @@ def _agent_dir(root: Path, agent: str) -> Path:
     return _inside(root, root / 'agents' / agent)
 
 
-def _repo_workspace(root: Path, session: dict) -> Path | None:
-    """A task under <checkout>/agent_tasks/ follows its checkout when moved, cloned or checked out elsewhere."""
+def _workspace_candidates(root: Path, containers: list[dict], fallbacks: list) -> list:
+    """Recorded workspaces, most specific first.
+
+    A task under <checkout>/agent_tasks/ follows its checkout when moved, cloned or
+    checked out elsewhere: a saved workspace_rel is authoritative there, so a missing
+    one is reported instead of silently using an old absolute path.
+    """
     from .simple_task_roots import repo_of
     repo = repo_of(root)
-    if repo is None:
-        return None
-    relative = session.get('workspace_rel')
-    if isinstance(relative, str):
-        return repo / relative
+    candidates = []
+    for container in containers:
+        relative = container.get('workspace_rel')
+        if repo is not None and isinstance(relative, str):
+            return candidates + [repo / relative]
+        candidates.append(container.get('workspace'))
     # .token-kit/ is never committed: a checked-out task without records works in its checkout.
-    return repo if not session.get('workspace') else None
+    if repo is not None and not any(candidates):
+        candidates.append(repo)
+    return candidates + fallbacks
 
 
 def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinator') -> TaskView:
@@ -118,8 +126,9 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     legacy_cwd = re.search(r'^Cwd:\s*(.+)$', state_text, re.MULTILINE)
     per_agent = new.get('agent_settings', {})
     selected_metadata = per_agent.get(agent, {}) if isinstance(per_agent, dict) else {}
-    worker_workspace = selected_metadata.get('workspace') if isinstance(selected_metadata, dict) and agent != 'coordinator' else None
-    candidates = [workspace] if workspace is not None else [worker_workspace, _repo_workspace(root, new), new.get('workspace'), old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None]
+    containers = ([selected_metadata] if isinstance(selected_metadata, dict) and agent != 'coordinator' else []) + [new]
+    candidates = [workspace] if workspace is not None else _workspace_candidates(
+        root, containers, [old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None])
     resolved_workspace = None
     for candidate in candidates:
         if not isinstance(candidate, (str, Path)) or not str(candidate).strip():

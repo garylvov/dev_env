@@ -54,8 +54,10 @@ creation prints one note that the folder will not be backed up; the rule is left
 (`git worktree list`), then `~/.config/token_kit/`. A copy in the current checkout wins;
 the same task name found only in several other places is ambiguous and needs `--root`.
 A task folder that is moved, cloned or checked out elsewhere works in its new checkout:
-the workspace is stored relative to the repo, and without `.token-kit/` it is the
-checkout holding `agent_tasks/`.
+the workspace is stored relative to the repo (if that path is missing there, launch
+stops and asks for `--workspace` rather than using the old checkout), and without
+`.token-kit/` it is the checkout holding `agent_tasks/`. Every launch re-adds the
+`.token-kit/` exclude line, so a fresh clone stays clean too.
 
 The filenames use the actual task folder name. Managed `UserPromptSubmit` hooks
 append every user message verbatim, dated and numbered, before the agent works;

@@ -99,7 +99,16 @@ class RuntimeTests(unittest.TestCase):
     def test_tool_boundary_nudges_checkpoint_before_turn_ends(self):
         self.hook("SessionStart")
         response = self.hook("PostToolUse")
-        self.assertIn("checkpoint", response["hookSpecificOutput"]["additionalContext"])
+        context = response["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("checkpoint", context)
+        # The instructed command must exist on the public entrypoint.
+        import re, shlex, contextlib, io
+        from token_kit.__main__ import main as entry
+        argv = shlex.split(re.search(r"run (token-kit .+?) with relevant", context).group(1))[1:]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                entry(argv + ["--help"])
+        self.assertEqual(raised.exception.code, 0)
         self.assertEqual(self.hook("PostToolUse"), {})
         self.store.checkpoint(self.agent)
         self.hook("Stop")

@@ -30,6 +30,7 @@ Cases, in order below:
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -360,12 +361,12 @@ class HeaderParsing(Base):
 class Entrypoint(Base):
     def test_13_the_shim_runs_end_to_end(self):
         env = {**os.environ, "XDG_STATE_HOME": str(self.state_home)}
-        p = subprocess.run([str(ENTRY), "new", "through the shim",
-                            "--root", str(self.tasks)],
+        p = subprocess.run([str(ENTRY), "run", "through the shim",
+                            "--root", str(self.tasks), "--dry-run"],
                            capture_output=True, text=True, env=env)
         self.assertEqual(0, p.returncode, p.stderr)
         self.assertNotIn("No module named", p.stderr)
-        self.assertTrue(Path(p.stdout.strip()).is_dir())
+        self.assertEqual(json.loads(p.stdout)["root"], str(self.tasks))
 
 
 class DefaultLocation(Base):

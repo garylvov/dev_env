@@ -627,7 +627,7 @@ def _launch_segment(store: Store, agent: str, engine: str, model: str | None,
         if recovery_from is not None:
             recovery_state = _working_state_for_recovery(store, agent, bundle)
     resume_command = shlex.join(["token-kit", "resume", str(store.path), "--agent", agent])
-    checkpoint_command = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
+    checkpoint_command = shlex.join(["token-kit", "legacy", "workflow", "checkpoint", str(store.path), "--agent", agent])
     prompt = (
         f"Continue logical agent {agent} in task {store.path}. "
         f"Read assignment {bundle['assignment']}, current working state "

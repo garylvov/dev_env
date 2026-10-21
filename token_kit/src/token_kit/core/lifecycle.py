@@ -234,7 +234,7 @@ def prepare(store, agent, *, engine=None, model=None, threshold=None, owner_agen
         request = shlex.join([*base, "request-rollover", str(store.path), "--agent", agent,
                              "--ticket", state["ticket"], "--reason", "Context budget reached"])
         complete = shlex.join([*base, "complete", str(store.path), "--agent", agent, "--ticket", state["ticket"]])
-        checkpoint_cmd = shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
+        checkpoint_cmd = shlex.join(["token-kit", "legacy", "workflow", "checkpoint", str(store.path), "--agent", agent])
         prompt = (f"Continue logical worker {agent}, attempt {state['generation']}. Read your immutable assignment "
                   f"and checkpoint via token-kit resume {shlex.quote(str(store.path))} --agent {agent}. "
                   f"Your attempt ticket is {state['ticket']}. Before exhausting context, update your STATE.md, "
@@ -624,7 +624,7 @@ def budget_nudge(store, agent, ticket, context, window=None, window_source=None)
         event(state, "worker_checkpoint_requested", f"Worker {agent} reached its context target; checkpoint and handoff requested.")
         publish_locked(store, state)
         return (f"Token Kit worker budget reached. Update your own STATE.md, then run "
-                + shlex.join(["token-kit", "checkpoint", str(store.path), "--agent", agent])
+                + shlex.join(["token-kit", "legacy", "workflow", "checkpoint", str(store.path), "--agent", agent])
                 + " with relevant evidence. Then run "
                 + shlex.join(["token-kit", "worker", "request-rollover", str(store.path), "--agent", agent,
                               "--ticket", ticket, "--reason", "Context budget reached"])
