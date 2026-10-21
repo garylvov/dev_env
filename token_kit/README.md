@@ -69,24 +69,27 @@ worker finishes, `SubagentStop` appends a dated `### final` section with its rep
 (a `SubagentHandback` message if seen, else its last message) and transcript path
 to `agents/<name>_out.md`, and one `- worker <name> (<model>) finished: ...` line
 to the task output. Workers append their own dated progress lines in between.
-Headless `claude -p` workers are not recorded automatically.
+Raw `claude -p` workers have no hooks and are not recorded; long workers use
+`token-kit run --headless` instead.
 
 `experiments.md` tracks runs the way `asks.md` tracks requests. A Bash `PreToolUse`
 hook (main session and workers) matches launch commands (`systemd-run`, `sbatch`,
-`fleet`, `nohup`, `setsid`, `*train*.py`; `LAUNCH_PATTERNS` in `simple_records.py`)
-and appends `- [?] E<n> <date> unlabeled launch by <who>: <command>` under `## Open`;
-status queries such as `fleet status`, `squeue` or `cat train.py` are skipped. The
-hook never blocks a command; recording errors land in the run's `control.json`.
-Agents label each line with its question and where results land, then move it to
-`## Closed` with `verdict: <line> -> <doc link>` (or `why:` when abandoned). Each
+`srun`, `fleet`, `nohup`, `setsid`, `torchrun`, `accelerate launch`, `ray job submit`,
+`train*.py`, `python -m ...train`; `LAUNCH_PATTERNS` in `simple_records.py`) and
+appends `- [?] E<n> <date> unlabeled launch by <who>: <command>` to the end of the
+file under `## Unlabeled`; it never rewrites the file. Status queries such as `fleet
+status`, `squeue`, `pytest` or `cat train.py` are skipped. The hook never blocks a
+command; recording errors land in the run's `control.json`. Agents label each line
+with its question and where results land, move it to `## Open`, then to `## Closed`
+with `verdict: <line> -> <doc link>` (or `why:` when abandoned). Each
 launch and successor gets one line such as `Open experiments: E3 (running), E8
 (unlabeled)` with ids only.
 
 [dispatch_guide.md](dispatch_guide.md) supplies model-neutral dispatch preferences and
-command templates. The main agent chooses models in `<task>/models.md`, refreshing
-missing or >~24h-old decisions from local catalogs and available official docs,
-with bounded availability probes. Workers and rollover successors reuse it unless
-stale or a model fails. GPT options are Shunt subagents (when `shunt` is active);
+worker rules. The main agent builds `<task>/models.md` once, from official docs
+with bounded availability probes; it stays fixed for the task (workers and rollover
+successors reuse it, and a failing model falls back to the next listed option)
+until the user asks for a rebuild. GPT options are Shunt subagents (when `shunt` is active);
 cross-family verification uses them for Claude-authored work. The launcher injects
 this guidance on startup and successor launch; it only passes a top-level model
 when the operator explicitly supplies `--model`. The built-in missing-guide fallback
@@ -98,11 +101,12 @@ execute it. Its only router path checks detect or clean up legacy hooks.
 
 ## Rollover
 
-At the threshold, a model-visible hook asks: “Context is at N%. Finish summarizing
-everything into the task folder now,” naming the output and input files, asking
-for remaining asks to be recorded, then asking the agent to stop. After verifying
-the old client stopped, the launcher starts a successor with both files and saved
-notes. Rollovers are unlimited unless a restart limit is set. Normal completion,
+At the threshold, a model-visible hook asks: “Context is at N%. Append a History
+entry to <output> for the current ask and refresh Current state; list the open asks
+from asks.md ... End your turn.” If native compaction starts while that summary is
+being written, it proceeds and the launcher still waits for the end of the turn.
+After verifying the old client exited, the launcher starts a successor with the
+task file paths plus one line asking it to label new experiments and promote docs. Rollovers are unlimited unless a restart limit is set. Normal completion,
 manual interruption and arbitrary errors do not restart.
 
 Missing telemetry or untrusted hooks cause a diagnostic and leave native
@@ -112,6 +116,12 @@ Check uncertain external outcomes before retrying operations.
 
 Legacy Token Kit hooks in Claude settings block a launch until cleaned up; unrelated
 hooks are preserved. Stop an unmanaged active session normally before launching `continue`.
+`continue` against a live managed session waits for that session's turn to end; an
+idle session never reaches that boundary, so exit it first (`/exit`).
+
+Each client run appends `startup_tokens`, `peak_tokens` and whether it rolled over to
+`<task>/.token-kit/usage.jsonl` and prints one summary line. `/clear` inside a managed
+session starts a new session id; the hooks follow it and note it in History.
 
 ## Turning it on and off
 
