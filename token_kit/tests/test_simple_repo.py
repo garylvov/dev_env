@@ -140,7 +140,7 @@ class CodegraphTest(unittest.TestCase):
         with patch.object(codegraph.shutil, "which", return_value=None):
             result = codegraph.attach(self.ws, True)
         self.assertFalse(result.attached)
-        self.assertIn("npm install -g @colbymchenry/codegraph", result.diagnostics[0])
+        self.assertIn("npm install -g --prefix ~/.local @colbymchenry/codegraph", result.diagnostics[0])
 
     def test_no_index_auto_and_explicit_off_do_nothing(self):
         with patch.object(codegraph.subprocess, "run") as run, patch.object(codegraph.shutil, "which") as which:

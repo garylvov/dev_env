@@ -13,7 +13,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-INSTALL_HINT = "npm install -g @colbymchenry/codegraph"
+INSTALL_HINT = "npm install -g --prefix ~/.local @colbymchenry/codegraph"
 SYNC_TIMEOUT = 120
 INIT_TIMEOUT = 900
 # Database files only; daemon pid, sockets and locks belong to the source checkout.

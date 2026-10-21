@@ -151,7 +151,7 @@ No client or project config is written; `/.codegraph/` goes in the local git exc
 file (never `.gitignore`), and CodeGraph telemetry is off (`CODEGRAPH_TELEMETRY=0`).
 In another checkout (an agent-made worktree or clone) agents pass its root as
 `projectPath`; unindexed checkouts get a "not indexed" reply and agents read files.
-Install with `npm install -g @colbymchenry/codegraph`.
+Install with `npm install -g --prefix ~/.local @colbymchenry/codegraph`.
 `token-kit codegraph-hooks MAIN` prints git hook lines that resync indexed
 checkouts after merge, checkout and rebase; it installs nothing.
 
