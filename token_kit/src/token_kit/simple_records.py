@@ -153,15 +153,19 @@ def record_loops(root: Path, crons: list, tasks: list, seen: dict) -> dict:
     path = _inside(root, root / LOOPS)
     stamp = _stamp()
     kept, loops = {}, []
+    try:  # a successor's control starts empty; the file carries earlier dates
+        earlier = {f'{s} {p}': d for s, p, d in re.findall(r'^- `([^`]+)` \S+: (.*) \(since (\S+)\)$', path.read_text(), re.M)}
+    except (OSError, UnicodeDecodeError):
+        earlier = {}
     for cron in crons:
         if not isinstance(cron, dict) or not cron.get('schedule'):
             continue
+        prompt = _one_line(cron.get('prompt'), 1000)
         # Schedule and prompt, not id: a successor's recreated loop keeps its original date.
-        key = f'{cron["schedule"]} {cron.get("prompt")}'
-        kept[key] = seen.get(key, stamp)
+        key = f'{cron["schedule"]} {prompt}'
+        kept[key] = seen.get(key) or earlier.get(key) or stamp
         kind = 'recurring' if cron.get('recurring', True) else 'one-shot'
-        loops.append(f'- `{cron["schedule"]}` {kind}: {_one_line(cron.get("prompt"), 1000)} '
-                     f'(since {kept[key]})')
+        loops.append(f'- `{cron["schedule"]}` {kind}: {prompt} (since {kept[key]})')
     running = [f'- {t["type"]}: {_one_line(t.get("command") or t.get("description"))}'
                for t in tasks if isinstance(t, dict) and t.get('type') in LONG_TASKS
                and str(t.get('status', '')).lower() not in DONE_TASK]

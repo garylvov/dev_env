@@ -1,5 +1,6 @@
 """Offline process and rollover checks; subprocesses are small Python fixtures."""
 import json
+import re
 import os
 from pathlib import Path
 import subprocess
@@ -208,6 +209,15 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         # A firing loop is not a user message.
         handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='check the build'), run.name)
         self.assertNotIn('check the build', assignment.read_text())
+        # A successor's recreated loop (new id, empty control) keeps the original date.
+        loops.write_text(re.sub(r'\(since .*\)$', '(since 1999-01-01T00:00)', loops.read_text(), flags=re.M))
+        successor = self.root / 'successor'
+        successor.mkdir()
+        initialize(successor, LaunchOptions(), 'next', self.state, assignment, self.state)
+        handle(successor, {'session_id': 'next', 'hook_event_name': 'SessionStart'}, successor.name)
+        handle(successor, {'session_id': 'next', 'hook_event_name': 'Stop', 'background_tasks': [],
+                           'session_crons': [dict(cron, id='c9')]}, successor.name)
+        self.assertIn('check the build (since 1999-01-01T00:00)', loops.read_text())
         handle(run, dict(base, hook_event_name='Stop', session_crons=[], background_tasks=[]), run.name)
         self.assertFalse(loops.exists())  # a deleted loop is not resurrected
 
