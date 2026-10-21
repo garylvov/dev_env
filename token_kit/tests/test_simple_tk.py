@@ -41,6 +41,10 @@ class ShortCommandTests(unittest.TestCase):
         self.assertEqual(self.calls[0][0].resolve(), folder.resolve())
         self.assertFalse(self.calls[0][1])
 
+    def test_unquoted_words_form_one_name(self):
+        self.assertEqual(self.run_cli("fix", "parser", "bug", "--no-codegraph"), 0)
+        self.assertEqual(self.calls, [(None, True, "fix parser bug")])
+
     def test_aliases_route_to_commands(self):
         self.assertEqual(self.run_cli("r", "fresh"), 0)
         self.assertEqual(self.calls, [(None, True, "fresh")])

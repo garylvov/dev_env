@@ -17,7 +17,7 @@ from .simple_types import LaunchOptions, TaskView
 HELP = """Token Kit — folders and automatic session rollover.
 
   token-kit                         Choose a task or create one
-  tk "Name"                          Continue the task with that name, or start it if new
+  tk NAME [WORDS...]                 Continue the task with that name, or start it if new (no quotes needed)
   token-kit run \"Title\"             Start a named session (short: tk r, c, s, p, l)
   token-kit continue NAME_OR_PATH    Resume a task
   token-kit status NAME_OR_PATH      Show saved state paths
@@ -324,8 +324,10 @@ COMMANDS = ("run", "continue", "pick", "status", "list", "find", "codegraph-hook
 
 
 def _open_or_create(args: list[str]) -> int:
-    """`tk NAME [options]`: continue the task whose folder is named NAME, else start one titled NAME."""
-    name, rest = args[0], args[1:]
+    """`tk NAME WORDS... [options]`: continue the task whose folder is named NAME, else start one titled NAME."""
+    # Leading words up to the first option form the name, so quotes are optional.
+    count = next((i for i, word in enumerate(args) if word.startswith("-")), len(args))
+    name, rest = " ".join(args[:count]), args[count:]
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:64]
     probe = parser_for("continue").parse_args([name, *rest])
     roots = search_roots(probe)
