@@ -13,6 +13,8 @@ REPO_DOCS = (
     "(how to run/test, gotchas, decisions and why, dead ends), first line <!-- verified: <commit> files: <paths> -->.\n"
     "At rollover and when the task finishes, promote durable repo knowledge from the task docs/ into docs/agents/, "
     "refreshing its index line and verified commit. Never write docs/agents/ in repos other than the task workspace.\n"
+    "Docs ship with features: when a feature lands, update the repo's own docs (README, docs/, --help, examples) in the "
+    "same commit or PR as the code; an asks.md feature is not done until its docs are. docs/agents/ is only agent notes.\n"
 )
 
 TASK_RULES = (
@@ -74,5 +76,5 @@ def summary_request(percent, output, assignment, state=None, asks=None, experime
             + (f"Re-read {asks}; make sure every request from every message has a line, open ones first. " if asks else "")
             + (f"Label every [?] line and close finished runs with a verdict in {experiments}. " if experiments else "")
             + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
-            + "Promote durable repo knowledge to the workspace docs/agents/ (index line, verified commit). "
+            + "Update the repo docs for features that landed; promote durable repo knowledge to the workspace docs/agents/ (index line, verified commit). "
             + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")
