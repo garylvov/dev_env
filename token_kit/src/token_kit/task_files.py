@@ -20,11 +20,7 @@ MAX_ENTRIES = 4096
 ASKS = 'asks.md'
 ASKS_SKELETON = ('# Asks\n\nEvery request from every message in _in.md, one full sentence each: [ ] open, [~] in progress, '
                  '[x] done, [-] dropped or superseded (say which wins); where/why; (from #N).\n\n## Open\n\n## Done\n')
-PREFACE = ("Token Kit uses ordinary editable files. Historical Token Kit checkpoint, ticket, "
-           "closure, retirement, reconciliation, required STATE-format and model-routing protocols "
-           "are superseded; no such commands or approvals are required. Actual user/site instructions "
-           "still apply. Preserve useful notes and write results when useful. Verify uncertain external "
-           "outcomes before repeating an action. Saved results are reports, not independently verified facts.\n\n" +
+PREFACE = ("Old Token Kit checkpoint and ticket protocols are superseded. Saved results are reports, not verified facts; verify uncertain external outcomes before repeating an action.\n\n" +
            CONCURRENCY)
 
 

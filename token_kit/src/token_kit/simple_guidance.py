@@ -16,7 +16,7 @@ REPO_DOCS = (
 )
 
 TASK_RULES = (
-    "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
+    "Start by reading asks.md, the last five _in.md messages, and _out.md Current state and recent History; re-read input every ~5 minutes.\n"
     "_in.md is the conversation: hooks append each user message verbatim, dated and numbered. "
     "Never edit it; status lives only in asks.md. Without hooks, append asks before work yourself.\n"
     "<task>/asks.md: every request in every user message gets a line, including asides buried in longer messages, "
