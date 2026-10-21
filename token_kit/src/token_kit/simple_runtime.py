@@ -22,6 +22,9 @@ MATCHED = {'PreToolUse': 'Bash'}
 MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message')
 # A child no hook has mentioned for this long is presumed gone (TaskStop, crash).
 CHILD_TTL = 1800
+# Claude Code clips session_crons prompts at 1000 chars with this marker.
+CLIP_MARKER = '\u2026 [+'
+MIN_CLIPPED_HEAD = 200
 DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
@@ -199,10 +202,13 @@ def _settle_children(control: dict, payload: dict, now: float):
 
 
 def _cron_prompt(control: dict, prompt: str) -> bool:
-    """A recorded loop firing is the session's own schedule, not a new user message."""
+    """A recorded loop firing is the session's own schedule, not a new user message.
+
+    Claude Code owns the clip marker; only a long clipped head stands in for the whole prompt.
+    """
     for known in control.get('cron_prompts', []):
-        head, clipped, _ = known.partition('… [+')
-        if prompt == known or (clipped and head.strip() and prompt.startswith(head)):
+        head, clipped, _ = known.partition(CLIP_MARKER)
+        if prompt == known or (clipped and len(head.strip()) >= MIN_CLIPPED_HEAD and prompt.startswith(head)):
             return True
     return False
 

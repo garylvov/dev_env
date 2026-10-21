@@ -135,14 +135,14 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
              if codegraph.guidance == BUILD_GUIDANCE else "main checkout's index"
              if "answers from" in codegraph.guidance else "on")
     rollover = "off" if options.rollover in (None, 0, "off") else f"at {options.rollover}"
-    greet = greet and prompt is None and not headless
+    greet = greet and not headless
     banner = (f"{view.title}: folder {view.root.resolve()}; rollover {rollover}; CodeGraph {graph}. "
               "Token Kit guidance is in its system prompt; "
-              + ("Claude first summarizes the setup, then waits for your first message." if greet
-                 else "without --prompt it waits for your first message."))
+              + (("Claude first summarizes the setup, then " + ("waits for your first message." if prompt is None
+                  else "starts on your prompt.")) if greet else "without --prompt it waits for your first message."))
     if greet:
         from .simple_guidance import greeting
-        prompt = greeting(view.root.resolve(), rollover, graph)
+        prompt = greeting(view.root.resolve(), rollover, graph, then=prompt)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks,
         "diagnostics": (banner,) + cap.diagnostics + codegraph.diagnostics})

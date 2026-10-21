@@ -83,7 +83,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     rollover_entries = []
     notices = set()
     next_prompt = prompt
-    greet = not resume and prompt is None  # only a newly created task's first launch
+    greet = not resume  # only a newly created task's first launch
     try:
         if resume:
             if prompt:

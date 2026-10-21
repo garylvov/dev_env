@@ -16,9 +16,9 @@ token-kit run "My task"
 ```
 
 New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
-Without `--prompt`, a new task opens with Claude's short overview of the task folder,
-delegation, rollover and CodeGraph state (answered from its system prompt, no file reads),
-then waits for your first message. New tasks default to 80%
+A new task opens with Claude's short overview of the task folder, delegation, rollover
+and CodeGraph state (answered from its system prompt, no file reads), then waits for your
+first message, or starts on `--prompt` if given. Headless runs skip the overview. New tasks default to 80%
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.

@@ -108,7 +108,7 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertIn('--add-dir', plan.argv)
         self.assertIn('--append-system-prompt', plan.argv)
 
-    def test_new_task_greeting_only_without_prompt(self):
+    def test_new_task_greeting_with_or_without_prompt(self):
         plan = adapters.prepare(self.view, LaunchOptions(rollover='60%'), None, self.root/'run', greet=True)
         self.assertEqual(plan.argv[-2], '--')
         greeting = plan.argv[-1]
@@ -119,7 +119,11 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertLess(len(greeting.split()), 90)
         self.assertNotIn('--', adapters.prepare(self.view, LaunchOptions(), None, self.root/'run').argv)
         with_prompt = adapters.prepare(self.view, LaunchOptions(), 'do work', self.root/'run', greet=True)
-        self.assertEqual(with_prompt.argv[-2:], ('--', 'do work'))
+        # A new task with a prompt is greeted too, then starts on the prompt.
+        self.assertIn('at most 8 lines', with_prompt.argv[-1])
+        self.assertTrue(with_prompt.argv[-1].endswith('\n\ndo work'))
+        plain = adapters.prepare(self.view, LaunchOptions(), 'do work', self.root/'run')
+        self.assertEqual(plain.argv[-2:], ('--', 'do work'))
         with self.assertRaises(AdapterError):  # headless still needs a real prompt
             adapters.prepare(self.view, LaunchOptions(headless=True), None, self.root/'run', greet=True)
 

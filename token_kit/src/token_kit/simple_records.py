@@ -163,7 +163,8 @@ def record_loops(root: Path, crons: list, tasks: list, seen: dict, may_clear: bo
     for cron in crons:
         if not isinstance(cron, dict) or not cron.get('schedule'):
             continue
-        prompt = _one_line(cron.get('prompt'), 1000)
+        # Claude Code already clips prompts with its own marker; collapse lines only.
+        prompt = ' '.join(str(cron.get('prompt') or '').split())
         # Schedule and prompt, not id: a successor's recreated loop keeps its original date.
         key = f'{cron["schedule"]} {prompt}'
         kept[key] = seen.get(key) or earlier.get(key) or stamp

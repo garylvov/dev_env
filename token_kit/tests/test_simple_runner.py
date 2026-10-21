@@ -214,6 +214,16 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
                          background_tasks=[]), run.name)
         handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='a real ask'), run.name)
         self.assertIn('a real ask', assignment.read_text())
+        # Claude Code owns the clip marker: loops.md keeps it verbatim, and only a long recorded head matches.
+        long_head = 'poll the queue ' * 70
+        clipped = {'id': 'c3', 'schedule': '0 * * * *', 'prompt': long_head + '\u2026 [+50 chars]'}
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[cron, clipped,
+                         dict(cron, id='c4', prompt='ab\u2026 [+900 chars]')], background_tasks=[]), run.name)
+        self.assertIn(' '.join((long_head + '\u2026 [+50 chars]').split()) + ' (since', loops.read_text())
+        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=long_head + 'and the tail'), run.name)
+        self.assertNotIn('and the tail', assignment.read_text())
+        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='ab another real ask'), run.name)
+        self.assertIn('ab another real ask', assignment.read_text())
         handle(run, dict(base, hook_event_name='Stop', session_crons=[cron], background_tasks=[shell]), run.name)
         # A successor's recreated loop (new id, empty control) keeps the original date.
         loops.write_text(re.sub(r'\(since .*\)$', '(since 1999-01-01T00:00)', loops.read_text(), flags=re.M))
