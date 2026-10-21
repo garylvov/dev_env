@@ -22,7 +22,13 @@ curl -fsSL https://pixi.sh/install.sh | sh
 
 I prefer Claude Code, driven with Token Kit, as my main agent. Other models plug in underneath it: [Shunt](shunt/README.md) is a local gateway that adds GPT-6 Astra, Sol and Luna to Claude Code (every model id sets its effort, e.g. `gpt-6-astra-high`) as native subagents and `/model` entries, using my existing Codex login.
 
-Token Kit: [shared Claude/Codex tasks, checkpoints, and resumable workers](token_kit/README.md), with a [dispatch guide](token_kit/dispatch_guide.md).
+Token Kit: [task folders, automatic rollover, and repo docs for Claude sessions](token_kit/README.md), with a [dispatch guide](token_kit/dispatch_guide.md). GPT models come in as Shunt subagents.
+
+[CodeGraph](https://github.com/colbymchenry/codegraph) indexes a repo locally so agents can look up code instead of re-exploring it. Token Kit attaches it per session with `token-kit run ... --codegraph`, and automatically in any worktree that already has a `.codegraph/` index. Install it under `~/.local` (no sudo):
+
+```
+npm install -g --prefix ~/.local @colbymchenry/codegraph
+```
 
 Before Token Kit I ran a hand-built set of Claude Code subagents (the-grizzly, swe-worker-bee, test-titan, bloat-killer, and others). That setup is kept in history, pinned to [`d9a0585`](https://github.com/garylvov/dev_env/tree/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding): [README](https://github.com/garylvov/dev_env/blob/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/README.md), [agents](https://github.com/garylvov/dev_env/tree/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/agents), [settings](https://github.com/garylvov/dev_env/blob/d9a05855e0c9e83eda7f148bb6c352413e513cc3/vibe_coding/settings.json).
 
