@@ -35,6 +35,16 @@ def _restore(path: Path, record: dict):
         path.chmod(record['mode'])
 
 
+
+def _short_link(home: Path, dispatcher: Path) -> list:
+    """`tk` beside `token-kit`, unless something else already owns that name."""
+    short = home / '.local/bin/tk'
+    if short.is_symlink() and os.readlink(short) != str(dispatcher):
+        return []
+    if short.exists() and not short.is_symlink():
+        return []
+    return [(short, {'kind': 'symlink', 'target': str(dispatcher)})]
+
 def activation_plan(release: Path, legacy: Path, home: Path) -> list[dict]:
     release, legacy, home = release.resolve(), legacy.resolve(), home.absolute()
     new = release / 'token_kit/src/token_kit/bin/token-kit'
@@ -62,6 +72,7 @@ def activation_plan(release: Path, legacy: Path, home: Path) -> list[dict]:
     link = home / '.local/bin/token-kit'
     changes = [(dispatcher, {'kind': 'file', 'hex': script.encode().hex(), 'mode': 0o755}),
                (link, {'kind': 'symlink', 'target': str(dispatcher)}),
+               *_short_link(home, dispatcher),
                (bashrc, {'kind': 'file', 'hex': (body + block).encode().hex(),
                         'mode': (bashrc.stat().st_mode & 0o777) if bashrc.exists() else 0o644})]
     return [{'path': str(path), 'before': _capture(path), 'after': after} for path, after in changes]
@@ -158,6 +169,7 @@ def fresh_install_plan(release: Path, home: Path) -> list[dict]:
         raise ValueError(f'Existing command is not a symlink; refusing to replace it: {link}')
     changes = [(dispatcher, {'kind': 'file', 'hex': script.encode().hex(), 'mode': 0o755}),
                (link, {'kind': 'symlink', 'target': str(dispatcher)}),
+               *_short_link(home, dispatcher),
                _shell_block(home, directory)]
     return [{'path': str(path), 'before': _capture(path), 'after': after}
             for path, after in changes if _capture(path) != after]
@@ -211,6 +223,7 @@ def launcher_install_plan(release: Path, legacy: Path, home: Path) -> list[dict]
                    f'--legacy-root {shlex.quote(str(legacy))} "$@"\n')
         changes.append((old_install, {'kind': 'file', 'hex': forward.encode().hex(), 'mode': 0o755}))
     changes.extend(((home / '.local/bin/token-kit', {'kind': 'symlink', 'target': str(dispatcher)}),
+                    *_short_link(home, dispatcher),
                     _shell_block(home, directory)))
     return [{'path': str(path), 'before': _capture(path), 'after': after}
             for path, after in changes if _capture(path) != after]

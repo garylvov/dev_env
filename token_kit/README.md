@@ -6,6 +6,9 @@ GPT models are used only as Shunt-backed Claude Code subagents, never as the mai
 
 ## Everyday use
 
+`tk` is short for `token-kit`. `tk "Name"` continues the task named Name, or starts it if none exists;
+`tk r`, `tk c`, `tk s`, `tk p` and `tk l` are run, continue, status, pick and list.
+
 ```bash
 token-kit run "Fix parser" --prompt "Investigate and fix the parser failure"
 token-kit continue retread

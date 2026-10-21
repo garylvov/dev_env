@@ -105,12 +105,14 @@ class FreshInstallTests(unittest.TestCase):
         plan = simple_release.fresh_install_plan(self.release, self.home)
         link = self.home / '.local/bin/token-kit'
         self.assertEqual({row['path'] for row in plan},
-                         {str(self.home / '.local/share/token-kit/simple-bin/token-kit'), str(link), str(self.home / '.bashrc')})
+                         {str(self.home / '.local/share/token-kit/simple-bin/token-kit'), str(link),
+                          str(self.home / '.local/bin/tk'), str(self.home / '.bashrc')})
         rollback = simple_release.apply_activation(plan, self.root / 'backup')
         self.assertEqual(subprocess.check_output([str(link), 'list'], text=True).strip(), 'new list')
         self.assertEqual(simple_release.fresh_install_plan(self.release, self.home), [])
         subprocess.run(['python3', str(rollback)], check=True, capture_output=True)
         self.assertFalse(link.exists() or link.is_symlink())
+        self.assertFalse((self.home / '.local/bin/tk').is_symlink())
 
     def test_fresh_plan_keeps_an_existing_legacy_dispatcher(self):
         old = self.root / 'old/token_kit/src/token_kit/bin/token-kit'

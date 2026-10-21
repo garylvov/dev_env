@@ -17,7 +17,8 @@ from .simple_types import LaunchOptions, TaskView
 HELP = """Token Kit — folders and automatic session rollover.
 
   token-kit                         Choose a task or create one
-  token-kit run \"Title\"             Start a named session
+  tk "Name"                          Continue the task with that name, or start it if new
+  token-kit run \"Title\"             Start a named session (short: tk r, c, s, p, l)
   token-kit continue NAME_OR_PATH    Resume a task
   token-kit status NAME_OR_PATH      Show saved state paths
   token-kit codegraph-hooks MAIN     Print git hook lines that keep CodeGraph indexes fresh
@@ -315,6 +316,32 @@ def _picker():
     raise ValueError("No task selected")
 
 
+# Removed commands must not silently become new task names.
+REMOVED = ("send", "checkpoint", "done", "reopen", "retitle", "resume", "launch", "new")
+ALIASES = {"r": "run", "c": "continue", "s": "status", "p": "pick", "l": "list"}
+COMMANDS = ("run", "continue", "pick", "status", "list", "find", "codegraph-hooks",
+            "worker", "close-run", "agent", "migrate", "install", "init", "uninstall")
+
+
+def _open_or_create(args: list[str]) -> int:
+    """`tk NAME [options]`: continue the task whose folder is named NAME, else start one titled NAME."""
+    name, rest = args[0], args[1:]
+    slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:64]
+    probe = parser_for("continue").parse_args([name, *rest])
+    roots = search_roots(probe)
+    matches = [row for row in task_candidates(roots, [name], max(1, probe.limit))
+               if row.root.name == slug or re.fullmatch(re.escape(slug) + r"_\d{8}_\d{4}_[0-9a-f]{8}", row.root.name)]
+    if not matches:
+        print(f"Token Kit: starting new task {name!r}", file=sys.stderr)
+        parsed = parser_for("run").parse_args([name, *rest])
+        return _launch(parsed, None, create=True)
+    if len(matches) > 1:
+        _show_candidates(matches)
+        raise ValueError(f"Several tasks are named {name!r}; use tk c {name} --select N")
+    print(f"Token Kit: continuing {matches[0].root}", file=sys.stderr)
+    return _launch(probe, _unambiguous(matches[0].root, roots))
+
+
 def main(argv=None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in ("-h", "--help"):
@@ -325,7 +352,12 @@ def main(argv=None) -> int:
     try:
         if not args:
             return _picker()
-        command = args.pop(0)
+        command = ALIASES.get(args[0], args[0])
+        if command in REMOVED:
+            raise ValueError(f"Unknown command: {command}. Use token-kit --help.")
+        if command not in COMMANDS and not command.startswith("-"):
+            return _open_or_create(args)
+        args.pop(0)
         if command in ("worker", "close-run", "agent", "migrate", "install", "init", "uninstall"):
             raise ValueError(f"'{command}' is no longer required. Edit task/agent files directly and use continue to resume. No records changed.")
         if command == "codegraph-hooks":
@@ -334,7 +366,7 @@ def main(argv=None) -> int:
                 raise ValueError("Usage: token-kit codegraph-hooks MAIN_CHECKOUT")
             print(hook_lines(Path(args[0]).expanduser().resolve()), end="")
             return 0
-        if command not in ("run", "continue", "pick", "status", "list", "find"):
+        if command not in COMMANDS:
             raise ValueError(f"Unknown command: {command}. Use token-kit --help.")
         parsed = parser_for(command).parse_args(args)
         if command == "run":
