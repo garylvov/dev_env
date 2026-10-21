@@ -4,7 +4,7 @@ import re
 import tempfile
 import unittest
 from token_kit.task_files import create_task, recovery_input, archive_history, HISTORY_LINK
-from token_kit.simple_guidance import summary_request, TASK_RULES, CONCURRENCY, EFFORT
+from token_kit.simple_guidance import summary_request, SUCCESSOR, TASK_RULES, CONCURRENCY, EFFORT
 from token_kit.simple_adapters import folder_guidance
 
 
@@ -28,11 +28,14 @@ class LeanTests(unittest.TestCase):
     def test_injected_guidance_avoids_workflow_keywords(self):
         for text in (TASK_RULES, CONCURRENCY, EFFORT, folder_guidance(self.view),
                      recovery_input(self.view, paths_only=True).text,
-                     summary_request('20%', self.view.output, self.view.assignment),
-                     summary_request('20%', self.view.output, self.view.assignment, self.root / 'STATE.md')):
+                     summary_request('20%', self.view.output),
+                     summary_request('20%', self.view.output, self.root / 'asks.md'), SUCCESSOR):
             self.assertIsNone(re.search(r'\b(stop|cancel|abort)\b', text, re.I), text)
-        note = summary_request('20%', self.view.output, self.view.assignment)
-        self.assertIn('every ask', note)
+        note = summary_request('20%', self.view.output, self.root / 'asks.md')
+        self.assertIn('for the current ask', note)
+        # Slow bookkeeping moved to the successor so a summary stays short.
+        self.assertNotIn('docs/agents', note)
+        self.assertIn('docs/agents', SUCCESSOR)
         self.assertIn('Do not re-read files you already wrote', note)
 
     def test_archive_preserves_all_bytes_in_order_across_repeated_moves(self):

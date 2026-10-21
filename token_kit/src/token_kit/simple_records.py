@@ -10,12 +10,17 @@ from .simple_process import locked
 EXPERIMENTS = 'experiments.md'
 EXPERIMENTS_SKELETON = ('# Experiments\n\n- [running|?|done|abandoned] E<n> <date> <question> cmd: <exact command> '
                         'where: <job id / output path> (from #N); closed lines add verdict: <one line> -> <doc link>, '
-                        'or why: when abandoned. Hooks add [?] lines for launches; label them.\n\n## Open\n\n## Closed\n')
+                        'or why: when abandoned. Hooks append [?] lines for launches under ## Unlabeled; label them and move them to ## Open.\n\n'
+                        '## Open\n\n## Closed\n')
+UNLABELED = '## Unlabeled'
 # Commands that start long-lived work. Searched per shell segment.
-LAUNCH_PATTERNS = (r'\bsystemd-run\b', r'\bsbatch\b', r'\bfleet\b', r'\bnohup ', r'\bsetsid ', r'\S*train\S*\.py')
+LAUNCH_PATTERNS = (r'\bsystemd-run\b', r'\bsbatch\b', r'\bsrun\b', r'\bfleet\b', r'\bnohup ', r'\bsetsid ',
+                   r'\btorchrun\b', r'\baccelerate\s+launch\b', r'\bray\s+job\s+submit\b',
+                   r'(?:^|[\s/=])train[\w.-]*\.py\b', r'(?:^|\s)-m\s+(?:[\w.]+\.)?train\w*\b')
 # Segments that only inspect: reading a train script or asking a scheduler for status.
 QUERY_PATTERNS = (
-    r'^\s*(?:sudo\s+)?(?:cat|less|more|head|tail|grep|rg|sed|awk|ls|wc|diff|git|vim?|nano|echo|printf|find|stat|file|which|type|man)\b',
+    r'^\s*(?:sudo\s+)?(?:cat|less|more|head|tail|grep|rg|sed|awk|ls|cd|wc|diff|git|vim?|nano|echo|printf|find|stat|file|which|type|man)\b',
+    r'\bpytest\b',
     r'\bfleet\s+(?:status|ls|list|logs?|show|ps|top|tail|watch)\b',
     r'\b(?:squeue|sacct|sinfo|scontrol\s+show)\b',
     r'\bsystemctl\s+(?:--user\s+)?(?:status|is-active|is-failed|list-\S+|show|cat)\b',
@@ -49,24 +54,22 @@ def _lock(root: Path, name: str):
 
 
 def record_launch(root: Path, command: str, by: str) -> int:
-    """Append an unlabeled [?] line at the end of ## Open; returns its E number."""
+    """Append an unlabeled [?] line at the end of the file, never rewriting what the model edits."""
     path = _inside(root, root / EXPERIMENTS)
     shown = ' '.join(command.split())
     if len(shown) > MAX_COMMAND:
         shown = shown[:MAX_COMMAND] + '...'
     with _lock(root, EXPERIMENTS):
-        text = path.read_text() if path.exists() else EXPERIMENTS_SKELETON
+        if not path.exists():
+            path.write_text(EXPERIMENTS_SKELETON)
+        text = path.read_text()
         number = max((int(n) for n in re.findall(r'^- \[[^\]]*\] E([0-9]+)\b', text, re.M)), default=0) + 1
-        line = f'- [?] E{number} {_stamp()} unlabeled launch by {by}: {shown}\n'
-        closed = re.search(r'^## Closed\b', text, re.M)
-        if closed:
-            head = text[:closed.start()].rstrip('\n') + '\n'
-            text = head + line + '\n' + text[closed.start():]
-        else:
-            text = text.rstrip('\n') + '\n' + line
-        tmp = path.with_name(path.name + '.tmp')
-        tmp.write_text(text)
-        tmp.replace(path)
+        headings = re.findall(r'^## .*$', text, re.M)
+        lead = '' if text.endswith('\n') or not text else '\n'
+        if not headings or headings[-1].strip() != UNLABELED:
+            lead += '\n' + UNLABELED + '\n\n'
+        with path.open('a') as stream:
+            stream.write(f'{lead}- [?] E{number} {_stamp()} unlabeled launch by {by}: {shown}\n')
         return number
 
 
@@ -76,9 +79,9 @@ def experiments_note(root: Path) -> str:
         text = (root / EXPERIMENTS).read_text()
     except (OSError, UnicodeDecodeError):
         return ''
-    found = re.search(r'^## Open\b(.*?)(?=^## |\Z)', text, re.M | re.S)
+    sections = re.findall(r'^## (?:Open|Unlabeled)\b(.*?)(?=^## |\Z)', text, re.M | re.S)
     labels = []
-    for status, number in re.findall(r'^- \[([^\]]*)\] (E[0-9]+)\b', found.group(1) if found else '', re.M):
+    for status, number in re.findall(r'^- \[([^\]]*)\] (E[0-9]+)\b', ''.join(sections), re.M):
         status = status.strip()
         labels.append(number + {'running': ' (running)', '?': ' (unlabeled)'}.get(status, ''))
     if not labels:

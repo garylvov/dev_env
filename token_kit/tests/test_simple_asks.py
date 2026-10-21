@@ -58,9 +58,9 @@ class AsksTests(unittest.TestCase):
         self.assertIn('never delete', rules)
         self.assertIn('create it if missing', rules)
         self.assertLessEqual(len(rules.splitlines()), 11)
-        note = guidance.summary_request('80%', 'out.md', 'in.md', None, '/task/asks.md')
-        self.assertIn('Re-read /task/asks.md; make sure every request from every message has a line, open ones first.', note)
-        self.assertNotIn('asks.md', guidance.summary_request('80%', 'out.md', 'in.md'))
+        note = guidance.summary_request('80%', 'out.md', '/task/asks.md')
+        self.assertIn('list the open asks from /task/asks.md', note)
+        self.assertNotIn('asks.md', guidance.summary_request('80%', 'out.md'))
 
     # Scope creep: requests pile up mid-task; none may be silently dropped.
     def test_every_aside_gets_a_line(self):

@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shlex
 import sys
+import time
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -19,14 +20,21 @@ MATCHED = {'PreToolUse': 'Bash'}
 
 # Claude Code delivers these through UserPromptSubmit, but the user did not write them.
 MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message')
+# A child no hook has mentioned for this long is presumed gone (TaskStop, crash).
+CHILD_TTL = 1800
+DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
 def _machine_message(prompt: str) -> bool:
     body = re.sub(r'<system-reminder>.*?</system-reminder>', '', prompt, flags=re.S).lstrip()
     return body.startswith(MACHINE_TAGS)
 
+# uv may remove the launching interpreter mid-session; hooks then resolve one the launcher's way.
+_INTERPRETER = 'p="$1"; shift; [ -x "$p" ] && exec "$p" "$@"; exec uv run --python ">=3.11" --no-project python "$@"'
+
+
 def hooks():
-    command = shlex.join([sys.executable, str(Path(__file__).resolve())])
+    command = shlex.join(['sh', '-c', _INTERPRETER, 'token-kit-hook', sys.executable, str(Path(__file__).resolve())])
     entry = {'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}
     return {**{event: [entry] for event in EVENTS},
             **{event: [dict(entry, matcher=matcher)] for event, matcher in MATCHED.items()}}
@@ -89,9 +97,26 @@ def _records(control: dict, payload: dict, event: str) -> bool:
     return False
 
 
+ALIASES = {'opus': 'claude-opus-5-5', 'sonnet': 'claude-sonnet-5-5', 'fable': 'claude-fable-5-1'}
+
+
+def model_window(model: str) -> tuple[int | None, str | None]:
+    """claude_window, but dated, [1m] and alias ids resolve, and other claude-* ids assume 200K."""
+    from token_kit.core.context_window import claude_window
+    window, source = claude_window(model)
+    if window:
+        return window, source
+    base = re.sub(r'-[0-9]{8}$', '', model.lower().removesuffix('[1m]'))
+    window, source = claude_window(ALIASES.get(base, base))
+    if window:
+        return window, source
+    if base.startswith('claude-') or base == 'haiku':
+        return 200_000, 'assumed_default'
+    return None, None
+
+
 def usage_sample(path: Path, expected: str) -> dict:
     """Read at most the final MiB of the exact provider-supplied transcript."""
-    from token_kit.core.context_window import claude_window
     with path.open('rb') as stream:
         stream.seek(0, 2)
         size = stream.tell()
@@ -115,8 +140,12 @@ def usage_sample(path: Path, expected: str) -> dict:
                   'cache_creation_input_tokens', 'output_tokens')]
         if any(type(value) is not int or value < 0 for value in values):
             return {}
-        window, _ = claude_window(message.get('model', 'unknown'))
-        return {'context_tokens': sum(values), 'context_window': window}
+        model = message.get('model', 'unknown')
+        window, source = model_window(model)
+        sample = {'context_tokens': sum(values), 'context_window': window}
+        if source == 'assumed_default':
+            sample['window_note'] = f'Unrecognized model {model}; assuming a {window}-token window for rollover'
+        return sample
     return {}
 
 
@@ -125,7 +154,7 @@ def initialize(run: Path, options, expected_session: str | None, state: Path,
                kickoff_prompt: str | None = None):
     write(run / 'control.json', {'run_id': run.name,
           'expected_session': expected_session, 'armed': False, 'phase': 'running',
-          'threshold': options.rollover, 'context_window': options.context_window,
+          'threshold': None if options.rollover in (0, 'off') else options.rollover, 'context_window': options.context_window,
           'state': str(state), 'assignment': str(assignment) if assignment else None,
           'output': str(output or state), 'kickoff_prompt': kickoff_prompt,
           'task_root': os.environ.get('TOKEN_KIT_TASK', str(state.parent)), 'children': [], 'activity': 0, 'valid_usage': False})
@@ -144,17 +173,74 @@ def rollover_growth(control: dict, used: int, window: int, limit: int) -> bool:
     return used >= limit and used - baseline >= minimum
 
 
+def _history_line(control: dict, text: str):
+    output = Path(control.get('output') or control['state'])
+    with output.open('a') as history:
+        history.write(f'- {datetime.now().astimezone().isoformat(timespec="minutes")} {text}\n')
+
+
+def _settle_children(control: dict, payload: dict, now: float):
+    """Forget children no hook has mentioned for CHILD_TTL; a main Stop resolves the rest."""
+    seen = control.get('child_seen', {})
+    children = [c for c in control.get('children', []) if now - seen.get(c, now) < CHILD_TTL]
+    if payload.get('hook_event_name') == 'Stop':
+        tasks = payload.get('background_tasks')
+        if isinstance(tasks, list):
+            # Parent-scoped registry: the source of truth when the client sends it.
+            busy = any(isinstance(t, dict) and t.get('type') == 'subagent'
+                       and str(t.get('status', '')).lower() not in DONE_TASK for t in tasks)
+            control['unknown_children'] = busy and not children
+            if not busy:
+                children = []
+        else:
+            control.pop('unknown_children', None)
+    control['children'] = children
+    control['child_seen'] = {c: seen[c] for c in children if c in seen}
+
+
+def _asks_nudge(control: dict) -> dict:
+    """One non-blocking reminder per recorded message whose turn ended without asks.md changing."""
+    number, recorded = control.get('last_ask'), control.get('last_ask_at')
+    root = Path(control['task_root'])
+    assignment = control.get('assignment')
+    if not number or not recorded or control.get('nudged') == number or not assignment:
+        return {}
+    if Path(assignment).resolve().parent != root.resolve():
+        return {}
+    asks = root / 'asks.md'
+    if asks.is_file() and asks.stat().st_mtime >= recorded:
+        return {}
+    control['nudged'] = number
+    return {'hookSpecificOutput': {'hookEventName': 'Stop',
+            'additionalContext': f'Token Kit: asks.md not updated for #{number}.'}}
+
+
 def handle(run: Path, payload: dict, nonce: str) -> dict:
     with locked(run / 'control.lock'):
         control = read(run / 'control.json')
         if nonce != control.get('run_id') or nonce != run.name:
             return {}
         expected = control.get('expected_session')
+        event = payload.get('hook_event_name')
+        now = time.time()
+        # /clear keeps this process but starts a new session id. Only an armed
+        # run's own hook process sees it, so follow the new id.
+        if (event == 'SessionStart' and payload.get('source') == 'clear' and expected and control.get('armed')
+                and payload.get('session_id') and payload.get('session_id') != expected
+                and not payload.get('agent_id')):
+            expected = control['expected_session'] = str(payload['session_id'])
+            control.pop('startup_tokens', None)
+            try:
+                _history_line(control, f'/clear started session {expected}; Token Kit follows it.')
+            except OSError as exc:
+                _record_error(control, exc)
         # Unknown and child events never bind or control a parent. Environment
         # inheritance alone is not identity evidence.
         if not expected or payload.get('session_id') != expected:
             return {}
-        event = payload.get('hook_event_name')
+        native = str(payload.get('agent_id') or '')
+        if native in control.get('children', []):
+            control.setdefault('child_seen', {})[native] = now
         try:
             done = _records(control, payload, event)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
@@ -164,23 +250,25 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             write(run / 'control.json', control)
             return {}
         if event in ('SubagentStart', 'SubagentStop'):
-            native = payload.get('agent_id')
             if event == 'SubagentStart' and control['phase'] == 'ready':
                 control['phase'] = 'requested'
             children = set(control.get('children', []))
             if not native and event == 'SubagentStart':
                 control['unknown_children'] = True
-                write(run / 'control.json', control)
             if native:
                 if event == 'SubagentStart':
-                    children.add(str(native))
+                    children.add(native)
+                    control.setdefault('child_seen', {})[native] = now
                 else:
-                    children.discard(str(native))
+                    children.discard(native)
+                    control.get('child_seen', {}).pop(native, None)
                 control['children'] = sorted(children)
-                write(run / 'control.json', control)
+            write(run / 'control.json', control)
             return {}
-        if (payload.get('agent_id') or payload.get('agent_type') or
+        if (native or payload.get('agent_type') or
                 payload.get('parent_thread_id') or payload.get('parent_session_id')):
+            if native in control.get('children', []):
+                write(run / 'control.json', control)
             return {}
         if event == 'SessionStart':
             control['armed'] = True
@@ -188,6 +276,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             if payload.get('tool_name') == 'Agent':
                 write(run / 'control.json', control)  # keep the worker map
             return {}
+        output = {}
         if event == 'UserPromptSubmit' and control.get('assignment'):
             prompt = payload.get('prompt')
             prompt_id = payload.get('prompt_id') or payload.get('turn_id')
@@ -196,21 +285,23 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 return {}
             if isinstance(prompt, str) and _machine_message(prompt):
                 return {}
+            failure = None
             if not isinstance(prompt, str) or not prompt.strip():
-                control['degraded'] = 'Cannot record user ask: prompt payload is missing'
-                write(run / 'control.json', control)
-                return {'decision': 'block', 'reason': control['degraded']}
-            kickoff = control.pop('kickoff_prompt', None)
-            if prompt != kickoff:
+                failure = 'prompt payload is missing'
+            elif prompt != control.pop('kickoff_prompt', None):
                 from token_kit.task_files import append_ask
                 try:
                     number = append_ask(Path(control['task_root']), Path(control['assignment']), prompt)
                     control['last_ask'] = number
+                    control['last_ask_at'] = now
                 except (OSError, ValueError) as exc:
-                    control['degraded'] = f'Cannot record user ask before work: {exc}'
-                    write(run / 'control.json', control)
-                    return {'decision': 'block', 'reason': control['degraded']}
-            if prompt_id:
+                    failure = str(exc)
+            if failure:
+                # Never discard the user's message; the model records it instead.
+                control['record_warning'] = f'Cannot record user ask: {failure}'
+                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext':
+                          f"Token Kit could not record this message; append it verbatim, dated and numbered, to {control['assignment']}."}}
+            elif prompt_id:
                 control['recorded_prompt_ids'] = (seen + [prompt_id])[-2048:]
         if event == 'PostToolUse' and control['phase'] == 'running':
             control['activity'] += 1
@@ -221,6 +312,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 sample = usage_sample(Path(transcript), expected)
             except (OSError, ValueError, ImportError, TypeError):
                 sample = {}
+        if sample.get('window_note'):
+            control['window_note'] = sample['window_note']
         used = sample.get('context_tokens')
         window = control.get('context_window') or sample.get('context_window')
         from token_kit.rollover import effective_limit
@@ -235,6 +328,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control.pop('degraded', None)
         if type(used) is int and used >= 0:
             control.setdefault('startup_tokens', used)
+            control['peak_tokens'] = max(used, control.get('peak_tokens', 0))
         crossed = (type(used) is int and type(window) is int and window > 0 and limit is not None
                    and rollover_growth(control, used, window, limit))
         if isinstance(used, (int, float)) and used > 0:
@@ -242,12 +336,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             control['context_tokens'] = used
             if type(window) is int and window > 0:
                 control['telemetry_window'] = window
-        output = {}
-        if event == 'UserPromptSubmit' and not control.get('guidance_presented'):
-            guidance = os.environ.get('TOKEN_KIT_SIMPLE_GUIDANCE')
-            if guidance:
-                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': guidance}}
-                control['guidance_presented'] = True
+        _settle_children(control, payload, now)
         # Native children of unknown fate defer this segment's managed rollover.
         if control.get('children') or control.get('unknown_children'):
             control['degraded'] = 'Native workers are active; using native compaction until they finish'
@@ -255,7 +344,10 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             if control['phase'] == 'requested' and event == 'Stop':
                 control['phase'] = 'ready'
                 output = {'continue': False, 'stopReason': 'Token Kit is carrying this session into fresh context.'}
-            elif event == 'PreCompact' and crossed:
+            elif control['phase'] == 'requested' and event == 'SessionStart' and control.get('summary_note'):
+                # Native compaction ran mid-summary; restate the request. The Stop boundary still decides.
+                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': control['summary_note']}}
+            elif event == 'PreCompact' and crossed and control['phase'] == 'running':
                 control['phase'] = 'ready'
                 control['reason'] = 'parent_compaction'
                 # Do not veto native compaction. Supervisor handles verified shutdown.
@@ -266,9 +358,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 assignment = control.get('assignment')
                 task_root = Path(control['task_root'])
                 note = summary_request(percent, control.get('output') or control['state'],
-                                       assignment or 'the assignment file', control['state'],
-                                       task_root / 'asks.md' if assignment and Path(assignment).resolve().parent == task_root.resolve() else None,
-                                       task_root / 'experiments.md' if (task_root / 'experiments.md').is_file() else None)
+                                       task_root / 'asks.md' if assignment and Path(assignment).resolve().parent == task_root.resolve() else None)
+                control['summary_note'] = note
                 output_path = Path(control.get('output') or control['state'])
                 from token_kit.task_files import safe_task_path
                 from token_kit.simple_types import TaskView
@@ -281,6 +372,11 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                     history.write(entry)
                 output = ({'decision': 'block', 'reason': note} if event == 'Stop' else
                           {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}})
+        if event == 'Stop' and not output:
+            try:
+                output = _asks_nudge(control)
+            except OSError:
+                output = {}
         write(run / 'control.json', control)
         return output
 

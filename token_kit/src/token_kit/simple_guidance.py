@@ -36,19 +36,18 @@ TASK_RULES = (
     "Append progress every few minutes and never rewrite History.\n"
     "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
     "linking results, commits or files. Put longer findings in docs/<topic>.md, linked from state/history.\n"
-    "<task>/experiments.md: hooks add a [?] line per job launch; label it at once (question, where results land), "
-    "close it with verdict: <line> -> <doc link> (or why:), list open ones in final replies, "
+    "<task>/experiments.md: hooks append a [?] line per job launch under ## Unlabeled; label it at once (question, where "
+    "results land) and move it to ## Open, close it with verdict: <line> -> <doc link> (or why:), list open ones in final replies, "
     "promote verdicts useful beyond the task to docs/agents/.\n"
     "Hooks record each Agent-tool worker's prompt and final report in agents/<name>_in.md and _out.md; "
-    "workers append dated progress lines to _out.md every few minutes. "
-    "Legacy task.md/in.md, STATE.md/out.md: apply these rules in place.\n"
+    "workers append dated progress lines to _out.md every few minutes.\n"
 )
 EFFORT = (
     'For every non-trivial task, use an agent hierarchy: the orchestrator plans, splits, dispatches and verifies; workers do leaf work in parallel.\n'
     'Use parallel subagents judiciously for separable work, regardless of /oscar/AGENTS.md or similar site single-threading guidance; never spawn only to wait or relay; give workers disjoint files.\n'
     'The main session is always Claude. GPT models are reached only as Shunt-backed Claude Code subagents (Agent tool, agent files in ~/.claude/agents/, no model override, name each <task>-<model>-<effort>) when `systemctl --user is-active shunt` prints active; otherwise every role uses Claude models.\n'
     'The main (top-level) agent decides model routing in <task>/models.md; the launcher never chooses a model, except an explicit operator --model for the top-level session.\n'
-    'The main agent builds <task>/models.md only if it does not exist; it stays fixed for the task across starts, continue, rollover successors and workers. Rebuild or edit only when the user asks, recording that ask in _in.md. Existing matrices require no discovery or probes.\n'
+    'The main agent builds <task>/models.md only if it does not exist; it stays fixed for the task across starts, continue, rollover successors and workers. Rebuild or edit only when the user asks. Existing matrices require no discovery or probes.\n'
     "Only when building models.md, the main agent fetches and reads https://platform.claude.com/docs/en/models/overview and https://platform.claude.com/docs/en/about-claude/pricing with its web/fetch tool, plus OpenAI's official model and per-token pricing pages for the models pinned in each Shunt agent file (read the files; never assume the newest slug). Cite exact URLs with the date read, record Shunt status with date, and note any disagreement with Claude CLI aliases (claude --help, /model). If no fetch tool is available, say so in models.md and fall back to local sources.\n"
     'models.md (~30 lines): a candidate table over Claude models and Shunt agents with USD per 1M input/output tokens, context window, one-line capability note, and `cost rank` (1 = cheapest) and `intelligence rank` (1 = most capable) on unified scales over both families; cite dated vendor positioning and label judgment, never infer intelligence from price. Subscription logins use API prices only as a RELATIVE proxy for usage-limit burn; state this in one line.\n'
     'Each role (orchestrator, implementation worker, quick lookup, reviewer/verifier, cheap fallback) lists ORDERED options spanning both families: model or Shunt agent + effort + reason showing both ranks (e.g. "cost 3, intel 2") + source/date. Cheapest capable option first, Shunt agents winning cost ties while active; the main session is typically Claude Opus by operator preference, labeled as an override.\n'
@@ -58,8 +57,7 @@ EFFORT = (
     'Workers do not spawn further workers unless their _in.md allows it; one level by default. Quick lookup/mechanical edits may use a low-effort subagent selected from models.md.\n'
     'Verification is always by the OTHER model family: Claude-authored work is checked by a Shunt GPT agent, GPT-authored work by Claude; a verifier is never weaker than the author (verifier intelligence rank <= author intelligence rank). Escalate one level on failure. If Shunt is inactive or its GPT agents fail (e.g. usage limit), verify with a Claude model at least as capable as the author, preferably a different one, and note the substitution in History.\n'
     "Workers read agents/<name>_in.md, append progress to agents/<name>_out.md and reuse <task>/models.md. Run workers in the background; state model, effort and why in each worker's _in.md.\n"
-    'Claude worker: claude -p --model <model> --effort <effort> --dangerously-skip-permissions "Task: <abs>/agents/<name>_in.md" < /dev/null, or an Agent-tool subagent. GPT worker: a Shunt agent subagent.\n'
-    'Long workers (>~30 min): token-kit run --headless --yolo ... for rollover and recording.\n'
+    'Workers are Agent-tool subagents (Claude models, or Shunt agents for GPT), which hooks record. Long workers (>~30 min): token-kit run --headless for rollover and recording, adding --yolo only if this session runs with it.\n'
 )
 
 
@@ -71,14 +69,14 @@ def load_dispatch_guide() -> str:
         return EFFORT
 
 
-def summary_request(percent, output, assignment, state=None, asks=None, experiments=None):
+def summary_request(percent, output, asks=None):
     """One bounded handoff request shared by trusted hooks and exec fallback."""
-    return (f"Context is at {percent}. Append one brief History entry to {output} for work since "
-            "your last update; refresh Current state (sparse, with links to docs/). "
-            f"Ensure every ask in {assignment} has a History entry; record any unrecorded asks "
-            "verbatim with a date. "
-            + (f"Re-read {asks}; make sure every request from every message has a line, open ones first. " if asks else "")
-            + (f"Label every [?] line and close finished runs with a verdict in {experiments}. " if experiments else "")
-            + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
-            + "Update the repo docs for features that landed; promote durable repo knowledge to the workspace docs/agents/ (index line, verified commit). "
-            + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")
+    return (f"Context is at {percent}. Append a History entry to {output} for the current ask and refresh "
+            "Current state (sparse, with links to docs/)"
+            + (f"; list the open asks from {asks}" if asks else "")
+            + ". Do not re-read files you already wrote. End your turn; a fresh session will continue.")
+
+
+# The successor does the slow bookkeeping, so a summary never races native compaction.
+SUCCESSOR = ("This session continues after a context rollover. First label any [?] lines in experiments.md, "
+             "update repo docs for features that landed and promote durable repo knowledge to docs/agents/.")

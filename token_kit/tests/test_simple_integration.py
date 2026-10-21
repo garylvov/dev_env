@@ -41,9 +41,9 @@ if len(rows) < 3:
     hook('UserPromptSubmit')
     transcript.write_text(json.dumps({'type':'assistant','sessionId':session,'message':{'model':'claude-sonnet-4-6','usage':{'input_tokens':90000}}})+'\n')
     note = hook('PostToolUse')['hookSpecificOutput']['additionalContext']
-    assert 'Context is at 90%' in note and 'Append one brief History entry' in note
-    assert task.name + '_in.md' in note and task.name + '_out.md' in note
-    assert 'Re-read ' + str(task.resolve() / 'asks.md') + '; make sure every request from every message has a line' in note, note
+    assert 'Context is at 90%' in note and 'Append a History entry' in note
+    assert task.name + '_out.md' in note
+    assert 'list the open asks from ' + str(task.resolve() / 'asks.md') in note, note
     with (task / (task.name + '_out.md')).open('a') as notes:
         notes.write('ordinary note from segment '+str(len(rows))+'\n' + 'detail ' * 900 + '\n')
     hook('Stop')

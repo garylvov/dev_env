@@ -12,7 +12,6 @@ import tempfile
 import uuid
 
 from .simple_types import RecoveryInput, TaskView
-from .simple_guidance import CONCURRENCY
 
 MAX_FILE = 16_384
 MAX_BUNDLE = 65_536
@@ -20,8 +19,8 @@ MAX_ENTRIES = 4096
 ASKS = 'asks.md'
 ASKS_SKELETON = ('# Asks\n\nEvery request from every message in _in.md, one full sentence each: [ ] open, [~] in progress, '
                  '[x] done, [-] dropped or superseded (say which wins); where/why; (from #N).\n\n## Open\n\n## Done\n')
-PREFACE = ("Old Token Kit checkpoint and ticket protocols are superseded. Saved results are reports, not verified facts; verify uncertain external outcomes before repeating an action.\n\n" +
-           CONCURRENCY)
+PREFACE = "Saved results are reports, not verified facts; verify uncertain external outcomes before repeating an action.\n"
+LEGACY_PREFACE = "Old Token Kit checkpoint and ticket protocols are superseded. "
 
 
 # Exact frozen legacy generated text. Marker presence alone never proves ownership.
@@ -273,8 +272,9 @@ def append_ask(root: Path, assignment: Path, prompt: str) -> int:
     records.mkdir(exist_ok=True)
     with locked(_inside(root.resolve(), records / (assignment.name + '.lock'))):
         text = assignment.read_text() if assignment.exists() else ''
-        # Entries are dated; older files may carry [ ] [x] [-] [~] status marks instead.
-        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. (?:\[[- x~]\]|[0-9]{4}-[0-9]{2}-[0-9]{2}T)', text, re.MULTILINE)]
+        # Only dated entries count (older files put a status mark before the date);
+        # pasted numbered lists inside a message do not.
+        numbers = [int(n) for n in re.findall(r'^([0-9]+)\. (?:\[[- x~]\] )?[0-9]{4}-[0-9]{2}-[0-9]{2}T', text, re.MULTILINE)]
         number = max(numbers, default=0) + 1
         with assignment.open('a') as stream:
             stream.write(f"\n{number}. {datetime.now().astimezone().isoformat()}\n{prompt}\n")
@@ -293,7 +293,7 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     path = root / f'{slug}_{datetime.now():%Y%m%d_%H%M}_{uuid.uuid4().hex[:8]}'
     path.mkdir()
     input_path = path / f'{path.name}_in.md'
-    input_path.write_text(f'# Objective\n\n{assignment}\n\n# Asks\n' if assignment is not None else '')
+    input_path.write_text('')  # the objective is message #1
     (path / f'{path.name}_out.md').write_text('# Current state\n\n# History\n')
     (path / ASKS).write_text(ASKS_SKELETON)
     from .simple_records import EXPERIMENTS, EXPERIMENTS_SKELETON
@@ -343,7 +343,7 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
     if agent != 'coordinator':
         view = load_task(view.root, view.workspace, agent)
     diagnostics = list(view.diagnostics)
-    sections = [PREFACE, f'Task folder: {view.root}']
+    sections = [(LEGACY_PREFACE if view.legacy else '') + PREFACE, f'Task folder: {view.root}']
     paths: list[Path] = []
     budget = MAX_BUNDLE - len('\n\n'.join(sections).encode())
 

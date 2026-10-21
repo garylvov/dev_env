@@ -46,6 +46,26 @@ def _observe(path, notices):
         return {}
 
 
+HANDSHAKE = 'Token Kit hook handshake not observed; recording and managed rollover are unavailable, native compaction remains'
+
+
+def _log_usage(view, run, control, rollover, code):
+    """One JSON line per client run plus one summary line; best effort."""
+    row = {'run_id': run.name, 'ended': time.strftime('%Y-%m-%dT%H:%M:%S%z'),
+           'startup_tokens': control.get('startup_tokens'), 'peak_tokens': control.get('peak_tokens'),
+           'window': control.get('telemetry_window') or control.get('context_window'),
+           'rollover': bool(rollover), 'reason': control.get('reason'), 'exit_code': code}
+    try:
+        from .simple_process import safe
+        path = safe(view.root, view.root / '.token-kit' / 'usage.jsonl')
+        with path.open('a') as stream:
+            stream.write(json.dumps(row) + '\n')
+    except (OSError, ValueError) as error:
+        print(f'Token Kit: usage log unavailable: {error}', file=sys.stderr)
+    print(f"Token Kit: run {run.name}: startup {row['startup_tokens']} tokens, peak {row['peak_tokens']}"
+          f"{', rollover' if rollover else ''}", file=sys.stderr)
+
+
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
     from .task_files import recovery_input, save_settings, mark_messages_presented, has_work_context
@@ -124,6 +144,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                     slot.publish(status='exited', exit_code=1)
                 raise
             started_at = time.monotonic()
+            hooked = bool(environment.get('TOKEN_KIT_SIMPLE_SESSION_ID'))
             rollover = False
             continuing = False
             try:
@@ -136,13 +157,13 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         except (OSError, ValueError) as error:
                             print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
                             pending_ids = ()  # leave persisted cursor unchanged, do not spam warnings
-                    warning = control.get('loop_warning')
-                    if warning and warning not in notices:
-                        print('Token Kit: ' + warning, file=sys.stderr)
-                        notices.add(warning)
+                    for warning in (control.get('loop_warning'), control.get('window_note'), control.get('record_warning')):
+                        if warning and warning not in notices:
+                            print('Token Kit: ' + warning, file=sys.stderr)
+                            notices.add(warning)
                     diagnostic = control.get('degraded')
-                    if effective.rollover is not None and not control.get('armed') and time.monotonic() - started_at >= 5:
-                        diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
+                    if hooked and not control.get('armed') and time.monotonic() - started_at >= 5:
+                        diagnostic = HANDSHAKE
                     if diagnostic and diagnostic not in notices:
                         print('Token Kit: ' + diagnostic, file=sys.stderr)
                         notices.add(diagnostic)
@@ -188,11 +209,9 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if output_thread:
                 output_thread.join(timeout=5)
             final_control = _observe(run / 'control.json', notices)
-            if effective.rollover is not None and not final_control.get('armed'):
-                diagnostic = 'Managed rollover handshake not observed; native compaction remains available'
-                if diagnostic not in notices:
-                    print('Token Kit: ' + diagnostic, file=sys.stderr)
-                    notices.add(diagnostic)
+            if hooked and not final_control.get('armed') and HANDSHAKE not in notices:
+                print('Token Kit: ' + HANDSHAKE, file=sys.stderr)
+                notices.add(HANDSHAKE)
             if pending_ids and final_control.get('armed') and (final_control.get('valid_usage') or final_control.get('activity')):
                 try:
                     mark_messages_presented(view, pending_ids, agent=agent)
@@ -241,6 +260,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             except (OSError, ValueError) as error:
                 print(f'Token Kit: handoff snapshot unavailable: {error}', file=sys.stderr)
             slot.publish(status='exited', exit_code=child.returncode)
+            _log_usage(view, run, final_control, rollover, child.returncode)
             if continuing:
                 return 0
             if not rollover:
@@ -263,6 +283,9 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             completed += 1
             recovered = recovery_input(view, agent=agent, paths_only=True)
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
+            if next_prompt:
+                from .simple_guidance import SUCCESSOR
+                next_prompt += '\n\n' + SUCCESSOR
             pending_ids = recovered.message_ids
     finally:
         slot.close()

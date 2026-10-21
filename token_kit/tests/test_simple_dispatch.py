@@ -79,7 +79,8 @@ class DispatchGuideTest(unittest.TestCase):
                 'OTHER model family', 'Claude-authored work is checked by a Shunt GPT agent',
                 'GPT-authored work by Claude', 'verifier intelligence rank <= author intelligence rank',
                 'verify with a Claude model at least as capable as the author',
-                '--model <model> --effort <effort>'):
+                'Workers are Agent-tool subagents', 'token-kit run --headless',
+                'adding --yolo only if this session runs with it'):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
 
@@ -88,9 +89,12 @@ class DispatchGuideTest(unittest.TestCase):
         for prompt in ('Start work', recovery_input(self.view, paths_only=True).text):
             with self.subTest(prompt=prompt):
                 plan = adapters.prepare(self.view, options, prompt, self.root / 'run')
-                self.assert_injected(plan, str(self.root / 'models.md'))
-                self.assert_injected(plan, 'main agent builds only if missing')
-                self.assert_injected(plan, 'rebuild or edit only when the user asks')
+                self.assert_injected(plan, f'Task folder: {self.root}')
+                self.assert_injected(plan, 'builds <task>/models.md only if it does not exist')
+                self.assert_injected(plan, 'Rebuild or edit only when the user asks')
+                guidance_text = plan.argv[plan.argv.index('--append-system-prompt') + 1]
+                self.assertEqual(guidance_text.count('models.md only if'), 1)
+                self.assertNotIn('dangerously-skip-permissions', guidance_text)
                 self.assertNotIn('--model', plan.argv)
                 self.assertFalse((self.root / 'models.md').exists())
 

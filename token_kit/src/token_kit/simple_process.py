@@ -130,7 +130,8 @@ class Slot:
                             break
                         except BlockingIOError:
                             if time.monotonic() >= deadline:
-                                raise ValueError('Session has not reached a safe stop boundary; no duplicate launched')
+                                raise ValueError('Session has not reached a safe stop boundary (an idle session never does); '
+                                                 'exit the old session first (/exit), then continue. No duplicate launched')
                             time.sleep(.1)
                 finally:
                     with locked(self.directory / 'request.lock'):

@@ -27,15 +27,17 @@ class SimpleAdaptersTest(unittest.TestCase):
     def prepare(self, **kwargs):
         return adapters.prepare(self.view, LaunchOptions(**kwargs), '-prompt\n$(not shell)', self.root/'run')
 
-    def test_off_does_not_probe_or_inject_hooks_and_preserves_defaults(self):
-        with patch.object(adapters.subprocess, 'run') as run:
-            plan = self.prepare(rollover='off')
-        run.assert_not_called()
+    def test_rollover_off_still_installs_recording_hooks(self):
+        help_result = subprocess.CompletedProcess([], 0, '--session-id --settings', '')
+        for rollover in ('off', None, 0):
+            with self.subTest(rollover=rollover), patch.object(adapters.subprocess, 'run', return_value=help_result):
+                plan = self.prepare(rollover=rollover)
+                self.assertIn('--settings', plan.argv)
+                self.assertEqual(plan.argv[plan.argv.index('--session-id') + 1], plan.env['TOKEN_KIT_SIMPLE_SESSION_ID'])
         self.assertEqual(plan.argv[-2:], ('--', '-prompt\n$(not shell)'))
         self.assertIn('--append-system-prompt', plan.argv)
         self.assertIn('--add-dir', plan.argv)
         self.assertNotIn('TOKEN_KIT_RUN', plan.env)
-        self.assertNotIn('TOKEN_KIT_SIMPLE_SESSION_ID', plan.env)
         self.assertNotIn('DISABLE_COMPACT', plan.env)
         self.assertNotIn('TOKEN_KIT_SIMPLE_RUN', os.environ)
         self.assertFalse(plan.strict_no_compaction)

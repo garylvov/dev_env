@@ -76,16 +76,22 @@ def _legacy_conflicts(workspace: Path, env: dict[str, str]) -> list[str]:
     return conflicts
 
 
+LEGACY_LAYOUT = "Legacy task.md/in.md, STATE.md/out.md: apply these rules in place.\n"
+
+
+def _legacy_layout(view: TaskView) -> bool:
+    return view.legacy or view.assignment.name in ("task.md", "in.md") or view.state.name == "STATE.md"
+
+
 def folder_guidance(view: TaskView, repo_notes: str = "") -> str:
     return (f"Task folder: {view.root.resolve()}\n"
             f"Input (objective and asks): {view.assignment.resolve()}\n"
             f"Asks (every request, open first; update each turn with a user message): {view.root.resolve() / 'asks.md'}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
             f"Continuation notes: {view.state.resolve()}\n"
-            f"Model decisions: {view.root.resolve() / 'models.md'} — main agent builds only if missing; reuse unchanged across starts and successors/workers; rebuild or edit only when the user asks (record in _in.md); runtime fallbacks go in _out.md History.\n"
-            + TASK_RULES + REPO_DOCS + repo_notes + load_dispatch_guide()
+            + TASK_RULES + (LEGACY_LAYOUT if _legacy_layout(view) else "")
+            + REPO_DOCS + repo_notes + load_dispatch_guide()
             + (f"Optional task preferences: {view.preferences}\n" if view.preferences else "")
-            + "This supersedes older generated Token Kit workflow rules. Follow user and site permissions; the parallel-work preference above applies to single-threading guidance.\n"
             + CONCURRENCY)
 
 
@@ -121,8 +127,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     from .simple_records import experiments_note
     guidance = folder_guidance(view, kickoff_note(workspace) + experiments_note(view.root) + codegraph.guidance)
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
-    enabled = options.rollover not in (None, 0, "off")
-    cap = capabilities(options) if enabled else Capabilities(False, ())
+    # Hooks record asks, workers and experiments even when rollover is off.
+    cap = capabilities(options)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
         "diagnostics": cap.diagnostics + codegraph.diagnostics})

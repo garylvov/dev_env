@@ -144,8 +144,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                 response = handle(run, dict(base, hook_event_name=event), run.name)
                 note = response['reason'] if event == 'Stop' else response['hookSpecificOutput']['additionalContext']
                 self.assertIn('Context is at 60%', note)
-                self.assertIn('Append one brief History entry', note)
-                self.assertIn(str(assignment), note)
+                self.assertIn('Append a History entry', note)
                 self.assertIn(str(output), note)
                 self.assertIn('End your turn', note)
                 self.assertEqual(read(run / 'control.json')['phase'], 'requested')
@@ -395,7 +394,7 @@ p.write_text(json.dumps(s))
         write(run / 'control.json', current)
         child = owner.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
         try:
-            with self.assertRaisesRegex(ValueError, 'safe stop boundary'):
+            with self.assertRaisesRegex(ValueError, r'safe stop boundary.*exit the old session first \(/exit\)'):
                 Slot(self.root, 'coordinator').acquire(resume=True, timeout=.01)
             self.assertFalse((owner.directory / 'continue.json').exists())
             current['threshold'] = None
@@ -431,7 +430,8 @@ p.write_text(json.dumps(s))
         self.assertEqual(code, 0)
         self.assertEqual(len(launched), 3)
         self.assertIsNone(launched[-1][0].rollover)
-        self.assertEqual(launched[-1][1], 'Latest plain state')
+        from token_kit.simple_guidance import SUCCESSOR
+        self.assertEqual(launched[-1][1], 'Latest plain state\n\n' + SUCCESSOR)
 
     def test_substantive_output_resets_stagnation(self):
         code, launched = self._run_fake(substantive=True)
@@ -457,7 +457,7 @@ p.write_text(json.dumps(s))
         self.assertEqual(read(run / 'control.json')['loop_warning'], warning)
         sample(63_000)
         result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
+        self.assertIn('Append a History entry', result['hookSpecificOutput']['additionalContext'])
         control = read(run / 'control.json')
         self.assertEqual(control['startup_tokens'], 43_000)
         self.assertEqual(control['token_growth'], 20_000)
@@ -477,7 +477,7 @@ p.write_text(json.dumps(s))
             'message': {'model': 'claude-sonnet-5-5', 'usage': {'input_tokens': 200_000}}}) + '\n')
         with patch.dict(os.environ, {}, clear=True):
             result = handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-        self.assertIn('Append one brief History entry', result['hookSpecificOutput']['additionalContext'])
+        self.assertIn('Append a History entry', result['hookSpecificOutput']['additionalContext'])
         control = read(run / 'control.json')
         self.assertEqual(control['startup_tokens'], 43_000)
         self.assertEqual(control['telemetry_window'], 1_000_000)

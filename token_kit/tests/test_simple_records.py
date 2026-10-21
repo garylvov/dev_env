@@ -8,7 +8,7 @@ from token_kit.simple_process import read
 from token_kit.simple_runtime import handle, hooks, initialize
 from token_kit.simple_records import EXPERIMENTS_SKELETON, experiments_note, is_launch, record_launch
 from token_kit.simple_types import LaunchOptions
-from token_kit.simple_guidance import TASK_RULES, summary_request
+from token_kit.simple_guidance import SUCCESSOR, TASK_RULES, summary_request
 from token_kit.simple_install import INSTRUCTIONS
 from token_kit.task_files import create_task
 from token_kit.simple_adapters import prepare
@@ -98,8 +98,10 @@ class RecordTests(unittest.TestCase):
         self.hook('PreToolUse', tool_name='Bash', agent_id='zz11', agent_type='Explore',
                   tool_input={'command': 'sbatch ' + 'x' * 400})
         text = self.experiments()
-        open_part = text[text.index('## Open'):text.index('## Closed')]
-        lines = [l for l in open_part.splitlines() if l.startswith('- [')]
+        # Append-only: the hook never rewrites what the model curates above.
+        self.assertTrue(text.startswith(EXPERIMENTS_SKELETON))
+        unlabeled = text[text.index('## Unlabeled'):]
+        lines = [l for l in unlabeled.splitlines() if l.startswith('- [')]
         self.assertEqual(len(lines), 3)
         self.assertRegex(lines[0], r'^- \[\?\] E1 \d{4}-\d{2}-\d{2}T\d{2}:\d{2} unlabeled launch by main: nohup sleep 1')
         self.assertIn('E2', lines[1])
@@ -147,10 +149,9 @@ class RecordTests(unittest.TestCase):
         self.assertLess(len(INSTRUCTIONS.split()), 320)
         self.assertIn('experiments.md', TASK_RULES)
         self.assertIn('workers append dated progress lines', TASK_RULES)
-        note = summary_request('80%', 'out.md', 'in.md', None, None, '/t/experiments.md')
-        self.assertIn('Label every [?] line', note)
-        self.assertNotIn('[?]', summary_request('80%', 'out.md', 'in.md'))
-        self.assertIsNone(re.search(r'\b(stop|cancel|abort)\b', note + TASK_RULES, re.I))
+        self.assertIn('label any [?] lines', SUCCESSOR)
+        self.assertNotIn('[?]', summary_request('80%', 'out.md', 'asks.md'))
+        self.assertIsNone(re.search(r'\b(stop|cancel|abort)\b', SUCCESSOR + TASK_RULES, re.I))
 
 
 if __name__ == '__main__':
