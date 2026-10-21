@@ -147,23 +147,55 @@ class CodegraphTest(unittest.TestCase):
             self.assertFalse(codegraph.attach(self.ws, None).attached)
             self.index(self.ws)
             self.assertFalse(codegraph.attach(self.ws, False).attached)
-        run.assert_not_called()
+        self.assertEqual([c.args[0][0] for c in run.call_args_list], ["git"])  # looked for main's index only
         which.assert_not_called()
 
-    def test_seeds_worktree_from_main_index(self):
-        main = self.root / "main"
-        self.index(main)
-        (main / ".codegraph/daemon.pid").write_text("1")
+    def worktree_git(self, main):
         listing = f"worktree {main}\nHEAD abc\n\nworktree {self.ws}\nHEAD def\n"
         def run(argv, **kw):
-            return subprocess.CompletedProcess(argv, 0, listing if "worktree" in argv else "", "")
+            out = {"worktree": listing, "rev-parse": "1234567890abcdef\n", "merge-base": "fedcba0987654321\n"}
+            return subprocess.CompletedProcess(argv, 0, next((v for k, v in out.items() if k in argv), ""), "")
+        return run
+
+    def test_worktree_reads_main_index_in_place(self):
+        main = self.root / "main"
+        self.index(main)
+        before = snapshot(main)
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
-                patch.object(codegraph.subprocess, "run", side_effect=run) as called:
+                patch.object(codegraph.subprocess, "run", side_effect=self.worktree_git(main)) as called:
+            for requested in (True, None):
+                result = codegraph.attach(self.ws, requested)
+                self.assertTrue(result.attached)
+                config = json.loads(result.argv[1])
+                self.assertEqual(config["mcpServers"]["codegraph"]["args"], ["serve", "--mcp", "--path", str(main)])
+                self.assertIn(f"CodeGraph answers from {main} (main's code)", result.guidance)
+                self.assertIn("git diff --name-only fedcba098765", result.guidance)
+        self.assertFalse((self.ws / ".codegraph").exists())
+        self.assertEqual(snapshot(main), before)
+        commands = [c.args[0] for c in called.call_args_list]
+        self.assertFalse(any(c[0] == "/x/codegraph" for c in commands), commands)
+
+    def test_worktree_with_own_index_keeps_it(self):
+        main = self.root / "main"
+        self.index(main)
+        self.index(self.ws)
+        with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
+                patch.object(codegraph.subprocess, "run", side_effect=self.worktree_git(main)) as called:
             result = codegraph.attach(self.ws, True)
-        self.assertTrue(result.attached)
-        self.assertEqual((self.ws / ".codegraph/codegraph.db").read_bytes(), b"db")
-        self.assertFalse((self.ws / ".codegraph/daemon.pid").exists())
-        self.assertEqual(called.call_args_list[1].args[0][1], "sync")
+        self.assertEqual(json.loads(result.argv[1])["mcpServers"]["codegraph"]["args"][-1], str(self.ws))
+        self.assertIn(["/x/codegraph", "sync", "--quiet", str(self.ws)], [c.args[0] for c in called.call_args_list])
+        self.assertNotIn("answers from", result.guidance)
+
+    def test_worktree_without_any_index_skips_build(self):
+        main = self.root / "main"
+        main.mkdir()
+        with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
+                patch.object(codegraph.subprocess, "run", side_effect=self.worktree_git(main)) as called:
+            result = codegraph.attach(self.ws, True)
+            self.assertFalse(codegraph.attach(self.ws, None).attached)
+        self.assertFalse(result.attached)
+        self.assertIn("CodeGraph skipped", result.diagnostics[0])
+        self.assertFalse(any(c.args[0][0] == "/x/codegraph" for c in called.call_args_list))
 
     def test_builds_fresh_without_any_index(self):
         def run(argv, **kw):

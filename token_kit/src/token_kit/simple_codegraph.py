@@ -1,8 +1,8 @@
 """Opt-in CodeGraph MCP for one launched Claude session; never writes client config files.
 
-The index lives in <repo>/.codegraph (CODEGRAPH_DIR overrides the name). Sync
-skips files whose (size, mtime) match and content-hashes the rest, so a worktree
-seeded with a copy of its main's index re-parses only files that differ.
+The index lives in <repo>/.codegraph (CODEGRAPH_DIR overrides the name). A linked
+worktree without its own index reads its main checkout's index in place: no copy,
+and no sync from the worktree, since a session in main may be writing it.
 """
 from __future__ import annotations
 
@@ -16,8 +16,6 @@ import subprocess
 INSTALL_HINT = "npm install -g --prefix ~/.local @colbymchenry/codegraph"
 SYNC_TIMEOUT = 120
 INIT_TIMEOUT = 900
-# Database files only; daemon pid, sockets and locks belong to the source checkout.
-SEED_FILES = ("codegraph.db", "codegraph.db-wal", ".gitignore")
 ENV = {"CODEGRAPH_TELEMETRY": "0"}
 
 
@@ -48,32 +46,21 @@ def repo_root(workspace: Path) -> Path:
     return workspace
 
 
-def main_worktree(root: Path) -> Path | None:
-    """The base checkout of a linked worktree, from `git worktree list`."""
+def _git(root: Path, *args: str) -> str | None:
     try:
-        result = subprocess.run(["git", "-C", str(root), "worktree", "list", "--porcelain"],
-                                capture_output=True, text=True, timeout=10, check=False)
+        result = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10, check=False)
     except (OSError, subprocess.TimeoutExpired):
         return None
-    first = next((line[9:] for line in result.stdout.splitlines() if line.startswith("worktree ")), None)
-    if result.returncode or not first or Path(first).resolve() == root.resolve():
+    return None if result.returncode else result.stdout.strip()
+
+
+def main_worktree(root: Path) -> Path | None:
+    """The base checkout of a linked worktree, from `git worktree list`."""
+    listing = _git(root, "worktree", "list", "--porcelain") or ""
+    first = next((line[9:] for line in listing.splitlines() if line.startswith("worktree ")), None)
+    if not first or Path(first).resolve() == root.resolve():
         return None
     return Path(first)
-
-
-def seed(root: Path, main: Path) -> None:
-    source, target = index_dir(main), index_dir(root)
-    staging = target.with_name(target.name + ".token-kit-seed")
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir()
-    try:
-        for name in SEED_FILES:
-            if (source / name).is_file():
-                shutil.copy2(source / name, staging / name)
-        staging.rename(target)
-    except OSError:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise
 
 
 def _run(argv: list[str], timeout: int) -> str | None:
@@ -118,28 +105,36 @@ def guidance(root: Path) -> str:
             "In another checkout pass its root as projectPath; if that has no .codegraph/ index, read files directly.\n")
 
 
-def attach(workspace: Path, requested: bool | None) -> Attachment:
-    """Sync (or seed/build) the index, then return MCP argv for this session only.
+def shared_guidance(root: Path, main: Path) -> str:
+    main_head = _git(main, "rev-parse", "HEAD")
+    base = (_git(root, "merge-base", "HEAD", main_head) if main_head else None) or main_head or "<merge-base>"
+    return (f"CodeGraph answers from {main} (main's code); for files changed in this worktree "
+            f"(git diff --name-only {base[:12]}), read them directly.\n")
 
-    requested None means auto: attach only when the repo already has an index.
+
+def attach(workspace: Path, requested: bool | None) -> Attachment:
+    """Sync (or build) the index, then return MCP argv for this session only.
+
+    Order: the repo's own index, else (linked worktree) main's index read in place,
+    else build, only in a main checkout. requested None attaches only an existing index.
     """
     if requested is False:
         return Attachment()
     root = repo_root(workspace)
-    if requested is None and not has_index(root):
+    main = None if has_index(root) else main_worktree(root)
+    shared = main is not None and has_index(main)
+    if requested is None and not has_index(root) and not shared:
         return Attachment()
     executable = shutil.which("codegraph")
     if executable is None:
         return Attachment(diagnostics=(f"CodeGraph requested but `codegraph` is not on PATH; continuing without it. Install: {INSTALL_HINT}",))
+    if shared:
+        # Never sync main from here; the shared serve daemon is codegraph's single writer.
+        return Attachment(mcp_argv(executable, main), (), guidance(main) + shared_guidance(root, main))
+    if main is not None:
+        return Attachment(diagnostics=(f"CodeGraph skipped: neither this worktree nor its main checkout {main} has an index; "
+                                       "run codegraph init in the main checkout to share one.",))
     notes = ()
-    if not has_index(root):
-        main = main_worktree(root)
-        if main is not None and has_index(main):
-            try:
-                seed(root, main)
-                notes = (f"CodeGraph index seeded from {main}.",)
-            except OSError as exc:
-                notes = (f"CodeGraph seed from {main} failed ({exc}); building fresh.",)
     if has_index(root):
         failure = _run([executable, "sync", "--quiet", str(root)], SYNC_TIMEOUT)
         action = "sync"

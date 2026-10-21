@@ -184,10 +184,14 @@ One fact, one home; every other doc links to it, never copies. Internal docs cit
 session only (`--mcp-config`). Without the
 flag a task saved before this default attaches only when the repo already has a `.codegraph/` index. Before launch and
 at each rollover Token Kit runs `codegraph sync` (120 s cap); a failure prints a
-warning and the session starts without the server. A worktree without an index
-copies its main checkout's index and syncs it (ProtoMotions, 20k files, 310 MB index:
-74 s fresh build vs 1.5 s copy and sync at the same commit, 14 s with 68 files
-different; each copy costs the index size on disk); otherwise `--codegraph` builds one.
+warning and the session starts without the server. A linked worktree without its
+own index attaches its main checkout's index in place: nothing is copied and Token Kit
+never syncs main from a worktree. The agent is told CodeGraph answers with main's code
+and to read files changed in the worktree (`git diff --name-only <merge-base>`) directly.
+A worktree that has its own index keeps it. With no index anywhere, `--codegraph`
+builds one only in a main checkout; a linked worktree skips with a one-line note.
+`codegraph serve` is not byte-read-only: it starts one shared daemon per indexed path
+that opens the database as its writer (and, with its file watcher, syncs it from main's files).
 No client or project config is written; `/.codegraph/` goes in the local git exclude
 file (never `.gitignore`), and CodeGraph telemetry is off (`CODEGRAPH_TELEMETRY=0`).
 In another checkout (an agent-made worktree or clone) agents pass its root as
