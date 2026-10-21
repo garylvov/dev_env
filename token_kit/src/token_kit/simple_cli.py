@@ -87,7 +87,7 @@ def _launch_options(parser):
 def parser_for(command: str):
     parser = argparse.ArgumentParser(prog="token-kit " + command)
     if command == "run":
-        parser.add_argument("title", nargs="?")
+        parser.add_argument("title", nargs="*")  # unquoted words form one title
         parser.add_argument("--task", type=Path)
     elif command in ("continue", "pick", "find", "list", "status"):
         parser.add_argument("words", nargs="*")
@@ -336,6 +336,7 @@ def _open_or_create(args: list[str]) -> int:
     if not matches:
         print(f"Token Kit: starting new task {name!r}", file=sys.stderr)
         parsed = parser_for("run").parse_args([name, *rest])
+        parsed.title = " ".join(parsed.title) or None
         return _launch(parsed, None, create=True)
     if len(matches) > 1:
         _show_candidates(matches)
@@ -372,6 +373,7 @@ def main(argv=None) -> int:
             raise ValueError(f"Unknown command: {command}. Use token-kit --help.")
         parsed = parser_for(command).parse_args(args)
         if command == "run":
+            parsed.title = " ".join(parsed.title) or None
             if parsed.task and parsed.title:
                 raise ValueError("Use either a new title or --task PATH")
             return _launch(parsed, parsed.task, create=parsed.task is None)

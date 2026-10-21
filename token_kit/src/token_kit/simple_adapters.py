@@ -36,8 +36,7 @@ def capabilities(options: LaunchOptions) -> Capabilities:
     if result.returncode or not all(flag in result.stdout for flag in ("--session-id", "--settings")):
         return Capabilities(False, ("Client help does not confirm session identity and settings flags; "
                                     "automatic rollover is unavailable.",))
-    return Capabilities(True, ("Rollover hooks are candidates; hook support, trust, parent identity and telemetry remain "
-                               "unverified until the expected parent session reports them.",))
+    return Capabilities(True, ())
 
 
 def _argument(value: str, label: str) -> None:
@@ -131,9 +130,16 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     env.update(codegraph_env)  # telemetry off for codegraph runs the session starts itself
     # Hooks record asks, workers and experiments even when rollover is off.
     cap = capabilities(options)
+    from .simple_codegraph import BUILD_GUIDANCE
+    graph = ("off" if not codegraph.argv else "no index yet (Claude builds it once it knows the repo)"
+             if codegraph.guidance == BUILD_GUIDANCE else "main checkout's index"
+             if "answers from" in codegraph.guidance else "on")
+    rollover = "off" if options.rollover in (None, 0, "off") else f"at {options.rollover}"
+    banner = (f"{view.title}: folder {view.root.resolve()}; rollover {rollover}; CodeGraph {graph}. "
+              "Token Kit guidance is in its system prompt; without --prompt it waits for your first message.")
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks,
-        "diagnostics": cap.diagnostics + codegraph.diagnostics})
+        "diagnostics": (banner,) + cap.diagnostics + codegraph.diagnostics})
     argv = [executable, "--add-dir", str(view.root.resolve()), "--append-system-prompt", guidance]
     if headless:
         argv.append("--print")
