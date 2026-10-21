@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+import re
 import shlex
 import sys
 
@@ -13,6 +14,15 @@ from token_kit.simple_process import locked, read, write
 
 EVENTS = ('SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'PreCompact')
 
+
+
+# Claude Code delivers these through UserPromptSubmit, but the user did not write them.
+MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message')
+
+
+def _machine_message(prompt: str) -> bool:
+    body = re.sub(r'<system-reminder>.*?</system-reminder>', '', prompt, flags=re.S).lstrip()
+    return body.startswith(MACHINE_TAGS)
 
 def hooks():
     command = shlex.join([sys.executable, str(Path(__file__).resolve())])
@@ -114,6 +124,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             prompt_id = payload.get('prompt_id') or payload.get('turn_id')
             seen = control.get('recorded_prompt_ids', [])
             if prompt_id and prompt_id in seen:
+                return {}
+            if isinstance(prompt, str) and _machine_message(prompt):
                 return {}
             if not isinstance(prompt, str) or not prompt.strip():
                 control['degraded'] = 'Cannot record user ask: prompt payload is missing'

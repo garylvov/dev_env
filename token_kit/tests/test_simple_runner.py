@@ -179,6 +179,16 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                              prompt='One ask with a replayed hook', prompt_id='unique'), run.name)
         self.assertEqual(assignment.read_text().count('One ask with a replayed hook'), 1)
         self.assertEqual(read(run / 'control.json')['last_ask'], 3)
+        # Subagent reports and peer messages arrive as prompts but are not the user's words.
+        for machine in ('<task-notification>\n<task-id>a1</task-id>\nPROBE</task-notification>',
+                        '<system-reminder>x</system-reminder>\n<teammate-message teammate_id="w">hi</teammate-message>',
+                        '<cross-session-message from="s">hi</cross-session-message>'):
+            handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=machine), run.name)
+        text = assignment.read_text()
+        self.assertNotIn('PROBE', text)
+        self.assertNotIn('teammate-message', text)
+        self.assertNotIn('cross-session-message', text)
+        self.assertEqual(read(run / 'control.json')['last_ask'], 3)
 
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
