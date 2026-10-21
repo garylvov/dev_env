@@ -86,18 +86,8 @@ def mcp_argv(executable: str, root: Path) -> tuple[str, ...]:
 
 def exclude(root: Path) -> None:
     """Hide the index from git status via the local exclude file, never .gitignore."""
-    result = subprocess.run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-path", "info/exclude"],
-                            capture_output=True, text=True, timeout=10, check=False)
-    if result.returncode or not result.stdout.strip():
-        return
-    path = Path(result.stdout.strip())
-    line = "/" + index_dir(root).name + "/"
-    text = path.read_text() if path.is_file() else ""
-    if line in text.splitlines():
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as stream:
-        stream.write(("" if not text or text.endswith("\n") else "\n") + line + "\n")
+    from .simple_task_roots import add_exclude
+    add_exclude(root, "/" + index_dir(root).name + "/")
 
 
 def guidance(root: Path) -> str:

@@ -72,6 +72,19 @@ def _agent_dir(root: Path, agent: str) -> Path:
     return _inside(root, root / 'agents' / agent)
 
 
+def _repo_workspace(root: Path, session: dict) -> Path | None:
+    """A task under <checkout>/agent_tasks/ follows its checkout when moved, cloned or checked out elsewhere."""
+    from .simple_task_roots import repo_of
+    repo = repo_of(root)
+    if repo is None:
+        return None
+    relative = session.get('workspace_rel')
+    if isinstance(relative, str):
+        return repo / relative
+    # .token-kit/ is never committed: a checked-out task without records works in its checkout.
+    return repo if not session.get('workspace') else None
+
+
 def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinator') -> TaskView:
     """Resolve existing prose without creating or repairing any files."""
     root = Path(path).expanduser().resolve(strict=True)
@@ -106,7 +119,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     per_agent = new.get('agent_settings', {})
     selected_metadata = per_agent.get(agent, {}) if isinstance(per_agent, dict) else {}
     worker_workspace = selected_metadata.get('workspace') if isinstance(selected_metadata, dict) and agent != 'coordinator' else None
-    candidates = [workspace] if workspace is not None else [worker_workspace, new.get('workspace'), old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None]
+    candidates = [workspace] if workspace is not None else [worker_workspace, _repo_workspace(root, new), new.get('workspace'), old.get('workspace'), legacy_cwd.group(1).strip() if legacy_cwd else None]
     resolved_workspace = None
     for candidate in candidates:
         if not isinstance(candidate, (str, Path)) or not str(candidate).strip():
@@ -120,8 +133,8 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
         diagnostics.append('No usable workspace recorded; select one before project work')
     title = new.get('title') or old.get('title')
     if not isinstance(title, str) or not title.strip():
-        heading = re.search(r'^#\s+(.+)$', state_text, re.MULTILINE)
-        title = heading.group(1) if heading else root.name
+        heading = None if named_layout else re.search(r'^#\s+(.+)$', state_text, re.MULTILINE)
+        title = heading.group(1) if heading else re.sub(r'_[0-9]{8}_[0-9]{4}_[0-9a-f]{8}$', '', root.name).replace('_', ' ')
     return TaskView(root, resolved_workspace, title, assignment, state, named_out if named_layout else _inside(root, base / 'out.md'), preferences, alternate, legacy, tuple(diagnostics))
 
 
@@ -173,12 +186,23 @@ def _view_agent(view: TaskView) -> str:
     return 'coordinator'
 
 
+def _set_relative(root: Path, container: dict) -> None:
+    from .simple_task_roots import repo_of
+    repo = repo_of(root)
+    workspace = Path(container['workspace'])
+    if repo is not None and workspace.is_relative_to(repo.resolve()):
+        container['workspace_rel'] = os.path.relpath(workspace, repo.resolve())
+    else:
+        container.pop('workspace_rel', None)
+
+
 def save_settings(view: TaskView, settings: dict, *, agent: str | None = None) -> None:
     selected = _component(agent) if agent is not None else _view_agent(view)
     with _metadata(view) as metadata:
         container = metadata if selected == 'coordinator' else metadata.setdefault('agent_settings', {}).setdefault(selected, {})
         if view.workspace is not None:
             container['workspace'] = str(view.workspace.expanduser().resolve())
+            _set_relative(view.root, container)
         previous = container.get('settings', {})
         previous = {key: value for key, value in (previous.items() if isinstance(previous, dict) else ())
                     if key not in ('engine', 'sandbox')}  # Codex-era settings
@@ -240,6 +264,7 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     view = load_task(path, workspace)
     with _metadata(view) as metadata:
         metadata.update(schema=1, title=title, workspace=str(workspace), settings={})
+        _set_relative(path, metadata)
     return load_task(path, workspace)
 
 

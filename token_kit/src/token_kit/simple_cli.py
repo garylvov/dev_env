@@ -19,9 +19,11 @@ HELP = """Token Kit — folders and automatic session rollover.
   token-kit                         Choose a task or create one
   token-kit run \"Title\"             Start a named session
   token-kit continue NAME_OR_PATH    Resume a task
-  token-kit status PATH              Show saved state paths
+  token-kit status NAME_OR_PATH      Show saved state paths
   token-kit codegraph-hooks MAIN     Print git hook lines that keep CodeGraph indexes fresh
 
+Inside git, tasks live in <repo>/agent_tasks/; continue searches this repo, its
+worktrees, then ~/.config/token_kit (--root DIR searches only DIR).
 Sessions start idle; --prompt TEXT starts work immediately.
 Rollover defaults to 80%, unlimited. --no-rollover disables automatic restarts.
 Use COMMAND --help for launch options. Files can be edited normally.
@@ -86,14 +88,12 @@ def parser_for(command: str):
     if command == "run":
         parser.add_argument("title", nargs="?")
         parser.add_argument("--task", type=Path)
-    elif command in ("continue", "pick", "find", "list"):
+    elif command in ("continue", "pick", "find", "list", "status"):
         parser.add_argument("words", nargs="*")
         parser.add_argument("--task", type=Path)
         parser.add_argument("--select", type=int)
         parser.add_argument("--limit", type=int, default=20)
-    else:
-        parser.add_argument("task", type=Path)
-    parser.add_argument("--root", type=Path, default=default_root())
+    parser.add_argument("--root", type=Path, help="Task folder root (default: <repo>/agent_tasks inside git)")
     if command in ("run", "continue", "pick"):
         _launch_options(parser)
     elif command == "status":
@@ -144,13 +144,26 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     return options
 
 
-def task_candidates(root: Path, words=(), limit=20) -> list[TaskView]:
+def search_roots(args) -> list[Path]:
+    if args.root is not None:
+        return [args.root]
+    from .simple_task_roots import search_roots as roots
+    return roots(Path.cwd(), default_root())
+
+
+def task_candidates(roots: list[Path], words=(), limit=20) -> list[TaskView]:
+    query = [word.casefold() for phrase in words for word in phrase.split()]
+    rows = [row for root in roots for row in _scan(root, query)]
+    rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [row[2] for row in rows[:limit]]
+
+
+def _scan(root: Path, query: list[str]) -> list:
     from .task_files import load_task
     if not root.is_dir():
         return []
-    query = [word.casefold() for phrase in words for word in phrase.split()]
     rows = []
-    # One explicit root, no recursive filesystem discovery.
+    # Explicit roots only, no recursive filesystem discovery.
     with os.scandir(root) as entries:
         for index, entry in enumerate(entries):
             if index >= 10000:
@@ -172,8 +185,26 @@ def task_candidates(root: Path, words=(), limit=20) -> list[TaskView]:
                 rows.append((sum(scores) / len(scores) if scores else 1, path.stat().st_mtime, view))
             except (OSError, ValueError):
                 continue
-    rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    return [row[2] for row in rows[:limit]]
+    return rows
+
+
+def _unique(rows: list[TaskView], roots: list[Path]) -> list[TaskView]:
+    """The current repo's copy of a task shadows other copies; elsewhere a repeated name is ambiguous."""
+    first = roots[0].resolve()
+    kept = []
+    for view in rows:
+        copies = [other for other in rows if other.root.name == view.root.name]
+        if len(copies) == 1:
+            kept.append(view)
+            continue
+        local = [other for other in copies if other.root.parent.resolve() == first]
+        if local:
+            if view is local[0]:
+                kept.append(view)
+            continue
+        raise ValueError(f"Task {view.root.name} exists in several places; choose one with --root DIR:\n"
+                         + "\n".join(f"  {other.root.parent}" for other in copies))
+    return kept
 
 
 def _show_candidates(rows):
@@ -193,7 +224,8 @@ def select_task(args) -> Path:
         if not candidate.is_dir():
             raise ValueError(f"Task folder does not exist: {candidate}")
         return candidate
-    rows = task_candidates(args.root, words, max(1, args.limit))
+    roots = search_roots(args)
+    rows = _unique(task_candidates(roots, words, max(1, args.limit)), roots)
     if not rows and candidate is not None and candidate.is_dir():
         return candidate
     if not rows:
@@ -229,11 +261,15 @@ def _launch(args, path: Path | None, *, create=False):
             raise ValueError("Provide a title for the new task")
         workspace = workspace or Path.cwd()
         options = resolve_options(args)
+        from .simple_task_roots import creation_root, protect
+        root = args.root if args.root is not None else creation_root(workspace, default_root())
         if args.preview:
-            print(json.dumps({"create": args.title, "root": str(args.root), "workspace": str(workspace),
+            print(json.dumps({"create": args.title, "root": str(root), "workspace": str(workspace),
                               "settings": asdict(options), "prompt": args.prompt}, indent=2))
             return 0
-        view = create_task(args.root, args.title, workspace, assignment=args.prompt)
+        view = create_task(root, args.title, workspace, assignment=args.prompt)
+        for note in protect(view.root):
+            print("Token Kit: " + note, file=sys.stderr)
     else:
         view = load_task(path, workspace=workspace, agent=args.agent)
         options = resolve_options(args, load_settings(view))
@@ -255,7 +291,8 @@ def _launch(args, path: Path | None, *, create=False):
 
 
 def _picker():
-    rows = task_candidates(default_root())
+    from .simple_task_roots import search_roots as roots
+    rows = task_candidates(roots(Path.cwd(), default_root()))
     _show_candidates(rows)
     if not sys.stdin.isatty():
         print(HELP)
@@ -298,10 +335,10 @@ def main(argv=None) -> int:
         if command in ("continue", "pick"):
             return _launch(parsed, select_task(parsed))
         if command in ("list", "find"):
-            _show_candidates(task_candidates(parsed.root, parsed.words, max(1, parsed.limit)))
+            _show_candidates(task_candidates(search_roots(parsed), parsed.words, max(1, parsed.limit)))
             return 0
         from .task_files import load_task, recovery_input
-        view = load_task(parsed.task, agent=parsed.agent)
+        view = load_task(select_task(parsed), agent=parsed.agent)
         print(f"{view.title}\nWorkspace: {view.workspace or 'unknown'}\nState: {view.state}\nAssignment: {view.assignment}")
         if parsed.full:
             print(recovery_input(view, agent=parsed.agent).text)

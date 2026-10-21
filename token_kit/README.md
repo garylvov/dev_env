@@ -26,7 +26,7 @@ Client permissions remain in effect unless you pass `--yolo`
 (`--dangerously-skip-permissions`); headless never enables it automatically.
 
 ```text
-<task>/
+<repo>/agent_tasks/<task>/   (outside git: ~/.config/token_kit/<task>/)
   <task>_in.md             verbatim conversation of user messages, append-only
   asks.md                 every request upsampled into Open/Done lines
   experiments.md          launched runs: Open/Closed lines with question, command, verdict
@@ -36,8 +36,26 @@ Client permissions remain in effect unless you pass `--yolo`
   artifacts/              optional
   agents/<name>_in.md      worker prompt (hook-written for Agent-tool workers)
   agents/<name>_out.md     worker progress and final report
-  .token-kit/             launcher records
+  .token-kit/             launcher records (never committed)
 ```
+
+### Where tasks live
+
+`token-kit run` inside a git repo creates the task in `<repo top>/agent_tasks/<task>/`,
+so the repo's own git is the backup; outside git it uses `~/.config/token_kit/`, and
+`--root DIR` always wins. Token Kit never commits: agents are told to commit the task
+folder with their work commits. `agent_tasks/*/.token-kit/` goes in the repo's local
+exclude file (`.git/info/exclude`). If the origin repo is public (`gh repo view`, 5 s cap;
+failure counts as unknown), the whole task folder is excluded too, since `_in.md` holds
+the operator's messages verbatim. If an existing ignore rule already hides `agent_tasks/`,
+creation prints one note that the folder will not be backed up; the rule is left alone.
+
+`continue`, `status` and `pick` search this repo's `agent_tasks/`, then every worktree's
+(`git worktree list`), then `~/.config/token_kit/`. A copy in the current checkout wins;
+the same task name found only in several other places is ambiguous and needs `--root`.
+A task folder that is moved, cloned or checked out elsewhere works in its new checkout:
+the workspace is stored relative to the repo, and without `.token-kit/` it is the
+checkout holding `agent_tasks/`.
 
 The filenames use the actual task folder name. Managed `UserPromptSubmit` hooks
 append every user message verbatim, dated and numbered, before the agent works;

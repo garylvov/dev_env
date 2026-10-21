@@ -83,7 +83,9 @@ def _legacy_layout(view: TaskView) -> bool:
 
 
 def folder_guidance(view: TaskView, repo_notes: str = "") -> str:
-    return (f"Task folder: {view.root.resolve()}\n"
+    from .simple_task_roots import committable
+    commit = " (in the repo: commit it with your work commits)" if committable(view.root.resolve()) else ""
+    return (f"Task folder: {view.root.resolve()}{commit}\n"
             f"Input (objective and asks): {view.assignment.resolve()}\n"
             f"Asks (every request, open first; update each turn with a user message): {view.root.resolve() / 'asks.md'}\n"
             f"Output (running state and results): {view.output.resolve()}\n"
