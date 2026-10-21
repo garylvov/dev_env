@@ -13,7 +13,8 @@ if __package__ in (None, ''):
 from token_kit.simple_process import locked, read, write
 
 EVENTS = ('SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'PreCompact')
-
+# Launch capture only needs shell commands, so other tools skip the hook process.
+MATCHED = {'PreToolUse': 'Bash'}
 
 
 # Claude Code delivers these through UserPromptSubmit, but the user did not write them.
@@ -26,8 +27,66 @@ def _machine_message(prompt: str) -> bool:
 
 def hooks():
     command = shlex.join([sys.executable, str(Path(__file__).resolve())])
-    return {event: [{'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}]
-            for event in EVENTS}
+    entry = {'hooks': [{'type': 'command', 'command': command, 'timeout': 5}]}
+    return {**{event: [entry] for event in EVENTS},
+            **{event: [dict(entry, matcher=matcher)] for event, matcher in MATCHED.items()}}
+
+
+def _record_error(control: dict, exc: Exception):
+    # Recording is best effort: never block the tool call, but leave a trace.
+    control['record_errors'] = (control.get('record_errors', []) +
+                                [f'{datetime.now().astimezone().isoformat()} {type(exc).__name__}: {exc}'])[-20:]
+
+
+def _worker_label(control: dict, payload: dict) -> str:
+    native = str(payload.get('agent_id') or '')
+    if not native:
+        return 'main'
+    known = control.get('workers', {}).get(native)
+    return known['name'] if known else f"{payload.get('agent_type') or 'worker'}-{native[:6]}"
+
+
+def _records(control: dict, payload: dict, event: str) -> bool:
+    """Worker and experiment records; True when the event needs no further handling."""
+    from token_kit import simple_records as records
+    root = Path(control['task_root'])
+    tool = payload.get('tool_name')
+    tool_input = payload.get('tool_input') if isinstance(payload.get('tool_input'), dict) else {}
+    native = str(payload.get('agent_id') or '')
+    if event == 'PreToolUse':
+        command = tool_input.get('command')
+        if tool == 'Bash' and isinstance(command, str) and records.is_launch(command):
+            records.record_launch(root, command, _worker_label(control, payload))
+        return True
+    if event == 'PostToolUse' and tool == 'SubagentHandback' and native:
+        message = tool_input.get('message')
+        if isinstance(message, str) and message.strip():
+            control.setdefault('handbacks', {})[native] = message
+        return True
+    output = Path(control.get('output') or control['state'])
+    if event == 'PostToolUse' and tool == 'Agent' and not native:
+        response = payload.get('tool_response') if isinstance(payload.get('tool_response'), dict) else {}
+        worker_id = str(response.get('agentId') or '')
+        if worker_id:
+            workers = control.setdefault('workers', {})
+            workers[worker_id] = records.record_worker_start(root, tool_input, response)
+            control['workers'] = dict(list(workers.items())[-256:])
+            # Foreground workers finish before their Agent call returns.
+            pending = control.get('pending_finals', {}).pop(worker_id, None)
+            if pending:
+                records.record_worker_final(root, output, workers[worker_id], pending['report'], pending['transcript'])
+        return False
+    if event == 'SubagentStop' and native and payload.get('agent_type'):
+        report = control.get('handbacks', {}).pop(native, None) or payload.get('last_assistant_message') or ''
+        transcript = payload.get('agent_transcript_path')
+        worker = control.get('workers', {}).get(native)
+        if worker:
+            records.record_worker_final(root, output, worker, report, transcript)
+        else:
+            pending = control.setdefault('pending_finals', {})
+            pending[native] = {'report': report, 'transcript': transcript}
+            control['pending_finals'] = dict(list(pending.items())[-32:])
+    return False
 
 
 def usage_sample(path: Path, expected: str) -> dict:
@@ -96,6 +155,14 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         if not expected or payload.get('session_id') != expected:
             return {}
         event = payload.get('hook_event_name')
+        try:
+            done = _records(control, payload, event)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            _record_error(control, exc)
+            done = event in ('PreToolUse',)
+        if done:
+            write(run / 'control.json', control)
+            return {}
         if event in ('SubagentStart', 'SubagentStop'):
             native = payload.get('agent_id')
             if event == 'SubagentStart' and control['phase'] == 'ready':
@@ -118,6 +185,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         if event == 'SessionStart':
             control['armed'] = True
         if not control.get('armed'):
+            if payload.get('tool_name') == 'Agent':
+                write(run / 'control.json', control)  # keep the worker map
             return {}
         if event == 'UserPromptSubmit' and control.get('assignment'):
             prompt = payload.get('prompt')
@@ -198,7 +267,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 task_root = Path(control['task_root'])
                 note = summary_request(percent, control.get('output') or control['state'],
                                        assignment or 'the assignment file', control['state'],
-                                       task_root / 'asks.md' if assignment and Path(assignment).resolve().parent == task_root.resolve() else None)
+                                       task_root / 'asks.md' if assignment and Path(assignment).resolve().parent == task_root.resolve() else None,
+                                       task_root / 'experiments.md' if (task_root / 'experiments.md').is_file() else None)
                 output_path = Path(control.get('output') or control['state'])
                 from token_kit.task_files import safe_task_path
                 from token_kit.simple_types import TaskView

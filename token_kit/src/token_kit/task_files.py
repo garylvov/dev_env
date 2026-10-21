@@ -300,6 +300,8 @@ def create_task(root: Path, title: str, workspace: Path, assignment: str | None 
     input_path.write_text(f'# Objective\n\n{assignment}\n\n# Asks\n' if assignment is not None else '')
     (path / f'{path.name}_out.md').write_text('# Current state\n\n# History\n')
     (path / ASKS).write_text(ASKS_SKELETON)
+    from .simple_records import EXPERIMENTS, EXPERIMENTS_SKELETON
+    (path / EXPERIMENTS).write_text(EXPERIMENTS_SKELETON)
     (path / 'docs').mkdir()
     if assignment is not None:
         append_ask(path, input_path, assignment)

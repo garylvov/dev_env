@@ -29,12 +29,13 @@ Client permissions remain in effect unless you pass `--yolo`
 <task>/
   <task>_in.md             verbatim conversation of user messages, append-only
   asks.md                 every request upsampled into Open/Done lines
+  experiments.md          launched runs: Open/Closed lines with question, command, verdict
   <task>_out.md            running state and results
   models.md               main-agent model choices, sources and dated probes
   docs/                   longer findings and decisions, linked from output
   artifacts/              optional
-  agents/<name>_in.md      optional worker assignment
-  agents/<name>_out.md     optional worker progress
+  agents/<name>_in.md      worker prompt (hook-written for Agent-tool workers)
+  agents/<name>_out.md     worker progress and final report
   .token-kit/             launcher records
 ```
 
@@ -59,6 +60,27 @@ Put longer designs, findings and how-tos in `docs/<topic>.md`, linked from state
 and history. Successors open docs only as needed; no index is required. Workers
 follow the same rules. Existing `task.md`/`in.md`, `STATE.md` and `out.md` layouts
 remain readable in place. No migration or checkpoint commands are needed.
+
+Worker records are automatic for Agent-tool subagents (including Shunt GPT agents
+and background workers). When the Agent call returns, a hook writes
+`agents/<name>_in.md` with the date, agentId, type, model and the prompt verbatim
+(`<name>` is the Agent `name`, else the description plus a short agentId). When the
+worker finishes, `SubagentStop` appends a dated `### final` section with its report
+(a `SubagentHandback` message if seen, else its last message) and transcript path
+to `agents/<name>_out.md`, and one `- worker <name> (<model>) finished: ...` line
+to the task output. Workers append their own dated progress lines in between.
+Headless `claude -p` workers are not recorded automatically.
+
+`experiments.md` tracks runs the way `asks.md` tracks requests. A Bash `PreToolUse`
+hook (main session and workers) matches launch commands (`systemd-run`, `sbatch`,
+`fleet`, `nohup`, `setsid`, `*train*.py`; `LAUNCH_PATTERNS` in `simple_records.py`)
+and appends `- [?] E<n> <date> unlabeled launch by <who>: <command>` under `## Open`;
+status queries such as `fleet status`, `squeue` or `cat train.py` are skipped. The
+hook never blocks a command; recording errors land in the run's `control.json`.
+Agents label each line with its question and where results land, then move it to
+`## Closed` with `verdict: <line> -> <doc link>` (or `why:` when abandoned). Each
+launch and successor gets one line such as `Open experiments: E3 (running), E8
+(unlabeled)` with ids only.
 
 [dispatch_guide.md](dispatch_guide.md) supplies model-neutral dispatch preferences and
 command templates. The main agent chooses models in `<task>/models.md`, refreshing

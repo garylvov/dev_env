@@ -17,24 +17,25 @@ REPO_DOCS = (
 
 TASK_RULES = (
     "Read _in.md, Current state and recent History in _out.md at session start; re-read input about every five minutes and when edited.\n"
-    "_in.md is the conversation: managed prompt hooks append each user message verbatim, dated and numbered. "
-    "Never edit it; status lives only in asks.md. If hooks are unavailable, append asks before work yourself.\n"
-    "<task>/asks.md guards against dropped asks as requests pile up: every request in every user message gets a line, "
-    "including asides buried in longer messages, as a full sentence, with [ ] [~] [x] [-] status, "
-    "where/why and sources (from #3, #7). Keep open and in-progress asks at the top, done and dropped below.\n"
-    "Group asks under short ## feature headings; a new ask joins the feature it extends. "
-    "Over five open features: end replies with a proposed priority order.\n"
+    "_in.md is the conversation: hooks append each user message verbatim, dated and numbered. "
+    "Never edit it; status lives only in asks.md. Without hooks, append asks before work yourself.\n"
+    "<task>/asks.md: every request in every user message gets a line, including asides buried in longer messages, "
+    "as a full sentence, with [ ] [~] [x] [-] status, where/why and sources (from #3, #7). "
+    "Keep open and in-progress asks at the top, done and dropped below.\n"
+    "Group asks under short ## feature headings; over five open features, end replies with a proposed priority order.\n"
     "When an ask conflicts with or supersedes another, mark both and say which wins; never delete. Update asks.md before ending "
     "each turn that had a user message (create it if missing). Re-read it before declaring work finished, ending a turn or rollover; "
-    "your final reply lists every still-open ask. Successors read it first.\n"
+    "your final reply lists every still-open ask.\n"
     "Keep a sparse Current state at the top of _out.md (done, in progress, next, open decisions). "
     "Append progress every few minutes and never rewrite History.\n"
     "After each ask append ### #N <date> <first line of ask> to History, with a concise 2-6 line response "
-    "linking results, commits or files. Before rollover ensure every ask has a History entry and refresh sparse Current state.\n"
-    "Put longer findings/designs/how-tos in docs/<topic>.md as needed; link them from state/history. "
-    "Successors open docs only as needed; no index is required.\n"
-    "Optional artifacts/ and agents/<name>_in.md + agents/<name>_out.md follow the same rules. "
-    "Keep legacy task.md/in.md, STATE.md/out.md in place; apply these rules to the supplied paths.\n"
+    "linking results, commits or files. Put longer findings in docs/<topic>.md, linked from state/history.\n"
+    "<task>/experiments.md: hooks add a [?] line per job launch; label it at once (question, where results land), "
+    "close it with verdict: <line> -> <doc link> (or why:), list open ones in final replies, "
+    "promote verdicts useful beyond the task to docs/agents/.\n"
+    "Hooks record each Agent-tool worker's prompt and final report in agents/<name>_in.md and _out.md; "
+    "workers append dated progress lines to _out.md every few minutes. "
+    "Legacy task.md/in.md, STATE.md/out.md: apply these rules in place.\n"
 )
 EFFORT = (
     'For every non-trivial task, use an agent hierarchy: the orchestrator plans, splits, dispatches and verifies; workers do leaf work in parallel.\n'
@@ -64,13 +65,14 @@ def load_dispatch_guide() -> str:
         return EFFORT
 
 
-def summary_request(percent, output, assignment, state=None, asks=None):
+def summary_request(percent, output, assignment, state=None, asks=None, experiments=None):
     """One bounded handoff request shared by trusted hooks and exec fallback."""
     return (f"Context is at {percent}. Append one brief History entry to {output} for work since "
             "your last update; refresh Current state (sparse, with links to docs/). "
             f"Ensure every ask in {assignment} has a History entry; record any unrecorded asks "
             "verbatim with a date. "
             + (f"Re-read {asks}; make sure every request from every message has a line, open ones first. " if asks else "")
+            + (f"Label every [?] line and close finished runs with a verdict in {experiments}. " if experiments else "")
             + (f"Refresh continuation notes in {state}. " if state and str(state) != str(output) else "")
             + "Promote durable repo knowledge to the workspace docs/agents/ (index line, verified commit). "
             + "Do not re-read files you already wrote. End your turn; a fresh session will continue.")

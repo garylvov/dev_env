@@ -118,7 +118,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     from .simple_codegraph import attach
     from .simple_repo_docs import kickoff_note
     codegraph = attach(workspace, options.codegraph)
-    guidance = folder_guidance(view, kickoff_note(workspace) + codegraph.guidance)
+    from .simple_records import experiments_note
+    guidance = folder_guidance(view, kickoff_note(workspace) + experiments_note(view.root) + codegraph.guidance)
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
     enabled = options.rollover not in (None, 0, "off")
     cap = capabilities(options) if enabled else Capabilities(False, ())
