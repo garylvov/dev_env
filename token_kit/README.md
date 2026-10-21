@@ -161,7 +161,7 @@ stale). It never creates, edits or commits `docs/agents/` itself.
 
 ## Docs layers
 
-One fact, one home; higher layers summarize and link down, never copy.
+One fact, one home; every other doc links to it, never copies. Internal docs cite the repo docs for how to run things, and repo docs link to `docs/agents/` for detail.
 
 - Repo docs (README, `docs/`, `--help`): high-level run info only, shipped with the code from the start, with an "In progress" status line until the feature is done.
 - `docs/agents/`: implementation detail that outlives tasks (decisions and why, gotchas, dead ends).

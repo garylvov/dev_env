@@ -16,7 +16,8 @@ REPO_DOCS = (
     "Docs ship with features, from the start: repo docs (README, docs/, --help) hold only high-level run info (what, how to "
     "run/configure, examples; an In progress status line until done), updated in the same commit as the code; an asks.md "
     "feature is not done until documented. Implementation detail goes in docs/agents/, scratch in the task docs/. "
-    "One fact, one home: extend an existing doc before adding one; higher layers summarize and link down, never copy; "
+    "One fact, one home: extend an existing doc before adding one; every other doc links to that home, never copies (internal "
+    "docs cite repo docs for how to run, repo docs link detail in docs/agents/); "
     "promoting a note moves it and leaves a link.\n"
 )
 
