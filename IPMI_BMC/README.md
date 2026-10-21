@@ -35,28 +35,41 @@ alias wake="ssh nudge '~/boom.sh'"
 
 ## Troubleshooting: BMC Network Config Reset
 
-After BIOS/firmware updates, the BMC network config may reset to DHCP with IP `0.0.0.0`. To fix this, run from Minerva locally:
+After BIOS/firmware updates, the BMC network config resets to DHCP with IP `0.0.0.0`, so it disappears from the network.
+
+### Recommended: DHCP reservation (self-healing)
+
+Rather than fighting the reset, work with it. The BMC always falls back to DHCP after a firmware wipe, and it runs on standby power independently of the host OS, so it does DHCP whether Minerva is on, off, or mid-update. Add a **DHCP reservation on the router** (`192.168.1.1`) that maps the BMC's fixed MAC to its address:
+
+```
+cc:28:aa:d1:92:56  ->  192.168.1.162
+```
+
+With that in place, every future firmware reset self-corrects: the BMC asks for an address and the router always hands back `192.168.1.162`. No in-band action needed, and it works while Minerva is powered off.
+
+To kick the BMC into re-acquiring its lease (e.g. right after a wipe), run `bmc_net_reset.sh` locally on Minerva. It flips the BMC to DHCP, cold-resets it, then verifies it landed on the reserved IP (a working check that the reservation is set up correctly). If DHCP yields no lease, it automatically falls back to static `192.168.1.162` so you are never stranded:
 
 ```bash
-# Check current BMC LAN config
-sudo ipmitool lan print 1
+./bmc_net_reset.sh          # prompts for confirmation
+./bmc_net_reset.sh -y       # non-interactive
+```
 
-# If IP shows 0.0.0.0 or wrong address, reset to static:
+### Manual static config
+
+If you prefer a router-independent static config (survives reboots, but gets wiped by firmware updates), set it directly:
+
+```bash
+sudo ipmitool lan print 1                          # check current config
 sudo ipmitool lan set 1 ipsrc static
 sudo ipmitool lan set 1 ipaddr 192.168.1.162
 sudo ipmitool lan set 1 netmask 255.255.255.0
 sudo ipmitool lan set 1 defgw ipaddr 192.168.1.1
-
-# Verify config was saved
-sudo ipmitool lan print 1
-
-# Reset the BMC to apply network changes (required!)
-sudo ipmitool mc reset cold
-
-# Wait 60 seconds for BMC to fully reinitialize
+sudo ipmitool lan print 1                          # verify it saved
+sudo ipmitool mc reset cold                         # required to apply
+# wait ~60s for the BMC to reinitialize
 ```
 
-The BMC MAC address is `cc:28:aa:d1:92:56` - useful for finding it if DHCP is used.
+The BMC MAC address is `cc:28:aa:d1:92:56` - useful for finding it (and for the reservation above).
 
 ### Verify from Nudge
 
@@ -71,4 +84,14 @@ curl -ks https://192.168.1.162/redfish/v1/
 
 # Test authentication and system status
 curl -ksu rescueadmin:StrongRescuePass https://192.168.1.162/redfish/v1/Systems/Self
+```
+
+## Reaching the BMC web UI remotely
+
+`bmc-tunnel.sh` runs on Nudge and forwards the BMC's web UI (443, 80) and KVM console (5900) over Tailscale with socat, so no IP forwarding is needed. Open `https://<nudge-tailscale-ip>` afterwards.
+
+```bash
+./bmc-tunnel.sh             # start forwarding to 192.168.1.162
+./bmc-tunnel.sh -b <ip>     # different BMC address
+./bmc-tunnel.sh --stop      # stop all forwarding
 ```
