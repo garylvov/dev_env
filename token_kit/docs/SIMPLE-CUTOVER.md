@@ -12,13 +12,13 @@ and installed-policy cleanup are separate operations.
 2. Keep old sessions on their pinned source and CLI. If inherited old global hooks
    cannot be selectively excluded safely, defer the affected new launch until old
    sessions exit and cleanup is possible. Never bypass client trust or site hooks.
-3. Preview optional guidance cleanup with `simple_install.preview`. It replaces only
+3. Preview optional guidance cleanup (the `simple_install` module, removed after the cutover; see git history). It replaces only
    complete recognized generated blocks, validates existing ownership hashes, and
    removes only exact generated hook objects recorded by the old TSV manifest.
    Customized blocks require an explicit manual decision; plain launch needs no
    new instruction installation. Unrelated MCP and permission settings stay intact.
 4. Once affected old sessions have exited, apply the reviewed preview with
-   `simple_install.apply`, using a new backup directory. It backs up all originals
+   `simple_install.apply` (same history), using a new backup directory. It backs up all originals
    before editing and writes `rollback.sh`. A changed preview is rejected. Config
    writers must be serialized by the caller while applying.
 5. Verify effective hooks and launch settings before describing a launch as simplified.

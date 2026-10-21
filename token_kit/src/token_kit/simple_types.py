@@ -37,5 +37,4 @@ class LaunchOptions:
 class RecoveryInput:
     text: str
     paths: tuple[Path, ...] = ()
-    message_ids: tuple[str, ...] = ()
     diagnostics: tuple[str, ...] = ()

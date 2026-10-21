@@ -97,43 +97,6 @@ class TaskFilesTests(unittest.TestCase):
         (agent / 'STATE.md').unlink()
         self.assertEqual(load_task(root).state, root / 'STATE.md')
 
-    def test_wrapper_removed_only_from_view(self):
-        view = self.plain()
-        from token_kit.task_files import _LEGACY_POLICY_BODY
-        raw = '<!-- token-kit worker policy v2 -->\n' + _LEGACY_POLICY_BODY + '\n<!-- /token-kit worker policy -->\nToken Kit record: {"task": "/old"}\n\nKeep the actual assignment and checkpoint terminology.'
-        view.assignment.write_text(raw)
-        recovery = recovery_input(view)
-        self.assertNotIn(_LEGACY_POLICY_BODY, recovery.text)
-        self.assertIn('Keep the actual assignment and checkpoint terminology.', recovery.text)
-        self.assertEqual(raw, view.assignment.read_text())
-
-    def test_steering_across_three_segments_and_legacy_acknowledgment(self):
-        root, agent = self.legacy()
-        (agent / 'messages').mkdir()
-        (agent / 'checkpoints/c1').mkdir(parents=True)
-        (agent / 'agent.json').write_text(json.dumps({'latest_checkpoint': 'c1'}))
-        (agent / 'checkpoints/c1/manifest.json').write_text(json.dumps({'incorporated_messages': ['old']}))
-        for identifier in ('old', 'new'):
-            (agent / f'messages/{identifier}.json').write_text(json.dumps({'message_id': identifier, 'text': identifier + ' steering'}))
-        view = load_task(root)
-        preview = recovery_input(view)
-        self.assertEqual(preview.message_ids, ('new',))
-        self.assertFalse((root / '.token-kit').exists())
-        self.assertEqual(recovery_input(view, mark_presented=True).message_ids, ('new',))
-        for _ in range(3):
-            recovered = recovery_input(view, mark_presented=True)
-            self.assertEqual(recovered.message_ids, ())
-            self.assertNotIn('new steering', recovered.text)
-            self.assertNotIn('old steering', recovered.text)
-
-    def test_customized_wrappers_and_preferences_are_preserved(self):
-        from token_kit.task_files import _LEGACY_POLICY_BODY
-        view = self.plain()
-        for content in ('User change: never deploy', _LEGACY_POLICY_BODY + '\nUser preference: use chosen model'):
-            raw = '<!-- token-kit worker policy v2 -->\n' + content + '\n<!-- /token-kit worker policy -->\nTask assignment'
-            view.assignment.write_text(raw)
-            self.assertIn(raw, recovery_input(view).text)
-
     def test_worker_settings_do_not_replace_coordinator_settings(self):
         view = self.plain()
         save_settings(view, {'engine': 'claude', 'model': 'coordinator', 'yolo': False})
@@ -142,28 +105,6 @@ class TaskFilesTests(unittest.TestCase):
         self.assertEqual(load_settings(view), {'engine': 'claude', 'model': 'coordinator', 'yolo': False})
         self.assertEqual(load_settings(worker), {'engine': 'codex', 'model': 'worker', 'yolo': True})
         self.assertEqual(load_settings(view, agent='editor'), load_settings(worker))
-
-    def test_legacy_worker_settings_come_from_worker_runs(self):
-        root, coordinator = self.legacy()
-        for name, engine in (('coordinator', 'claude'), ('editor', 'codex')):
-            run = root / 'agents' / name / 'runs/one'
-            run.mkdir(parents=True)
-            (run / 'run.json').write_text(json.dumps({'engine': engine, 'model': name}))
-        self.assertEqual(load_settings(load_task(root))['model'], 'coordinator')
-        self.assertEqual(load_settings(load_task(root, agent='editor'))['model'], 'editor')
-
-    def test_presentation_marks_only_captured_ids(self):
-        from token_kit.task_files import mark_messages_presented
-        view = self.plain()
-        messages = view.root / 'messages'
-        messages.mkdir()
-        def send(identifier):
-            (messages / (identifier + '.json')).write_text(json.dumps({'message_id': identifier, 'text': identifier}))
-        send('first')
-        captured = recovery_input(view)
-        send('later')
-        mark_messages_presented(view, captured.message_ids)
-        self.assertEqual(recovery_input(view).message_ids, ('later',))
 
     def test_workspace_overrides_roundtrip_per_agent(self):
         view = self.plain()
@@ -190,28 +131,11 @@ class TaskFilesTests(unittest.TestCase):
         view.state.write_text('Actual progress and next work')
         self.assertTrue(has_work_context(view))
         view.state.write_text('')
-        messages = view.root / 'messages'
-        messages.mkdir()
-        (messages / 'steer.json').write_text(json.dumps({'message_id': 'steer', 'text': 'Implement the requested change'}))
-        self.assertTrue(has_work_context(view))
-        from token_kit.task_files import mark_messages_presented
-        mark_messages_presented(view, ('steer',))
         self.assertFalse(has_work_context(view))
         child = view.root / 'agents/editor'
         child.mkdir(parents=True)
         (child / 'out.md').write_text('Result worth reviewing')
         self.assertTrue(has_work_context(view))
-
-    def test_root_messages_and_label_title(self):
-        view = self.plain()
-        (view.root / '.token-kit/labels.json').write_text(json.dumps({'title': 'Renamed', 'status': 'done'}))
-        messages = view.root / 'messages'
-        messages.mkdir()
-        (messages / 'hello.json').write_text(json.dumps({'message_id': 'hello', 'text': 'User steering'}))
-        view = load_task(view.root)
-        self.assertEqual(view.title, 'Renamed')
-        self.assertEqual(recovery_input(view, mark_presented=True).message_ids, ('hello',))
-        self.assertEqual(recovery_input(view).message_ids, ())
 
     def test_concurrent_settings_updates_do_not_lose_unrelated_keys(self):
         from concurrent.futures import ThreadPoolExecutor
@@ -219,18 +143,6 @@ class TaskFilesTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             list(pool.map(lambda n: save_settings(view, {f'key{n}': n}), range(8)))
         self.assertEqual(load_settings(view), {f'key{n}': n for n in range(8)})
-
-    def test_missing_legacy_state_uses_snapshot_without_writing(self):
-        root, agent = self.legacy()
-        (agent / 'STATE.md').unlink()
-        snapshot = agent / 'checkpoints/c1'
-        snapshot.mkdir(parents=True)
-        (agent / 'agent.json').write_text(json.dumps({'latest_checkpoint': 'c1'}))
-        (snapshot / 'manifest.json').write_text(json.dumps({'incorporated_messages': []}))
-        (snapshot / 'STATE.md').write_text('Historical progress survives')
-        recovery = recovery_input(load_task(root))
-        self.assertIn('Historical progress survives', recovery.text)
-        self.assertFalse((agent / 'STATE.md').exists())
 
     def test_settings_preserve_other_metadata(self):
         view = self.plain()
@@ -247,24 +159,11 @@ class TaskFilesTests(unittest.TestCase):
             save_settings(view, {})
         self.assertEqual(path.read_text(), 'invalid')
 
-    def test_settings_over_256_old_runs_and_skip_malformed(self):
-        root, agent = self.legacy()
-        for index in range(258):
-            run = agent / f'runs/{index:04d}'
-            run.mkdir(parents=True)
-            (run / 'run.json').write_text(json.dumps({'engine': 'codex', 'model': 'exact', 'created_at': '2026-09-26T00:00:00', 'max_rollovers': 0, 'yolo': True, 'context_window': 10000}))
-        (agent / 'runs/0258').mkdir()
-        (agent / 'runs/0258/run.json').write_text('bad')
-        result = load_settings(load_task(root))
-        self.assertEqual(result['max_rollovers'], 0)
-        self.assertEqual(result['model'], 'exact')
-        self.assertTrue(result['yolo'])
-
-    def test_lanes_and_arbitrary_agents(self):
-        root = self.root / 'lanes-task'
+    def test_legacy_cwd_title_and_agent_folders(self):
+        root = self.root / 'agents-task'
         root.mkdir()
         (root / 'STATE.md').write_text(f'# Legacy title\nCwd: {self.workspace}\nUseful work')
-        lane = root / 'lanes/editor'
+        lane = root / 'agents/editor'
         lane.mkdir(parents=True)
         (lane / 'in.md').write_text('Edit')
         (lane / 'STATE.md').write_text('Working')

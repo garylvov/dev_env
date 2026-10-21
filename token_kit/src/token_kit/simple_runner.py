@@ -68,7 +68,7 @@ def _log_usage(view, run, control, rollover, code):
 
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
-    from .task_files import recovery_input, save_settings, mark_messages_presented, has_work_context
+    from .task_files import recovery_input, save_settings, has_work_context
     from .simple_adapters import prepare
     slot = Slot(view.root, agent).acquire(resume=resume)
     completed = 0
@@ -76,7 +76,6 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     rollover_entries = []
     notices = set()
     next_prompt = prompt
-    pending_ids = ()
     try:
         if resume:
             if prompt:
@@ -86,7 +85,6 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             if prompt:
                 next_prompt = ((next_prompt + '\n\n') if next_prompt else '') + 'Current user request:\n' + prompt
-            pending_ids = recovered.message_ids
         save_settings(view, asdict(options))
         while True:
             effective = options
@@ -150,13 +148,6 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             try:
                 while child.poll() is None:
                     control = _observe(run / 'control.json', notices)
-                    if pending_ids and control.get('armed') and (control.get('valid_usage') or control.get('activity')):
-                        try:
-                            mark_messages_presented(view, pending_ids, agent=agent)
-                            pending_ids = ()
-                        except (OSError, ValueError) as error:
-                            print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
-                            pending_ids = ()  # leave persisted cursor unchanged, do not spam warnings
                     for warning in (control.get('loop_warning'), control.get('window_note'), control.get('record_warning')):
                         if warning and warning not in notices:
                             print('Token Kit: ' + warning, file=sys.stderr)
@@ -212,12 +203,6 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if hooked and not final_control.get('armed') and HANDSHAKE not in notices:
                 print('Token Kit: ' + HANDSHAKE, file=sys.stderr)
                 notices.add(HANDSHAKE)
-            if pending_ids and final_control.get('armed') and (final_control.get('valid_usage') or final_control.get('activity')):
-                try:
-                    mark_messages_presented(view, pending_ids, agent=agent)
-                    pending_ids = ()
-                except (OSError, ValueError) as error:
-                    print(f'Token Kit: message delivery cursor unavailable: {error}', file=sys.stderr)
             if final_control.get('continue_request'):
                 final_request = _observe(slot.directory / 'continue.json', notices)
                 continuing = final_control['continue_request'] == final_request.get('request_id')
@@ -253,7 +238,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                         from .simple_process import safe
                         snapshot = safe(view.root, slot.directory / 'state-snapshot.md')
                         atomic_bytes(snapshot, saved_state[:65_536])
-                recovery = recovery_input(view, agent=agent, mark_presented=False, paths_only=True)
+                recovery = recovery_input(view, agent=agent, paths_only=True)
                 (run / 'handoff.md').write_text(recovery.text)
                 from .simple_recovery import native_recipe
                 write(slot.directory / 'native-recovery.json', native_recipe(view, options, agent))
@@ -286,6 +271,5 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if next_prompt:
                 from .simple_guidance import SUCCESSOR
                 next_prompt += '\n\n' + SUCCESSOR
-            pending_ids = recovered.message_ids
     finally:
         slot.close()

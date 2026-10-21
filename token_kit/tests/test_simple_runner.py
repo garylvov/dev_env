@@ -58,43 +58,15 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         with self.assertRaisesRegex(ValueError, 'uncertain'):
             Slot(self.root, 'coordinator').acquire()
 
-    def test_legacy_durable_claim_and_fence(self):
-        (self.root / 'task.json').write_text('{}')
+    def test_continue_fence_held_while_slot_owned(self):
         slot = Slot(self.root, 'coordinator').acquire()
-        run = slot.claim()
+        slot.claim()
         import fcntl
         with (self.root / '.continue.lock').open('a') as old:
             with self.assertRaises(BlockingIOError):
                 fcntl.flock(old, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        child = slot.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
         slot.close()
-        try:
-            bridge = read(self.root / 'agents/coordinator/runs' / run.name / 'run.json')
-            self.assertEqual(bridge['status'], 'running')
-            self.assertEqual(bridge['child_identity'], identity(child.pid))
-        finally:
-            child.terminate()
-            child.wait()
-
-    def test_old_launcher_refuses_after_supervisor_crash(self):
-        # Execute unchanged legacy Store admission with our durable bridge, after
-        # removing every live flock. No test invokes a real provider.
-        write(self.root / 'task.json', {'schema_version': 1, 'workspace': str(self.root), 'task_id': 'fixture'})
-        agent = self.root / 'agents/coordinator'
-        agent.mkdir(parents=True)
-        write(agent / 'agent.json', {'schema_version': 1, 'agent_id': 'coordinator'})
-        slot = Slot(self.root, 'coordinator').acquire()
-        slot.claim()
-        child = slot.spawn([sys.executable, '-c', 'import time; time.sleep(30)'], self.root, dict(os.environ))
-        slot.close()
-        script = "from token_kit.core.store import Store; import sys; Store(sys.argv[1]).claim_run('coordinator','claude',False)"
-        try:
-            result = subprocess.run([sys.executable, '-c', script, str(self.root)], capture_output=True, text=True, timeout=5)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn('not reconciled', result.stderr)
-        finally:
-            child.terminate()
-            child.wait()
+        self.assertFalse((self.root / 'agents').exists())
 
     def test_unknown_child_and_stale_events_cannot_control(self):
         run = self.root / 'run'
@@ -218,20 +190,6 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         with self.assertRaisesRegex(ValueError, 'symlink'):
             Slot(self.root, 'coordinator')
 
-    def test_old_worker_anywhere_blocks_task_adoption(self):
-        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
-        try:
-            import socket
-            write(self.root / 'agents/worker/runs/old/run.json', {
-                'status': 'running', 'host': socket.gethostname(),
-                'child_pid': child.pid, 'child_identity': identity(child.pid),
-                'supervisor_pid': os.getpid(), 'supervisor_identity': identity(os.getpid())})
-            with self.assertRaisesRegex(ValueError, 'Legacy client'):
-                Slot(self.root, 'coordinator').acquire()
-        finally:
-            child.terminate()
-            child.wait()
-
     def test_prompt_and_handoff_tools_do_not_count_as_progress(self):
         run = self.root / 'run'
         run.mkdir()
@@ -250,7 +208,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
         self.assertEqual(read(run / 'control.json')['activity'], 0)
 
-    def _run_fake(self, failures=False, cap=None, resume=False, marked=None, no_progress=False, headless=False, substantive=False):
+    def _run_fake(self, failures=False, cap=None, resume=False, no_progress=False, headless=False, substantive=False):
         launched = []
         def prepare(view, options, prompt, run, agent='coordinator'):
             launched.append((options, prompt))
@@ -282,10 +240,9 @@ p.write_text(json.dumps(s))
         files = types.ModuleType('token_kit.task_files')
         files.safe_task_path = safe_task_path
         files.archive_history = archive_history
-        files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state', message_ids=('message-1',))
+        files.recovery_input = lambda *a, **k: RecoveryInput('Latest plain state')
         files.save_settings = lambda *a, **k: None
         files.has_work_context = lambda *a, **k: True
-        files.mark_messages_presented = lambda *a, **k: marked.append(a[1]) if marked is not None else None
         adapters = types.ModuleType('token_kit.simple_adapters')
         adapters.prepare = prepare
         with patch.dict(sys.modules, {'token_kit.task_files': files, 'token_kit.simple_adapters': adapters}):
@@ -305,25 +262,16 @@ p.write_text(json.dumps(s))
         self.assertEqual(code, 7)
         self.assertEqual(len(launched), 1)
 
-    def test_startup_failure_leaves_steering_pending(self):
-        marked = []
-        code, launched = self._run_fake(failures=True, resume=True, marked=marked)
+    def test_startup_failure_returns_client_exit(self):
+        code, launched = self._run_fake(failures=True, resume=True)
         self.assertEqual(code, 7)
         self.assertIn('Latest plain state', launched[0][1])
-        self.assertEqual(marked, [])
 
     def test_repeated_initial_context_rollover_keeps_successor_running(self):
         code, launched = self._run_fake(no_progress=True)
         self.assertEqual(code, 0)
         self.assertEqual(len(launched), 3)
         self.assertIsNone(launched[-1][0].rollover)
-
-    def test_only_injected_message_ids_marked_after_activity(self):
-        marked = []
-        code, launched = self._run_fake(resume=True, marked=marked)
-        self.assertEqual(code, 0)
-        self.assertTrue(marked)
-        self.assertTrue(all(ids == ('message-1',) for ids in marked))
 
     def test_prepare_failure_allows_corrected_configuration_retry(self):
         from token_kit.task_files import safe_task_path, archive_history
@@ -333,7 +281,6 @@ p.write_text(json.dumps(s))
         files.recovery_input = lambda *a, **k: RecoveryInput('notes')
         files.has_work_context = lambda *a, **k: True
         files.save_settings = lambda *a, **k: None
-        files.mark_messages_presented = lambda *a, **k: None
         adapters = types.ModuleType('token_kit.simple_adapters')
         def broken(*args, **kwargs):
             raise ValueError('Unsupported launch flag')

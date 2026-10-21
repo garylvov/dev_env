@@ -8,8 +8,7 @@ from token_kit.simple_process import read
 from token_kit.simple_runtime import handle, hooks, initialize
 from token_kit.simple_records import EXPERIMENTS_SKELETON, experiments_note, is_launch, record_launch
 from token_kit.simple_types import LaunchOptions
-from token_kit.simple_guidance import SUCCESSOR, TASK_RULES, summary_request
-from token_kit.simple_install import INSTRUCTIONS
+from token_kit.simple_guidance import CONCURRENCY, SUCCESSOR, TASK_RULES, summary_request
 from token_kit.task_files import create_task
 from token_kit.simple_adapters import prepare
 
@@ -146,7 +145,7 @@ class RecordTests(unittest.TestCase):
         settings = hooks()
         self.assertEqual(settings['PreToolUse'][0]['matcher'], 'Bash')
         self.assertNotIn('matcher', settings['PostToolUse'][0])
-        self.assertLess(len(INSTRUCTIONS.split()), 320)
+        self.assertLess(len((TASK_RULES + CONCURRENCY).split()), 320)
         self.assertIn('experiments.md', TASK_RULES)
         self.assertIn('workers append dated progress lines', TASK_RULES)
         self.assertIn('label any [?] lines', SUCCESSOR)

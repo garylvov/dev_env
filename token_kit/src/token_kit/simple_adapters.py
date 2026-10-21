@@ -22,7 +22,6 @@ from .simple_guidance import CONCURRENCY, REPO_DOCS, TASK_RULES, load_dispatch_g
 class Capabilities:
     managed_hooks: bool
     diagnostics: tuple[str, ...]
-    hook_trust: str = "unverified"
 
 
 def capabilities(options: LaunchOptions) -> Capabilities:
@@ -130,7 +129,7 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     # Hooks record asks, workers and experiments even when rollover is off.
     cap = capabilities(options)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
-        "managed_hooks": cap.managed_hooks, "hook_trust": cap.hook_trust,
+        "managed_hooks": cap.managed_hooks,
         "diagnostics": cap.diagnostics + codegraph.diagnostics})
     argv = [executable, "--add-dir", str(view.root.resolve()), "--append-system-prompt", guidance]
     if headless:

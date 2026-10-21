@@ -82,7 +82,6 @@ class SimpleAdaptersTest(unittest.TestCase):
         with patch.object(adapters.subprocess, 'run', return_value=help_result) as run:
             cap = adapters.capabilities(LaunchOptions())
         self.assertTrue(cap.managed_hooks)
-        self.assertEqual(cap.hook_trust, 'unverified')
         self.assertEqual(run.call_args.args[0], ['claude', '--help'])
         with patch.object(adapters.subprocess, 'run', side_effect=OSError('missing')):
             self.assertFalse(adapters.capabilities(LaunchOptions()).managed_hooks)

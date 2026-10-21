@@ -23,9 +23,6 @@ PREFACE = "Saved results are reports, not verified facts; verify uncertain exter
 LEGACY_PREFACE = "Old Token Kit checkpoint and ticket protocols are superseded. "
 
 
-# Exact frozen legacy generated text. Marker presence alone never proves ownership.
-_LEGACY_POLICY_BODY = 'Token Kit is guidance, not approval. Main orchestrates; workers execute. Follow repo rules.\nBookkeeping drift is advisory. Repair and continue authorized work without asking.\nOwn identity. Resume: token-kit resume TASK --agent ID.\nSTATE: Objective/Completed/Evidence/Unresolved/Next; ~200 words. Compression only: dated verbatim STATE in\nhistorical_state.md; no routine append. Read selectively; checkpoint evidence/IDs.\n\nSmart coordinator; bounded Mid work. Announce route/tier/model/reason/changes. Scoped overrides beat map; isolate siblings.\nMap supersedes default prose, not explicit assignments. Escalate for complexity, not delay: checkpoint/report to the main thread.\n\nNative prepare/bind --parent; status TASK. Checkpoint, ticketed rollover/complete, confirm stop.\nNever retry uncertain spawn. Managed recovery: structured compaction or exact legacy run/runtime evidence;\nAuto-restart excludes unknown stops/errors/manual interrupts. Dead PID proves no external completion; parent exit no native closure.\nOrphans: worker retire per agent_trigger_matrix.md.\nRetired means neither native closure nor success/retry authority. Replace remaining work only.\nVerify unknown operations before retry; report once, never poll.'
-
 def _inside(root: Path, path: Path) -> Path:
     resolved = path.resolve()
     if not resolved.is_relative_to(root):
@@ -70,41 +67,9 @@ def _json(root: Path, path: Path, diagnostics: list[str]) -> dict:
     return {}
 
 
-def _strip_wrapper(text: str) -> str:
-    # Only complete, leading, positively identified generated wrappers are removed.
-    opening = re.compile(r"<!-- token-kit worker policy(?: v[\w.-]+)? -->\n")
-    closing = "<!-- /token-kit worker policy -->"
-    while opening.match(text):
-        end = text.find(closing)
-        if end < 0 or '<!-- token-kit worker policy' in text[opening.match(text).end():end]:
-            break
-        wrapped = text[opening.match(text).end():end].rstrip('\n')
-        if wrapped != _LEGACY_POLICY_BODY:
-            # Unknown versions, task-specific preferences, and user edits remain
-            # intact. The recovery preface supersedes only obsolete protocol.
-            break
-        rest = text[end + len(closing):].lstrip('\n')
-        if rest.startswith('Token Kit record: '):
-            record, sep, body = rest.partition('\n\n')
-            try:
-                metadata = json.loads(record[len('Token Kit record: '):])
-            except ValueError:
-                break
-            if not sep or not isinstance(metadata, dict) or not isinstance(metadata.get('task'), str):
-                break
-            rest = body
-        text = rest
-    return text
-
-
 def _agent_dir(root: Path, agent: str) -> Path:
     _component(agent)
-    candidates = [root / 'agents' / agent, root / 'lanes' / agent]
-    for path in candidates:
-        _inside(root, path)
-        if path.is_dir():
-            return path
-    return candidates[0]
+    return _inside(root, root / 'agents' / agent)
 
 
 def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinator') -> TaskView:
@@ -116,7 +81,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     new = _json(root, root / '.token-kit/session.json', diagnostics) if (root / '.token-kit/session.json').exists() else {}
     old = _json(root, root / 'task.json', diagnostics) if (root / 'task.json').exists() else {}
     agent_dir = _agent_dir(root, agent)
-    legacy = bool(old) or (root / 'lanes').is_dir() or (root / 'agents/coordinator').is_dir()
+    legacy = bool(old) or (root / 'agents/coordinator').is_dir()
     base = agent_dir if agent != 'coordinator' or (root / 'agents/coordinator').is_dir() else root
     named_base = root if agent == 'coordinator' else root / 'agents'
     named = root.name if agent == 'coordinator' else _component(agent)
@@ -135,7 +100,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
     assignment = named_in if named_layout else _inside(root, base / ('task.md' if base == root else 'in.md'))
     if not assignment.exists() and base == root and (root / 'in.md').is_file():
         assignment = _inside(root, root / 'in.md')
-    preferences = next((_inside(root, root / name) for name in ('preferences.md', 'trigger_pyramid.md') if (root / name).is_file()), None)
+    preferences = _inside(root, root / 'preferences.md') if (root / 'preferences.md').is_file() else None
     state_text = _read(root, state, diagnostics) if state.exists() else ''
     legacy_cwd = re.search(r'^Cwd:\s*(.+)$', state_text, re.MULTILINE)
     per_agent = new.get('agent_settings', {})
@@ -153,9 +118,7 @@ def load_task(path: Path, workspace: Path | None = None, agent: str = 'coordinat
         diagnostics.append(f"Workspace unavailable: {candidate}")
     if resolved_workspace is None:
         diagnostics.append('No usable workspace recorded; select one before project work')
-    labels_path = root / '.token-kit/labels.json'
-    labels = _json(root, labels_path, diagnostics) if labels_path.exists() else {}
-    title = labels.get('title') or new.get('title') or old.get('title')
+    title = new.get('title') or old.get('title')
     if not isinstance(title, str) or not title.strip():
         heading = re.search(r'^#\s+(.+)$', state_text, re.MULTILINE)
         title = heading.group(1) if heading else root.name
@@ -205,7 +168,7 @@ def _view_agent(view: TaskView) -> str:
     if view.state.parent == view.root / 'agents' and view.state.name.endswith('_out.md'):
         return _component(view.state.name[:-7])
     parent = view.state.parent.relative_to(view.root)
-    if len(parent.parts) == 2 and parent.parts[0] in ('agents', 'lanes'):
+    if len(parent.parts) == 2 and parent.parts[0] == 'agents':
         return _component(parent.parts[1])
     return 'coordinator'
 
@@ -230,37 +193,10 @@ def load_settings(view: TaskView, *, agent: str | None = None) -> dict:
         data = per_agent.get(selected, {}) if isinstance(per_agent, dict) else {}
         if not isinstance(data, dict):
             data = {}
-    # A saved new settings object is the direct pointer; never enumerate historical
-    # runs after the first successful continuation has persisted resolved settings.
     if isinstance(data.get('settings'), dict):
         return dict(data['settings'])
     old = _json(view.root, view.root / 'task.json', []) if (view.root / 'task.json').exists() else {}
-    if selected == 'coordinator' and isinstance(old.get('settings'), dict):
-        return dict(old['settings'])
-    directory = _agent_dir(view.root, selected) / 'runs'
-    candidates = []
-    for folder in _entries(view.root, directory, []):
-        record = _json(view.root, folder / 'run.json', [])
-        if not record or record.get('engine') not in ('claude', 'codex'):
-            continue
-        try:
-            created = datetime.fromisoformat(str(record.get('created_at', ''))).timestamp()
-        except (ValueError, OverflowError):
-            created = 0.0
-        candidates.append((created, folder.name, record))
-    previous = max(candidates, key=lambda item: item[:2])[2] if candidates else {}
-    settings = {key: previous[key] for key in ('engine', 'model', 'effort', 'yolo',
-                'context_window', 'max_rollovers', 'max_rollovers_explicit') if key in previous}
-    if previous.get('rollover_tokens') is not None:
-        settings['rollover'] = previous['rollover_tokens']
-    if previous.get('no_rollover') is True:
-        settings['rollover'] = None
-    if settings.get('max_rollovers') == 10 and settings.get('max_rollovers_explicit') is None:
-        settings.pop('max_rollovers')  # The historical, untagged default is not user intent.
-    usage = previous.get('usage')
-    if isinstance(usage, dict) and isinstance(usage.get('current_model'), str) and usage['current_model'] != 'unknown':
-        settings['model'] = usage['current_model']
-    return settings
+    return dict(old['settings']) if selected == 'coordinator' and isinstance(old.get('settings'), dict) else {}
 
 
 def append_ask(root: Path, assignment: Path, prompt: str) -> int:
@@ -322,24 +258,7 @@ def _entries(root: Path, directory: Path, diagnostics: list[str]) -> list[Path]:
         return []
 
 
-def mark_messages_presented(view: TaskView, message_ids: tuple[str, ...], agent: str = 'coordinator') -> None:
-    """Record only the IDs captured in a prompt that was actually injected.
-
-    This records presentation attempted, not external execution or acknowledgment.
-    Call after the client handshake, never by rebuilding a later recovery bundle.
-    """
-    _component(agent)
-    if not message_ids:
-        return
-    if any(not isinstance(identifier, str) or not identifier for identifier in message_ids):
-        raise ValueError('Message IDs must be nonempty strings')
-    with _metadata(view) as metadata:
-        cursors = metadata.setdefault('presented_messages', {})
-        old_ids = cursors.get(agent, [])
-        cursors[agent] = sorted(set(old_ids) | set(message_ids))
-
-
-def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: bool = False, *, paths_only: bool = False) -> RecoveryInput:
+def recovery_input(view: TaskView, agent: str = 'coordinator', *, paths_only: bool = False) -> RecoveryInput:
     if agent != 'coordinator':
         view = load_task(view.root, view.workspace, agent)
     diagnostics = list(view.diagnostics)
@@ -355,7 +274,7 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
             sections.append(f'{label}: {path}')
             return
         if text is None:
-            text = _strip_wrapper(_read(view.root, path, diagnostics, limit))
+            text = _read(view.root, path, diagnostics, limit)
         heading = f'{label}: {path}\n'
         raw = (heading + (text or '[missing or empty]')).encode()
         allowance = max(0, min(budget, len(raw)))
@@ -383,85 +302,29 @@ def recovery_input(view: TaskView, agent: str = 'coordinator', mark_presented: b
         include('Optional task preferences; current explicit choices take precedence', view.preferences, limit=4096)
     if view.output != view.state and view.output.is_file():
         include('Saved result (unverified)', view.output, limit=4096)
-    agent_dir = _agent_dir(view.root, agent)
-    acknowledged: set[str] = set()
-    if (agent_dir / 'agent.json').exists():
-        metadata = _json(view.root, agent_dir / 'agent.json', diagnostics)
-        checkpoint = metadata.get('latest_checkpoint')
-        if isinstance(checkpoint, str):
-            try:
-                checkpoint = _component(checkpoint)
-                manifest = _json(view.root, agent_dir / 'checkpoints' / checkpoint / 'manifest.json', diagnostics)
-                acknowledged = {x for x in manifest.get('incorporated_messages', []) if isinstance(x, str)}
-                if not _read(view.root, view.state, [], MAX_FILE).strip():
-                    snapshot = agent_dir / 'checkpoints' / checkpoint / 'STATE.md'
-                    if snapshot.is_file():
-                        include('Historical snapshot fallback; working STATE is missing/empty', snapshot)
-            except (ValueError, TypeError):
-                diagnostics.append('Could not read legacy incorporated-message IDs')
-    session = _json(view.root, view.root / '.token-kit/session.json', diagnostics) if (view.root / '.token-kit/session.json').exists() else {}
-    cursors = session.get('presented_messages', {})
-    cursor = cursors.get(agent, []) if isinstance(cursors, dict) else []
-    presented = {x for x in cursor if isinstance(x, str)} if isinstance(cursor, list) else set()
-    ids: list[str] = []
-    message_dirs = [agent_dir / 'messages']
-    if agent == 'coordinator' and view.root / 'messages' not in message_dirs:
-        message_dirs.append(view.root / 'messages')
-    message_entries = [entry for directory in message_dirs for entry in _entries(view.root, directory, diagnostics)]
-    for entry in sorted(message_entries):
-        if entry.suffix != '.json' or entry.stem in acknowledged | presented | set(ids):
-            continue
-        row = _json(view.root, entry, diagnostics)
-        identifier, content = row.get('message_id'), row.get('text')
-        if identifier != entry.stem or not isinstance(content, str):
-            continue
-        if budget < 1024 or len(ids) >= 8:
-            diagnostics.append(f'More messages remain available in {agent_dir / "messages"}')
-            break
-        label = 'Historical worker observation; no lifecycle action required' if row.get('source') == 'worker_lifecycle' else 'Steering (presentation attempted; delivery may be uncertain)'
-        include(label, entry, _strip_wrapper(content[:2048]), 2048)
-        ids.append(identifier)
-    if presented:
-        sections.append(f'Previously presented steering remains in the task message folders; it is not a fresh instruction.')
     # Surface child output even when coordinator STATE still describes an old blocker.
     if agent == 'coordinator':
-        for folder in ('agents', 'lanes'):
-            for child in sorted(_entries(view.root, view.root / folder, diagnostics))[:32]:
-                if child.is_file() and child.name.endswith('_out.md'):
-                    include('Available worker result (unverified)', child, limit=2048)
-                    continue
-                try:
-                    output = _inside(view.root, child / 'out.md')
-                    if output != view.output and output.is_file():
-                        include('Available worker result (unverified)', output, limit=2048)
-                except ValueError as exc:
-                    diagnostics.append(str(exc))
-    if mark_presented and ids:
-        try:
-            mark_messages_presented(view, tuple(ids), agent)
-        except (OSError, ValueError, TypeError) as exc:
-            diagnostics.append(f'Presentation cursor could not be saved; messages may repeat: {exc}')
-    return RecoveryInput('\n\n'.join(sections), tuple(paths), tuple(ids), tuple(diagnostics))
+        for child in sorted(_entries(view.root, view.root / 'agents', diagnostics))[:32]:
+            if child.is_file() and child.name.endswith('_out.md'):
+                include('Available worker result (unverified)', child, limit=2048)
+                continue
+            try:
+                output = _inside(view.root, child / 'out.md')
+                if output != view.output and output.is_file():
+                    include('Available worker result (unverified)', output, limit=2048)
+            except ValueError as exc:
+                diagnostics.append(str(exc))
+    return RecoveryInput('\n\n'.join(sections), tuple(paths), tuple(diagnostics))
 
 
 def has_work_context(view: TaskView, agent: str = 'coordinator') -> bool:
-    """Whether readable work exists, excluding labels, preferences and guidance."""
+    """Whether readable work exists, excluding preferences and guidance."""
     selected = _view_agent(view) if agent == 'coordinator' else _component(agent)
     recovery = recovery_input(view, agent=selected)
     for path in recovery.paths:
         if path == view.preferences:
             continue
-        if path.suffix == '.json':
-            if path.stem not in recovery.message_ids:
-                continue
-            message = _json(view.root, path, [])
-            # Lifecycle notices alone are not objectives for another paid turn.
-            if message.get('source') == 'worker_lifecycle':
-                continue
-            text = message.get('text')
-            if isinstance(text, str) and _strip_wrapper(text).strip():
-                return True
-        elif _strip_wrapper(_read(view.root, path, [])).strip():
+        if _read(view.root, path, []).strip():
             if path == view.output and _read(view.root, path, []).strip() == '# Current state\n\n# History':
                 continue
             if path == view.root / ASKS and _read(view.root, path, []) == ASKS_SKELETON:

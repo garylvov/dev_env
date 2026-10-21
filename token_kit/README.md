@@ -17,7 +17,7 @@ Without `--prompt`, a new task opens an idle session. New tasks default to 80%
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.
-`pick` selects a task; `status` displays records; `resume` is a read-only preview.
+`pick` selects a task; `status NAME --full` is a read-only preview of the recovery text.
 Run unattended with `token-kit run "Title" --headless --prompt "..."` (Claude print mode).
 `token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches.
 Tasks saved by the old Codex engine continue on Claude with a one-line notice; their model, effort and `--yolo` are reset.

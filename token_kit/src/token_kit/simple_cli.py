@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 from dataclasses import asdict, replace
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -84,7 +83,7 @@ def _launch_options(parser):
 
 def parser_for(command: str):
     parser = argparse.ArgumentParser(prog="token-kit " + command)
-    if command in ("run", "new"):
+    if command == "run":
         parser.add_argument("title", nargs="?")
         parser.add_argument("--task", type=Path)
     elif command in ("continue", "pick", "find", "list"):
@@ -95,18 +94,11 @@ def parser_for(command: str):
     else:
         parser.add_argument("task", type=Path)
     parser.add_argument("--root", type=Path, default=default_root())
-    if command in ("run", "new", "continue", "pick", "launch"):
+    if command in ("run", "continue", "pick"):
         _launch_options(parser)
-    elif command in ("status", "resume"):
+    elif command == "status":
         parser.add_argument("--agent", default="coordinator")
         parser.add_argument("--full", action="store_true")
-    elif command == "send":
-        parser.add_argument("text")
-        parser.add_argument("--agent", default="coordinator")
-    elif command == "retitle":
-        parser.add_argument("title")
-    elif command == "checkpoint":
-        parser.add_argument("--agent", default="coordinator")
     return parser
 
 
@@ -229,7 +221,7 @@ def _preview(view, options, prompt):
                       "note": "Preview only; no files written or clients launched."}, indent=2))
 
 
-def _launch(args, path: Path | None, *, create=False, only_create=False):
+def _launch(args, path: Path | None, *, create=False):
     from .task_files import create_task, load_task, load_settings, recovery_input
     workspace = args.workspace.expanduser().resolve() if args.workspace else None
     if create:
@@ -245,9 +237,6 @@ def _launch(args, path: Path | None, *, create=False, only_create=False):
     else:
         view = load_task(path, workspace=workspace, agent=args.agent)
         options = resolve_options(args, load_settings(view))
-    if only_create:
-        print(view.root)
-        return 0
     for warning in view.diagnostics:
         print("Token Kit: " + warning, file=sys.stderr)
     if view.workspace is None or not view.workspace.is_dir():
@@ -291,7 +280,7 @@ def main(argv=None) -> int:
         if not args:
             return _picker()
         command = args.pop(0)
-        if command in ("worker", "close-run", "agent", "migrate"):
+        if command in ("worker", "close-run", "agent", "migrate", "install", "init", "uninstall"):
             raise ValueError(f"'{command}' is no longer required. Edit task/agent files directly and use continue to resume. No records changed.")
         if command == "codegraph-hooks":
             from .simple_codegraph import hook_lines
@@ -299,63 +288,23 @@ def main(argv=None) -> int:
                 raise ValueError("Usage: token-kit codegraph-hooks MAIN_CHECKOUT")
             print(hook_lines(Path(args[0]).expanduser().resolve()), end="")
             return 0
-        if command not in ("run", "new", "continue", "pick", "launch", "status", "resume", "list", "find", "send", "checkpoint", "done", "reopen", "retitle"):
+        if command not in ("run", "continue", "pick", "status", "list", "find"):
             raise ValueError(f"Unknown command: {command}. Use token-kit --help.")
         parsed = parser_for(command).parse_args(args)
-        if command in ("run", "new"):
+        if command == "run":
             if parsed.task and parsed.title:
                 raise ValueError("Use either a new title or --task PATH")
-            return _launch(parsed, parsed.task, create=parsed.task is None, only_create=command == "new")
+            return _launch(parsed, parsed.task, create=parsed.task is None)
         if command in ("continue", "pick"):
             return _launch(parsed, select_task(parsed))
-        if command == "launch":
-            return _launch(parsed, parsed.task)
         if command in ("list", "find"):
             _show_candidates(task_candidates(parsed.root, parsed.words, max(1, parsed.limit)))
             return 0
-        from .task_files import load_task, recovery_input, safe_task_path
-        view = load_task(parsed.task, agent=getattr(parsed, "agent", "coordinator"))
-        if command in ("status", "resume"):
-            print(f"{view.title}\nWorkspace: {view.workspace or 'unknown'}\nState: {view.state}\nAssignment: {view.assignment}")
-            if command == "resume" or parsed.full:
-                print(recovery_input(view, agent=parsed.agent).text)
-            return 0
-        if command == "checkpoint":
-            # Optional convenience; cannot gate recovery or acknowledge messages.
-            from .core.store import atomic_text
-            state = view.state.read_text() if view.state.is_file() else ""
-            target = view.root / ".token-kit" / "snapshots" / (datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".md")
-            safe_task_path(view, target)
-            atomic_text(target, state)
-            print(target)
-            return 0
-        if command == "send":
-            from .core.store import atomic_text
-            import uuid
-            text = sys.stdin.read(65537) if parsed.text == "-" else parsed.text
-            if not text.strip() or len(text.encode()) > 65536:
-                raise ValueError("Message must be nonempty and at most 64 KiB")
-            # Legacy inbox format stays readable without any checkpoint requirement.
-            recipient = view.state.parent
-            if parsed.agent == "coordinator" and not view.legacy:
-                recipient = view.root
-            target = recipient / "messages" / (uuid.uuid4().hex + ".json")
-            safe_task_path(view, target)
-            atomic_text(target, json.dumps({"message_id": target.stem, "text": text,
-                        "created_at": datetime.now().astimezone().isoformat(), "source": "user"}))
-            print(target)
-            return 0
-        from .core.store import atomic_text
-        target = safe_task_path(view, view.root / ".token-kit" / "labels.json")
-        lock = safe_task_path(view, target.parent / "metadata.lock")
-        lock.parent.mkdir(exist_ok=True)
-        with lock.open('a') as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX)
-            labels = json.loads(target.read_text()) if target.exists() else {}
-            if not isinstance(labels, dict):
-                raise ValueError("Saved labels must be an object; existing bytes were preserved")
-            labels.update({"title": parsed.title} if command == "retitle" else {"status": "done" if command == "done" else "open"})
-            atomic_text(target, json.dumps(labels, indent=2) + "\n")
+        from .task_files import load_task, recovery_input
+        view = load_task(parsed.task, agent=parsed.agent)
+        print(f"{view.title}\nWorkspace: {view.workspace or 'unknown'}\nState: {view.state}\nAssignment: {view.assignment}")
+        if parsed.full:
+            print(recovery_input(view, agent=parsed.agent).text)
         return 0
     except (OSError, ValueError) as exc:
         print("Token Kit: " + str(exc), file=sys.stderr)

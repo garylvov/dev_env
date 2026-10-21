@@ -29,9 +29,8 @@ class CLITests(unittest.TestCase):
         return code, out.getvalue(), err.getvalue()
 
     def create(self, title='A task'):
-        code, out, err = self.call('new', title, '--root', self.tasks, '--workspace', self.work)
-        self.assertEqual(code, 0, err)
-        return Path(out.strip())
+        from token_kit.task_files import create_task
+        return create_task(self.tasks, title, self.work).root
 
     def test_headless_settings_persist_and_override(self):
         from dataclasses import asdict
@@ -85,11 +84,11 @@ class CLITests(unittest.TestCase):
         self.assertEqual(json.loads(out)['settings']['rollover'], '80%')
         self.assertFalse(self.tasks.exists())
 
-    def test_new_task_no_lifecycle_and_readonly_resume(self):
+    def test_new_task_no_lifecycle_and_readonly_status(self):
         task = self.create()
         (task / f'{task.name}_out.md').write_text('Arbitrary notes. No headings.')
         before = {str(p): p.read_bytes() for p in task.rglob('*') if p.is_file()}
-        code, out, err = self.call('resume', task)
+        code, out, err = self.call('status', task, '--full')
         self.assertEqual(code, 0, err)
         self.assertIn('Arbitrary notes', out)
         self.assertEqual(before, {str(p): p.read_bytes() for p in task.rglob('*') if p.is_file()})
@@ -98,21 +97,15 @@ class CLITests(unittest.TestCase):
     def test_obsolete_commands_fail_without_writes(self):
         task = self.create()
         before = {str(p): p.read_bytes() for p in task.rglob('*') if p.is_file()}
-        for command in ('worker', 'close-run', 'agent'):
+        for command in ('worker', 'close-run', 'agent', 'install'):
             code, out, err = self.call(command, task)
             self.assertEqual(code, 2)
             self.assertIn('No records changed', err)
+        for command in ('send', 'checkpoint', 'done', 'reopen', 'retitle', 'resume', 'launch', 'new'):
+            code, out, err = self.call(command, task, 'x')
+            self.assertEqual(code, 2)
+            self.assertIn('Unknown command', err)
         self.assertEqual(before, {str(p): p.read_bytes() for p in task.rglob('*') if p.is_file()})
-
-    def test_label_not_process_approval(self):
-        task = self.create()
-        legacy = task / 'agents' / 'busy'
-        legacy.mkdir(parents=True)
-        (legacy / 'lifecycle.json').write_text('{broken')
-        code, out, err = self.call('done', task)
-        self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads((task / '.token-kit/labels.json').read_text())['status'], 'done')
-        self.assertEqual((legacy / 'lifecycle.json').read_text(), '{broken')
 
     def test_ambiguous_continue_does_not_launch(self):
         self.create('Fix parser one')
@@ -171,23 +164,6 @@ class CLITests(unittest.TestCase):
         self.assertEqual(code, 0)
         for old in ('prepare', 'close-run', 'checkpoint', 'retire'):
             self.assertNotIn(old, out)
-
-    def test_send_cannot_write_through_external_symlink(self):
-        task = self.create()
-        outside = self.root / 'outside'
-        outside.mkdir()
-        (task / 'messages').symlink_to(outside)
-        code, out, err = self.call('send', task, 'Steering')
-        self.assertEqual(code, 2)
-        self.assertEqual(list(outside.iterdir()), [])
-
-    def test_malformed_labels_preserved(self):
-        task = self.create()
-        labels = task / '.token-kit/labels.json'
-        labels.write_text('{my unfinished edit')
-        code, out, err = self.call('done', task)
-        self.assertEqual(code, 2)
-        self.assertEqual(labels.read_text(), '{my unfinished edit')
 
 
 if __name__ == '__main__':
