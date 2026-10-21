@@ -96,7 +96,7 @@ def folder_guidance(view: TaskView, repo_notes: str = "") -> str:
 
 
 def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
-            run_dir: Path, agent: str = "coordinator") -> LaunchPlan:
+            run_dir: Path, agent: str = "coordinator", greet: bool = False) -> LaunchPlan:
     """Build argv for direct execution (shell=False), never execute the client."""
     workspace = Path(view.workspace or view.root).expanduser().resolve()
     if not workspace.is_dir():
@@ -135,8 +135,14 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
              if codegraph.guidance == BUILD_GUIDANCE else "main checkout's index"
              if "answers from" in codegraph.guidance else "on")
     rollover = "off" if options.rollover in (None, 0, "off") else f"at {options.rollover}"
+    greet = greet and prompt is None and not headless
     banner = (f"{view.title}: folder {view.root.resolve()}; rollover {rollover}; CodeGraph {graph}. "
-              "Token Kit guidance is in its system prompt; without --prompt it waits for your first message.")
+              "Token Kit guidance is in its system prompt; "
+              + ("Claude first summarizes the setup, then waits for your first message." if greet
+                 else "without --prompt it waits for your first message."))
+    if greet:
+        from .simple_guidance import greeting
+        prompt = greeting(view.root.resolve(), rollover, graph)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({
         "managed_hooks": cap.managed_hooks,
         "diagnostics": (banner,) + cap.diagnostics + codegraph.diagnostics})

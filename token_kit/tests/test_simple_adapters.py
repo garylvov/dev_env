@@ -108,6 +108,21 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertIn('--add-dir', plan.argv)
         self.assertIn('--append-system-prompt', plan.argv)
 
+    def test_new_task_greeting_only_without_prompt(self):
+        plan = adapters.prepare(self.view, LaunchOptions(rollover='60%'), None, self.root/'run', greet=True)
+        self.assertEqual(plan.argv[-2], '--')
+        greeting = plan.argv[-1]
+        self.assertIn(str(self.root.resolve()), greeting)
+        self.assertIn('rollover at 60%', greeting)
+        self.assertIn('CodeGraph off', greeting)
+        self.assertIn('at most 8 lines', greeting)
+        self.assertLess(len(greeting.split()), 90)
+        self.assertNotIn('--', adapters.prepare(self.view, LaunchOptions(), None, self.root/'run').argv)
+        with_prompt = adapters.prepare(self.view, LaunchOptions(), 'do work', self.root/'run', greet=True)
+        self.assertEqual(with_prompt.argv[-2:], ('--', 'do work'))
+        with self.assertRaises(AdapterError):  # headless still needs a real prompt
+            adapters.prepare(self.view, LaunchOptions(headless=True), None, self.root/'run', greet=True)
+
     def test_unrelated_token_kit_named_hook_not_legacy(self):
         config = self.root/'.claude/settings.json'
         config.parent.mkdir()

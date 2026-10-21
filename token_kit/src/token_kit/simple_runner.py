@@ -66,6 +66,13 @@ def _log_usage(view, run, control, rollover, code):
           f"{', rollover' if rollover else ''}", file=sys.stderr)
 
 
+def _with_loops(view, prompt):
+    """Session crons die with the client; the fresh session recreates loops.md's list itself."""
+    from .simple_records import loops_kickoff
+    line = loops_kickoff(view.root)
+    return ((prompt + '\n\n') if prompt else '') + line if line else prompt
+
+
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
     from .task_files import recovery_input, save_settings, has_work_context
@@ -76,6 +83,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     rollover_entries = []
     notices = set()
     next_prompt = prompt
+    greet = not resume and prompt is None  # only a newly created task's first launch
     try:
         if resume:
             if prompt:
@@ -85,6 +93,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             next_prompt = recovered.text if has_work_context(view, agent=agent) else None
             if prompt:
                 next_prompt = ((next_prompt + '\n\n') if next_prompt else '') + 'Current user request:\n' + prompt
+            next_prompt = _with_loops(view, next_prompt)
         save_settings(view, asdict(options))
         while True:
             effective = options
@@ -94,7 +103,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             launch_started = False
             try:
                 run = slot.claim()
-                plan = prepare(view, effective, next_prompt, run, agent=agent)
+                plan = prepare(view, effective, next_prompt, run, agent=agent, greet=greet)
+                greet = False
                 try:
                     from .simple_recovery import native_recipe
                     write(slot.directory / 'native-recovery.json', native_recipe(view, options, agent))
@@ -271,5 +281,6 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
             if next_prompt:
                 from .simple_guidance import SUCCESSOR
                 next_prompt += '\n\n' + SUCCESSOR
+            next_prompt = _with_loops(view, next_prompt)
     finally:
         slot.close()

@@ -80,3 +80,12 @@ def summary_request(percent, output, asks=None):
 # The successor does the slow bookkeeping, so a summary never races native compaction.
 SUCCESSOR = ("This session continues after a context rollover. First label any [?] lines in experiments.md, "
              "update repo docs for features that landed and promote durable repo knowledge to docs/agents/.")
+
+
+def greeting(folder, rollover, codegraph):
+    """Kickoff for a new task launched without --prompt; answered from the system prompt alone."""
+    return (f"New Token Kit task. Without reading files or running tools (except `systemctl --user is-active shunt`), "
+            f"reply in at most 8 lines: the task folder {folder} and what _in.md, asks.md, _out.md, experiments.md, "
+            "docs/, agents/ and models.md are for; how you will delegate (cheapest capable model per dispatch, "
+            "Shunt GPT agents if active, cross-family verification); "
+            f"rollover {rollover}; CodeGraph {codegraph}. Then ask what to work on.")

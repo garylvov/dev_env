@@ -198,6 +198,27 @@ def _settle_children(control: dict, payload: dict, now: float):
     control['child_seen'] = {c: seen[c] for c in children if c in seen}
 
 
+def _cron_prompt(control: dict, prompt: str) -> bool:
+    """A recorded loop firing is the session's own schedule, not a new user message."""
+    for known in control.get('cron_prompts', []):
+        head, clipped, _ = known.partition('… [+')
+        if prompt == known or (clipped and prompt.startswith(head)):
+            return True
+    return False
+
+
+def _snapshot_loops(control: dict, payload: dict):
+    """Mirror the parent's session crons into loops.md so a fresh session can recreate them."""
+    from token_kit.simple_records import record_loops
+    crons = payload['session_crons']
+    tasks = payload.get('background_tasks') if isinstance(payload.get('background_tasks'), list) else []
+    try:
+        control['cron_seen'] = record_loops(Path(control['task_root']), crons, tasks, control.get('cron_seen', {}))
+    except (OSError, ValueError) as exc:
+        _record_error(control, exc)
+    control['cron_prompts'] = [c['prompt'] for c in crons if isinstance(c, dict) and isinstance(c.get('prompt'), str)][:32]
+
+
 def _asks_nudge(control: dict) -> dict:
     """One non-blocking reminder per recorded message whose turn ended without asks.md changing."""
     number, recorded = control.get('last_ask'), control.get('last_ask_at')
@@ -283,7 +304,7 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             seen = control.get('recorded_prompt_ids', [])
             if prompt_id and prompt_id in seen:
                 return {}
-            if isinstance(prompt, str) and _machine_message(prompt):
+            if isinstance(prompt, str) and (_machine_message(prompt) or _cron_prompt(control, prompt)):
                 return {}
             failure = None
             if not isinstance(prompt, str) or not prompt.strip():
@@ -305,6 +326,8 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 control['recorded_prompt_ids'] = (seen + [prompt_id])[-2048:]
         if event == 'PostToolUse' and control['phase'] == 'running':
             control['activity'] += 1
+        if event == 'Stop' and isinstance(payload.get('session_crons'), list):
+            _snapshot_loops(control, payload)
         sample = {}
         transcript = payload.get('transcript_path')
         if transcript:

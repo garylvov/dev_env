@@ -132,3 +132,66 @@ def record_worker_final(root: Path, output: Path, worker: dict, report: str, tra
     with _lock(root, output.name):
         with output.open('a') as stream:
             stream.write(f'- worker {name} ({worker.get("model", "unknown")}) finished: {first} -> agents/{name}_out.md\n')
+
+
+LOOPS = 'loops.md'
+# Background work that outlives a turn but not the session; subagents are tracked elsewhere.
+LONG_TASKS = ('shell', 'monitor')
+
+
+def _one_line(text, limit=200) -> str:
+    shown = ' '.join(str(text or '').split())
+    return shown[:limit] + '...' if len(shown) > limit else shown
+
+
+def record_loops(root: Path, crons: list, tasks: list, seen: dict) -> dict:
+    """Rewrite loops.md from a main-session Stop snapshot; returns the cron first-seen dates to keep.
+
+    The file is entirely hook-owned, so a deleted loop disappears instead of being resurrected.
+    """
+    from .simple_runtime import DONE_TASK
+    path = _inside(root, root / LOOPS)
+    stamp = _stamp()
+    kept, loops = {}, []
+    for cron in crons:
+        if not isinstance(cron, dict) or not cron.get('schedule'):
+            continue
+        # Schedule and prompt, not id: a successor's recreated loop keeps its original date.
+        key = f'{cron["schedule"]} {cron.get("prompt")}'
+        kept[key] = seen.get(key, stamp)
+        kind = 'recurring' if cron.get('recurring', True) else 'one-shot'
+        loops.append(f'- `{cron["schedule"]}` {kind}: {_one_line(cron.get("prompt"), 1000)} '
+                     f'(since {kept[key]})')
+    running = [f'- {t["type"]}: {_one_line(t.get("command") or t.get("description"))}'
+               for t in tasks if isinstance(t, dict) and t.get('type') in LONG_TASKS
+               and str(t.get('status', '')).lower() not in DONE_TASK]
+    if not loops and not running:
+        if path.exists():
+            path.unlink()
+        return kept
+    text = '# Loops\nHook-written at each turn end; edits are overwritten.\n'
+    if loops:
+        text += '\n## Scheduled (recreated after rollover and continue)\n' + '\n'.join(loops) + '\n'
+    if running:
+        text += '\n## Was running at last turn end (not resumed automatically)\n' + '\n'.join(running) + '\n'
+    with _lock(root, LOOPS):
+        if not path.exists() or path.read_text() != text:
+            path.write_text(text)
+    return kept
+
+
+def loops_kickoff(root: Path) -> str:
+    """One kickoff line asking a fresh session to recreate the recorded loops itself."""
+    try:
+        text = (root / LOOPS).read_text()
+    except (OSError, UnicodeDecodeError):
+        return ''
+    loops = re.findall(r'^- `([^`]+)` (recurring|one-shot): (.*?) \(since ', text, re.M)
+    if not loops:
+        return ''
+    listed = '; '.join(f'{schedule}{" (one-shot)" if kind == "one-shot" else ""} {prompt}'
+                       for schedule, kind, prompt in loops)
+    if len(listed) > 600:
+        listed = f'the {len(loops)} listed in {root / LOOPS}'
+    return ('Recreate these loops from the previous session now with CronCreate or /loop '
+            f'(skip one-shots already past): {listed}')

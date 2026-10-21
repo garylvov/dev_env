@@ -182,6 +182,35 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         self.assertNotIn('cross-session-message', text)
         self.assertEqual(read(run / 'control.json')['last_ask'], 3)
 
+    def test_main_stop_mirrors_session_crons_into_loops_md(self):
+        run = self.root / 'loops'
+        run.mkdir()
+        assignment = self.root / 'claude_in.md'
+        assignment.write_text('# Objective\nx\n\n# Asks\n')
+        initialize(run, LaunchOptions(), 'parent', self.state, assignment, self.state)
+        base = {'session_id': 'parent'}
+        loops = self.root / 'loops.md'
+        cron = {'id': 'c1', 'schedule': '*/30 * * * *', 'recurring': True, 'prompt': 'check the build'}
+        shell = {'id': 't1', 'type': 'shell', 'status': 'running', 'command': 'tail -f log'}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[], background_tasks=[]), run.name)
+        self.assertFalse(loops.exists())  # nothing scheduled, nothing written
+        # Child stops carry the parent's arrays too; only the main session writes.
+        handle(run, dict(base, hook_event_name='SubagentStop', agent_id='w', agent_type='x',
+                         session_crons=[cron], background_tasks=[]), run.name)
+        self.assertFalse(loops.exists())
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[cron],
+                         background_tasks=[shell, dict(shell, id='t2', status='completed', command='old')]), run.name)
+        text = loops.read_text()
+        self.assertIn('`*/30 * * * *` recurring: check the build (since ', text)
+        self.assertIn('- shell: tail -f log', text)
+        self.assertNotIn('old', text)
+        # A firing loop is not a user message.
+        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='check the build'), run.name)
+        self.assertNotIn('check the build', assignment.read_text())
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[], background_tasks=[]), run.name)
+        self.assertFalse(loops.exists())  # a deleted loop is not resurrected
+
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
         run.mkdir()
@@ -231,8 +260,10 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
 
     def _run_fake(self, failures=False, cap=None, resume=False, no_progress=False, headless=False, substantive=False):
         launched = []
-        def prepare(view, options, prompt, run, agent='coordinator'):
+        self.greets = []
+        def prepare(view, options, prompt, run, agent='coordinator', greet=False):
             launched.append((options, prompt))
+            self.greets.append(greet)
             action = len(launched) < 4 and options.rollover is not None
             script = '''
 import json, os
@@ -293,6 +324,26 @@ p.write_text(json.dumps(s))
         self.assertEqual(code, 0)
         self.assertEqual(len(launched), 3)
         self.assertIsNone(launched[-1][0].rollover)
+
+    def test_only_a_new_tasks_first_launch_greets(self):
+        self._run_fake()
+        self.assertEqual(self.greets, [True] + [False] * (len(self.greets) - 1))
+        self.assertGreater(len(self.greets), 1)
+        self._run_fake(resume=True)
+        self.assertFalse(any(self.greets))
+
+    def test_recorded_loops_reach_continue_and_successors(self):
+        from token_kit.simple_records import record_loops
+        record_loops(self.root, [{'id': 'c1', 'schedule': '*/30 * * * *', 'recurring': True,
+                                  'prompt': 'check the build'}], [], {})
+        line = 'Recreate these loops from the previous session now'
+        code, launched = self._run_fake(resume=True)
+        self.assertIn(line, launched[0][1])
+        self.assertIn('*/30 * * * * check the build', launched[0][1])
+        self.assertTrue(all(line in prompt for _, prompt in launched[1:]))
+        (self.root / 'loops.md').unlink()
+        code, launched = self._run_fake(resume=True)
+        self.assertFalse(any(line in prompt for _, prompt in launched))
 
     def test_prepare_failure_allows_corrected_configuration_retry(self):
         from token_kit.task_files import safe_task_path, archive_history
