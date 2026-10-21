@@ -58,7 +58,13 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         with self.assertRaisesRegex(ValueError, 'uncertain'):
             Slot(self.root, 'coordinator').acquire()
 
-    def test_continue_fence_held_while_slot_owned(self):
+    def test_new_tasks_keep_locks_inside_records_old_tasks_keep_fence(self):
+        slot = Slot(self.root, 'coordinator').acquire()
+        slot.claim()
+        slot.publish(status='exited', exit_code=0)
+        slot.close()
+        self.assertEqual({p.name for p in self.root.iterdir()}, {'STATE.md', '.token-kit'})
+        (self.root / 'task.json').write_text('{}')
         slot = Slot(self.root, 'coordinator').acquire()
         slot.claim()
         import fcntl

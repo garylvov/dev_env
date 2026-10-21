@@ -97,11 +97,13 @@ class Slot:
         self.record = {}
 
     def acquire(self, resume=False, timeout=15):
-        # SH fences every old EX launch/continue route without serializing new slots.
-        fence = safe(self.root, self.root / '.continue.lock').open('a')
-        self.handles.append(fence)
         try:
-            fcntl.flock(fence, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            if (self.root / 'task.json').exists():
+                # SH fences the old launcher's EX continue route on old-layout tasks only;
+                # new tasks keep every lock inside .token-kit/, out of git status.
+                fence = safe(self.root, self.root / '.continue.lock').open('a')
+                self.handles.append(fence)
+                fcntl.flock(fence, fcntl.LOCK_SH | fcntl.LOCK_NB)
             slot = (self.directory / 'launch.lock').open('a')
             self.handles.append(slot)
             try:
@@ -159,7 +161,7 @@ class Slot:
     def publish(self, **fields):
         self.record.update(fields)
         # Publish the durable claim before exposing executable child.
-        with locked(safe(self.root, self.root / '.lock')):
+        with locked(self.directory / 'publish.lock'):
             write(self.current, self.record)
 
     def spawn(self, argv, cwd, env, **stdio):
