@@ -192,7 +192,7 @@ class CodegraphTest(unittest.TestCase):
         self.assertIs(resolve_options(args).codegraph, True)
         args = parser_for("continue").parse_args(["x"])
         self.assertIs(resolve_options(args, {"codegraph": False}).codegraph, False)
-        self.assertIsNone(resolve_options(args, {}).codegraph)
+        self.assertIs(resolve_options(args, {}).codegraph, True)  # operator default
         with self.assertRaises(ValueError):
             resolve_options(args, {"codegraph": 1})
 

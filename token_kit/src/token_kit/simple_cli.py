@@ -29,6 +29,9 @@ Use COMMAND --help for launch options. Files can be edited normally.
 """
 
 
+
+OPERATOR_DEFAULTS = {"model": "opus", "codegraph": True}
+
 def default_root() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "token_kit"
 
@@ -130,6 +133,9 @@ def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
             result["max_rollovers"] = None
     if "headless" in supplied:
         result["non_interactive"] = False
+    # Operator defaults for tasks that never chose: Opus main session, CodeGraph on.
+    result.setdefault("model", OPERATOR_DEFAULTS["model"])
+    result.setdefault("codegraph", OPERATOR_DEFAULTS["codegraph"])
     options = LaunchOptions(**result)
     if type(options.headless) is not bool or type(options.non_interactive) is not bool:
         raise ValueError("Saved headless setting is invalid; select --headless or --no-headless")

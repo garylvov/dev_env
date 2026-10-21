@@ -12,6 +12,7 @@ token-kit continue retread
 token-kit run "My task"
 ```
 
+New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
 Without `--prompt`, a new task opens an idle session. New tasks default to 60%
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
@@ -42,7 +43,7 @@ append every user message verbatim, dated and numbered, before the agent works;
 the file is never edited. Initial assignments are saved on creation; Token Kit's
 kickoff and successor prompts are excluded. `asks.md` holds status: every request
 in every message gets a line (asides too), open asks first, superseded or
-conflicting asks are marked with which one wins. Agents re-read it before ending a
+conflicting asks are marked with which one wins. Asks are grouped under feature headings, so many asks roll up into a few features. Agents re-read it before ending a
 turn and before rollover, and the final reply lists open asks. If managed hooks are
 unavailable, the agent must record messages itself.
 
@@ -141,7 +142,7 @@ stale). It never creates, edits or commits `docs/agents/` itself.
 `--codegraph` (saved like other options; `--no-codegraph` turns it off) attaches the
 [CodeGraph](https://github.com/colbymchenry/codegraph) MCP server to the launched
 session only (`--mcp-config`). Without the
-flag it attaches when the repo already has a `.codegraph/` index. Before launch and
+flag a task saved before this default attaches only when the repo already has a `.codegraph/` index. Before launch and
 at each rollover Token Kit runs `codegraph sync` (120 s cap); a failure prints a
 warning and the session starts without the server. A worktree without an index
 copies its main checkout's index and syncs it (ProtoMotions, 20k files, 310 MB index:
