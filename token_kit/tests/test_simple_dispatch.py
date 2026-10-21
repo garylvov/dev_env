@@ -78,7 +78,7 @@ class DispatchGuideTest(unittest.TestCase):
                 'do not edit models.md or automatically re-probe',
                 'OTHER model family', 'Claude-authored work is checked by a Shunt GPT agent',
                 'GPT-authored work by Claude', 'verifier intelligence rank <= author intelligence rank',
-                'if Shunt is inactive, record cross-family verification as blocked',
+                'verify with a Claude model at least as capable as the author',
                 '--model <model> --effort <effort>'):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, text)
