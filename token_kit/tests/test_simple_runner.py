@@ -209,12 +209,22 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         # A firing loop is not a user message.
         handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='check the build'), run.name)
         self.assertNotIn('check the build', assignment.read_text())
+        # A clipped prompt with nothing before the marker never swallows user messages.
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[cron, dict(cron, id='c2', prompt='\u2026 [+9 chars]')],
+                         background_tasks=[]), run.name)
+        handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt='a real ask'), run.name)
+        self.assertIn('a real ask', assignment.read_text())
+        handle(run, dict(base, hook_event_name='Stop', session_crons=[cron], background_tasks=[shell]), run.name)
         # A successor's recreated loop (new id, empty control) keeps the original date.
         loops.write_text(re.sub(r'\(since .*\)$', '(since 1999-01-01T00:00)', loops.read_text(), flags=re.M))
         successor = self.root / 'successor'
         successor.mkdir()
         initialize(successor, LaunchOptions(), 'next', self.state, assignment, self.state)
         handle(successor, {'session_id': 'next', 'hook_event_name': 'SessionStart'}, successor.name)
+        # Its first turn ending before the loop is recreated must not lose the list.
+        handle(successor, {'session_id': 'next', 'hook_event_name': 'Stop', 'background_tasks': [],
+                           'session_crons': []}, successor.name)
+        self.assertIn('check the build', loops.read_text())
         handle(successor, {'session_id': 'next', 'hook_event_name': 'Stop', 'background_tasks': [],
                            'session_crons': [dict(cron, id='c9')]}, successor.name)
         self.assertIn('check the build (since 1999-01-01T00:00)', loops.read_text())
@@ -350,6 +360,11 @@ p.write_text(json.dumps(s))
         code, launched = self._run_fake(resume=True)
         self.assertIn(line, launched[0][1])
         self.assertIn('*/30 * * * * check the build', launched[0][1])
+        from token_kit.simple_records import loops_kickoff
+        record_loops(self.root, [{'schedule': '0 9 * * *', 'prompt': 'diff (since monday) builds'}], [], {})
+        self.assertIn('0 9 * * * diff (since monday) builds', loops_kickoff(self.root))
+        record_loops(self.root, [{'id': 'c1', 'schedule': '*/30 * * * *', 'recurring': True,
+                                  'prompt': 'check the build'}], [], {})
         self.assertTrue(all(line in prompt for _, prompt in launched[1:]))
         (self.root / 'loops.md').unlink()
         code, launched = self._run_fake(resume=True)

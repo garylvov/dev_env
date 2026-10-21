@@ -202,7 +202,7 @@ def _cron_prompt(control: dict, prompt: str) -> bool:
     """A recorded loop firing is the session's own schedule, not a new user message."""
     for known in control.get('cron_prompts', []):
         head, clipped, _ = known.partition('… [+')
-        if prompt == known or (clipped and prompt.startswith(head)):
+        if prompt == known or (clipped and head.strip() and prompt.startswith(head)):
             return True
     return False
 
@@ -213,7 +213,8 @@ def _snapshot_loops(control: dict, payload: dict):
     crons = payload['session_crons']
     tasks = payload.get('background_tasks') if isinstance(payload.get('background_tasks'), list) else []
     try:
-        control['cron_seen'] = record_loops(Path(control['task_root']), crons, tasks, control.get('cron_seen', {}))
+        control['cron_seen'] = record_loops(Path(control['task_root']), crons, tasks, control.get('cron_seen', {}),
+                                            may_clear=bool(control.get('cron_seen')))
     except (OSError, ValueError) as exc:
         _record_error(control, exc)
     control['cron_prompts'] = [c['prompt'] for c in crons if isinstance(c, dict) and isinstance(c.get('prompt'), str)][:32]
