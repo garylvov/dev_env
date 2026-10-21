@@ -25,7 +25,7 @@ HELP = """Token Kit — folders and automatic session rollover.
 
 Inside git, tasks live in <repo>/agent_tasks/; continue searches this repo, its
 worktrees, then ~/.config/token_kit (--root DIR searches only DIR).
-Sessions start idle; --prompt TEXT starts work immediately.
+New tasks open with a short setup overview; --prompt TEXT starts work immediately.
 Rollover defaults to 80%, unlimited. --no-rollover disables automatic restarts.
 Use COMMAND --help for launch options. Files can be edited normally.
 """

@@ -16,7 +16,9 @@ token-kit run "My task"
 ```
 
 New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
-Without `--prompt`, a new task opens an idle session. New tasks default to 80%
+Without `--prompt`, a new task opens with Claude's short overview of the task folder,
+delegation, rollover and CodeGraph state (answered from its system prompt, no file reads),
+then waits for your first message. New tasks default to 80%
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.
@@ -35,6 +37,7 @@ Client permissions remain in effect unless you pass `--yolo`
   experiments.md          launched runs: Open/Closed lines with question, command, verdict
   <task>_out.md            running state and results
   models.md               main-agent model choices, sources and dated probes
+  loops.md                hook-written session loops to recreate after rollover
   docs/                   longer findings and decisions, linked from output
   artifacts/              optional
   agents/<name>_in.md      worker prompt (hook-written for Agent-tool workers)
@@ -131,6 +134,13 @@ being written, it proceeds and the launcher still waits for the end of the turn.
 After verifying the old client exited, the launcher starts a successor with the
 task file paths plus one line asking it to label new experiments and promote docs. Rollovers are unlimited unless a restart limit is set. Normal completion,
 manual interruption and arbitrary errors do not restart.
+
+Session loops (`/loop`, `CronCreate`, `ScheduleWakeup`) die with the client. At each
+main-session turn end the `Stop` hook mirrors its `session_crons` into `<task>/loops.md`
+(schedule, prompt, first-seen date) plus still-running background shells and monitors,
+which cannot be resumed; the file disappears when nothing is scheduled, so deleted loops
+stay deleted. Rollover successors and `continue` get one kickoff line asking the model
+to recreate the listed loops with its own tools. Loop firings are not recorded as asks.
 
 Missing telemetry or untrusted hooks cause a diagnostic and leave native
 compaction available. Active workers defer managed rollover. Missing fresh notes
