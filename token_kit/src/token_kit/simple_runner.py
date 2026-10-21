@@ -135,7 +135,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                     output_thread.start()
                 else:
                     child = slot.spawn(plan.argv, plan.cwd, environment)
-            except Exception:
+            except BaseException:  # includes Ctrl-C during setup (e.g. a long CodeGraph sync)
                 # Before spawn, no client can exist. Corrected configuration
                 # must be immediately retryable; only actual spawn uncertainty persists.
                 if not launch_started and slot.record:

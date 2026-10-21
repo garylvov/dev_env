@@ -140,7 +140,10 @@ class Slot:
                         if current_request.get('request_id') == request['request_id']:
                             request_path.unlink(missing_ok=True)
             previous = read(self.current)
-            if previous and previous.get('status') != 'exited' and not dead(previous, 'child'):
+            # The child is gated on a release byte written only after child_pid is published, so a dead
+            # supervisor with no published child never released a client: the launch simply failed.
+            never_released = 'child_pid' not in previous and dead(previous, 'supervisor')
+            if previous and previous.get('status') != 'exited' and not never_released and not dead(previous, 'child'):
                 raise ValueError('Previous client is alive or its launch outcome is uncertain; no duplicate launched')
             return self
         except Exception:

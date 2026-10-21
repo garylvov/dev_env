@@ -55,8 +55,23 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
         result = subprocess.run([sys.executable, '-c', script, str(self.root), str(marker)], timeout=5)
         self.assertEqual(result.returncode, 17)
         self.assertFalse(marker.exists())
-        with self.assertRaisesRegex(ValueError, 'uncertain'):
-            Slot(self.root, 'coordinator').acquire()
+        # The handshake proves no client ran, so a dead supervisor without a published child is retryable.
+        Slot(self.root, 'coordinator').acquire().close()
+
+    def test_interrupted_setup_is_retryable(self):
+        script = '''
+import sys
+from pathlib import Path
+from token_kit.simple_process import Slot
+slot = Slot(Path(sys.argv[1]), 'coordinator').acquire()
+slot.claim()
+import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in a CodeGraph sync)
+'''
+        result = subprocess.run([sys.executable, '-c', script, str(self.root)], timeout=5,
+                                env={**os.environ, 'PYTHONPATH': os.pathsep.join(sys.path)})
+        self.assertEqual(result.returncode, 3)
+        self.assertEqual(read(self.root / '.token-kit/slots/coordinator/current.json')['status'], 'starting')
+        Slot(self.root, 'coordinator').acquire().close()
 
     def test_new_tasks_keep_locks_inside_records_old_tasks_keep_fence(self):
         slot = Slot(self.root, 'coordinator').acquire()
