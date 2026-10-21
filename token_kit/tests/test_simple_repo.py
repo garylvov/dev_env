@@ -153,7 +153,8 @@ class CodegraphTest(unittest.TestCase):
     def worktree_git(self, main):
         listing = f"worktree {main}\nHEAD abc\n\nworktree {self.ws}\nHEAD def\n"
         def run(argv, **kw):
-            out = {"worktree": listing, "rev-parse": "1234567890abcdef\n", "merge-base": "fedcba0987654321\n"}
+            out = {"worktree": listing, "--git-path": str(self.root / "exclude"), "rev-parse": "1234567890abcdef\n",
+                   "merge-base": "fedcba0987654321\n"}
             return subprocess.CompletedProcess(argv, 0, next((v for k, v in out.items() if k in argv), ""), "")
         return run
 

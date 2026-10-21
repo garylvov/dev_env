@@ -56,7 +56,7 @@ def repo_of(task: Path) -> Path | None:
 def add_exclude(repo: Path, line: str) -> bool:
     """Append a line to the repo's local exclude file once; never edits .gitignore."""
     path = _git(repo, "rev-parse", "--path-format=absolute", "--git-path", "info/exclude")
-    if not path:
+    if not path or not Path(path).is_absolute():
         return False
     exclude = Path(path)
     text = exclude.read_text() if exclude.is_file() else ""
