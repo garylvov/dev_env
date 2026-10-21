@@ -132,7 +132,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
                 run.mkdir()
                 assignment = self.root / 'task_in.md'
                 output = self.root / 'task_out.md'
-                initialize(run, LaunchOptions(context_window=100_000), 'parent', self.state, assignment, output)
+                initialize(run, LaunchOptions(rollover='60%', context_window=100_000), 'parent', self.state, assignment, output)
                 transcript = self.root / 'transcript.jsonl'
                 transcript.write_text(json.dumps({'type': 'assistant', 'message':
                     {'usage': {'input_tokens': 60_000}}}) + '\n')
@@ -183,7 +183,7 @@ slot.spawn([sys.executable, '-c', 'from pathlib import Path; Path(' + repr(sys.a
     def test_native_workers_defer_compaction_and_off_stays_native(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(context_window=200_000), 'parent', self.state)
+        initialize(run, LaunchOptions(rollover='60%', context_window=200_000), 'parent', self.state)
         transcript = self.root / 'usage.jsonl'
         transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 150_000}}}) + '\n')
         current = read(run / 'control.json')
@@ -363,7 +363,7 @@ p.write_text(json.dumps(s))
     def test_child_start_revokes_ready_boundary(self):
         run = self.root / 'run'
         run.mkdir()
-        initialize(run, LaunchOptions(context_window=200_000), 'parent', self.state)
+        initialize(run, LaunchOptions(rollover='60%', context_window=200_000), 'parent', self.state)
         transcript = self.root / 'usage.jsonl'
         transcript.write_text(json.dumps({'type': 'assistant', 'message': {'usage': {'input_tokens': 150_000}}}) + '\n')
         current = read(run / 'control.json')

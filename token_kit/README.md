@@ -1,7 +1,7 @@
 # Token Kit
 
 Token Kit keeps work in task folders and starts a fresh Claude session
-when context reaches 60%. Save the work in the folder so the next session can continue.
+when context reaches 80%. Save the work in the folder so the next session can continue.
 GPT models are used only as Shunt-backed Claude Code subagents, never as the main session.
 
 ## Everyday use
@@ -13,7 +13,7 @@ token-kit run "My task"
 ```
 
 New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
-Without `--prompt`, a new task opens an idle session. New tasks default to 60%
+Without `--prompt`, a new task opens an idle session. New tasks default to 80%
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.

@@ -58,7 +58,7 @@ class CLITests(unittest.TestCase):
         session = task / '.token-kit/session.json'
         data = json.loads(session.read_text())
         data['settings'] = {'engine': 'codex', 'model': 'gpt-x', 'effort': 'medium', 'yolo': True,
-                            'rollover': '60%', 'max_rollovers': None, 'context_window': None,
+                            'rollover': '80%', 'max_rollovers': None, 'context_window': None,
                             'executable': None, 'non_interactive': False, 'headless': True, 'sandbox': None}
         session.write_text(json.dumps(data))
         code, out, err = self.call('continue', str(task), '--root', self.tasks, '--dry-run')
@@ -82,7 +82,7 @@ class CLITests(unittest.TestCase):
     def test_preview_create_does_not_write(self):
         code, out, err = self.call('run', 'Draft', '--root', self.tasks, '--workspace', self.work, '--dry-run')
         self.assertEqual(code, 0, err)
-        self.assertEqual(json.loads(out)['settings']['rollover'], '60%')
+        self.assertEqual(json.loads(out)['settings']['rollover'], '80%')
         self.assertFalse(self.tasks.exists())
 
     def test_new_task_no_lifecycle_and_readonly_resume(self):
@@ -151,7 +151,7 @@ class CLITests(unittest.TestCase):
     def test_default_and_explicit_settings(self):
         parser = cli.parser_for('run')
         args = parser.parse_args(['X'])
-        self.assertEqual(cli.resolve_options(args).rollover, '60%')
+        self.assertEqual(cli.resolve_options(args).rollover, '80%')
         args = parser.parse_args(['X', '--no-rollover'])
         self.assertIsNone(cli.resolve_options(args).rollover)
         args = parser.parse_args(['X', '--max-rollovers', '0'])
