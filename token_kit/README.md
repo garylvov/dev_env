@@ -208,8 +208,10 @@ warning and the session starts without the server. A linked worktree without its
 own index attaches its main checkout's index in place: nothing is copied and Token Kit
 never syncs main from a worktree. The agent is told CodeGraph answers with main's code
 and to read files changed in the worktree (`git diff --name-only <merge-base>`) directly.
-A worktree that has its own index keeps it. With no index anywhere, `--codegraph`
-builds one only in a main checkout; a linked worktree skips with a one-line note.
+A worktree that has its own index keeps it. Token Kit never builds an index at launch:
+with no index anywhere, the server is attached without one and the session is told to
+work out its repo first, then run `codegraph init --yes` once in that repo's main checkout
+before querying (launching from a folder of many repos must not index all of them).
 `codegraph serve` is not byte-read-only: it starts one shared daemon per indexed path
 that opens the database as its writer (and, with its file watcher, syncs it from main's files).
 No client or project config is written; `/.codegraph/` goes in the local git exclude

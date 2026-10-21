@@ -122,12 +122,13 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
     env["TOKEN_KIT_SIMPLE_RUN"] = str(Path(run_dir).resolve())
     env["TOKEN_KIT_TASK"] = str(view.root.resolve())
     env["TOKEN_KIT_AGENT"] = agent
-    from .simple_codegraph import attach
+    from .simple_codegraph import attach, ENV as codegraph_env
     from .simple_repo_docs import kickoff_note
     codegraph = attach(workspace, options.codegraph)
     from .simple_records import experiments_note
     guidance = folder_guidance(view, kickoff_note(workspace) + experiments_note(view.root) + codegraph.guidance)
     env["TOKEN_KIT_SIMPLE_GUIDANCE"] = guidance
+    env.update(codegraph_env)  # telemetry off for codegraph runs the session starts itself
     # Hooks record asks, workers and experiments even when rollover is off.
     cap = capabilities(options)
     env["TOKEN_KIT_SIMPLE_CAPABILITIES"] = json.dumps({

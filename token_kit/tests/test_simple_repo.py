@@ -194,20 +194,31 @@ class CodegraphTest(unittest.TestCase):
                 patch.object(codegraph.subprocess, "run", side_effect=self.worktree_git(main)) as called:
             result = codegraph.attach(self.ws, True)
             self.assertFalse(codegraph.attach(self.ws, None).attached)
-        self.assertFalse(result.attached)
-        self.assertIn("CodeGraph skipped", result.diagnostics[0])
+        self.assertTrue(result.attached)
+        self.assertIs(result.guidance, codegraph.BUILD_GUIDANCE)
         self.assertFalse(any(c.args[0][0] == "/x/codegraph" for c in called.call_args_list))
 
-    def test_builds_fresh_without_any_index(self):
+    def test_never_builds_at_launch(self):
         def run(argv, **kw):
             return subprocess.CompletedProcess(argv, 0, f"worktree {self.ws}\n" if "worktree" in argv else "", "")
         with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
                 patch.object(codegraph.subprocess, "run", side_effect=run) as called:
             result = codegraph.attach(self.ws, True)
-        init = called.call_args_list[1]
-        self.assertEqual(init.args[0], ["/x/codegraph", "init", "--yes", str(self.ws)])
-        self.assertEqual(init.kwargs["timeout"], codegraph.INIT_TIMEOUT)
+        # The launcher never builds; the session builds once it knows its repo.
+        self.assertFalse(any(c.args[0][0] == "/x/codegraph" for c in called.call_args_list))
         self.assertTrue(result.attached)
+        self.assertIn("codegraph init --yes", result.guidance)
+
+    def test_no_build_outside_a_git_checkout(self):
+        plain = self.root / "many_repos"
+        plain.mkdir()
+        with patch.object(codegraph.shutil, "which", return_value="/x/codegraph"), \
+                patch.object(codegraph.subprocess, "run",
+                             side_effect=lambda argv, **kw: subprocess.CompletedProcess(argv, 128, "", "")) as called:
+            result = codegraph.attach(plain, True)
+        self.assertTrue(result.attached)
+        self.assertIn("work out which repo", result.guidance)
+        self.assertFalse(any(c.args[0][0] == "/x/codegraph" for c in called.call_args_list))
 
     def test_launch_writes_no_config_files(self):
         self.index(self.ws)

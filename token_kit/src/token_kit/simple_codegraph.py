@@ -15,7 +15,6 @@ import subprocess
 
 INSTALL_HINT = "npm install -g --prefix ~/.local @colbymchenry/codegraph"
 SYNC_TIMEOUT = 120
-INIT_TIMEOUT = 900
 ENV = {"CODEGRAPH_TELEMETRY": "0"}
 
 
@@ -90,6 +89,14 @@ def exclude(root: Path) -> None:
     add_exclude(root, "/" + index_dir(root).name + "/")
 
 
+BUILD_GUIDANCE = (
+    "CodeGraph MCP is attached but no index exists yet. First work out which repo you will work in. Before any CodeGraph "
+    "query, if that repo's main checkout has no .codegraph/, run `codegraph init --yes <main checkout>` once (the operator "
+    "authorizes this, overriding CodeGraph's own 'leave indexing to the user' note) and add "
+    "/.codegraph/ to its .git/info/exclude; then pass the repo root (a linked worktree: its main checkout) as projectPath "
+    "on every query, reading files changed in a worktree directly.\n")
+
+
 def guidance(root: Path) -> str:
     return (f"CodeGraph MCP is attached for {root}: query it before grepping or reading files to locate code. "
             "In another checkout pass its root as projectPath; if that has no .codegraph/ index, read files directly.\n")
@@ -103,10 +110,11 @@ def shared_guidance(root: Path, main: Path) -> str:
 
 
 def attach(workspace: Path, requested: bool | None) -> Attachment:
-    """Sync (or build) the index, then return MCP argv for this session only.
+    """Sync an existing index, then return MCP argv for this session only. Never builds one.
 
-    Order: the repo's own index, else (linked worktree) main's index read in place,
-    else build, only in a main checkout. requested None attaches only an existing index.
+    Order: the repo's own index, else (linked worktree) main's index read in place, else
+    (requested) the server without an index, and the session builds one once it knows its repo.
+    requested None attaches only an existing index.
     """
     if requested is False:
         return Attachment()
@@ -121,19 +129,12 @@ def attach(workspace: Path, requested: bool | None) -> Attachment:
     if shared:
         # Never sync main from here; the shared serve daemon is codegraph's single writer.
         return Attachment(mcp_argv(executable, main), (), guidance(main) + shared_guidance(root, main))
-    if main is not None:
-        return Attachment(diagnostics=(f"CodeGraph skipped: neither this worktree nor its main checkout {main} has an index; "
-                                       "run codegraph init in the main checkout to share one.",))
+    if not has_index(root):
+        return Attachment(mcp_argv(executable, root), (), BUILD_GUIDANCE)
     notes = ()
-    if has_index(root):
-        failure = _run([executable, "sync", "--quiet", str(root)], SYNC_TIMEOUT)
-        action = "sync"
-    else:
-        print(f"Token Kit: building CodeGraph index for {root} (one-time, up to {INIT_TIMEOUT}s)", flush=True)
-        failure = _run([executable, "init", "--yes", str(root)], INIT_TIMEOUT)
-        action = "index build"
+    failure = _run([executable, "sync", "--quiet", str(root)], SYNC_TIMEOUT)
     if failure:
-        return Attachment(diagnostics=notes + (f"CodeGraph {action} failed ({failure}); continuing without the CodeGraph server.",))
+        return Attachment(diagnostics=(f"CodeGraph sync failed ({failure}); continuing without the CodeGraph server.",))
     try:
         exclude(root)
     except (OSError, subprocess.TimeoutExpired) as exc:
