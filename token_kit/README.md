@@ -159,6 +159,14 @@ At launch and rollover Token Kit passes only the index path and the names of doc
 whose covered files changed after their verified commit (missing markers count as
 stale). It never creates, edits or commits `docs/agents/` itself.
 
+## Docs layers
+
+One fact, one home; higher layers summarize and link down, never copy.
+
+- Repo docs (README, `docs/`, `--help`): high-level run info only, shipped with the code from the start, with an "In progress" status line until the feature is done.
+- `docs/agents/`: implementation detail that outlives tasks (decisions and why, gotchas, dead ends).
+- Task `docs/`: working notes. Promoting a note moves it and leaves a link.
+
 ## CodeGraph
 
 `--codegraph` (saved like other options; `--no-codegraph` turns it off) attaches the

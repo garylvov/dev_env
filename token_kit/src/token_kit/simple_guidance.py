@@ -13,8 +13,11 @@ REPO_DOCS = (
     "(how to run/test, gotchas, decisions and why, dead ends), first line <!-- verified: <commit> files: <paths> -->.\n"
     "At rollover and when the task finishes, promote durable repo knowledge from the task docs/ into docs/agents/, "
     "refreshing its index line and verified commit. Never write docs/agents/ in repos other than the task workspace.\n"
-    "Docs ship with features: when a feature lands, update the repo's own docs (README, docs/, --help, examples) in the "
-    "same commit or PR as the code; an asks.md feature is not done until its docs are. docs/agents/ is only agent notes.\n"
+    "Docs ship with features, from the start: repo docs (README, docs/, --help) hold only high-level run info (what, how to "
+    "run/configure, examples; an In progress status line until done), updated in the same commit as the code; an asks.md "
+    "feature is not done until documented. Implementation detail goes in docs/agents/, scratch in the task docs/. "
+    "One fact, one home: extend an existing doc before adding one; higher layers summarize and link down, never copy; "
+    "promoting a note moves it and leaves a link.\n"
 )
 
 TASK_RULES = (
