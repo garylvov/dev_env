@@ -73,6 +73,11 @@ def _with_loops(view, prompt):
     return ((prompt + '\n\n') if prompt else '') + line if line else prompt
 
 
+def _workers_hold(control: dict) -> bool:
+    """Live workers block the stop until the hook's wait limit expires (it then ends them)."""
+    return bool(control.get('children') or control.get('unknown_children')) and not control.get('wait_expired')
+
+
 def _ever_started(view: TaskView) -> bool:
     """True once any run's session reached SessionStart (armed)."""
     for control in (view.root / '.token-kit' / 'runs').glob('*/control.json'):
@@ -191,8 +196,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                                 current['phase'] = 'running'
                                 write(run / 'control.json', current)
                                 control = current
-                    safe = (control.get('phase') == 'ready' and not control.get('children')
-                            and not control.get('unknown_children'))
+                    safe = control.get('phase') == 'ready' and not _workers_hold(control)
                     # Explicit continuation cooperatively requests a boundary too.
                     if continuing and control.get('phase') == 'running':
                         from .simple_process import locked
@@ -203,7 +207,7 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                             write(run / 'control.json', current)
                     if safe:
                         latest = _observe(run / 'control.json', notices)
-                        if latest.get('children') or latest.get('unknown_children') or latest.get('phase') != 'ready':
+                        if _workers_hold(latest) or latest.get('phase') != 'ready':
                             continue
                         if not _stop(child, slot.record):
                             if child.poll() is not None:

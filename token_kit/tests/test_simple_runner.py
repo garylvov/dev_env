@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import tempfile
 import types
 import unittest
@@ -290,7 +291,8 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
         self.assertEqual(read(run / 'control.json')['activity'], 0)
 
-    def _run_fake(self, failures=False, cap=None, resume=False, no_progress=False, headless=False, substantive=False):
+    def _run_fake(self, failures=False, cap=None, resume=False, no_progress=False, headless=False, substantive=False,
+                  workers=False):
         launched = []
         self.greets = []
         def prepare(view, options, prompt, run, agent='coordinator', greet=False):
@@ -309,6 +311,9 @@ p.write_text(json.dumps(s))
                 script += '\n(Path(os.environ["TOKEN_KIT_TASK"]) / "out.md").open("a").write("completed file ' + str(len(launched)) + '\\n")'
             if no_progress:
                 script = script.replace('activity=1', 'activity=0')
+            if workers:  # a worker still runs, but the hook's wait limit expired
+                script = script.replace("phase='ready'", "children=['w'], unknown_children=True, wait_expired=True, phase='ready'")
+                script += '\nimport time\ntime.sleep(20)'  # the client stays up until the runner stops it
             if not failures:
                 script = script.replace("phase='ready'", "armed=True, phase='ready'")
             if not action:
@@ -363,6 +368,12 @@ p.write_text(json.dumps(s))
         self.assertGreater(len(self.greets), 1)
         self._run_fake(resume=True)
         self.assertFalse(any(self.greets))
+
+    def test_expired_wait_lets_rollover_end_live_workers(self):
+        started = time.monotonic()
+        code, launched = self._run_fake(workers=True)
+        self.assertGreater(len(launched), 1)  # a successor started
+        self.assertLess(time.monotonic() - started, 15)  # by stopping the client, not waiting for it
 
     def test_continuing_a_folder_that_never_started_greets(self):
         self._run_fake(resume=True, failures=True)  # the client exits before SessionStart
