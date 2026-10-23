@@ -56,6 +56,14 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertIn('high', plan.argv)
         self.assertIn('simple-only', plan.argv[plan.argv.index('--settings') + 1])
 
+    def test_session_name_is_task_title_when_supported(self):
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, (), True)):
+            first, successor = self.prepare(), self.prepare()
+        for plan in (first, successor):
+            self.assertEqual(plan.argv[plan.argv.index('--name') + 1], self.view.title)
+        with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, ())):
+            self.assertNotIn('--name', self.prepare().argv)
+
     def test_headless_argv_and_refusals(self):
         self.assertIn('--print', self.prepare(headless=True, rollover='off').argv)
         with self.assertRaisesRegex(AdapterError, 'requires a prompt'):

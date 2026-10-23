@@ -100,6 +100,19 @@ class HookTests(unittest.TestCase):
         self.hook('Stop', background_tasks=[{'id': 't1', 'type': 'shell', 'status': 'running'}])
         self.assertEqual(self.control()['children'], [])
 
+    # Named Agent workers report as 'teammate'; a rollover would kill them.
+    def test_teammates_defer_rollover_with_one_note(self):
+        self.start(startup_tokens=10_000)
+        self.usage(70_000)
+        teammate = [{'id': 't1', 'type': 'teammate', 'status': 'running', 'description': 'fleet submitter'}]
+        note = self.hook('Stop', background_tasks=teammate)
+        self.assertEqual(self.control()['phase'], 'running')
+        self.assertTrue(self.control()['unknown_children'])
+        self.assertIn('rollover waits', note['hookSpecificOutput']['additionalContext'])
+        self.assertNotIn('rollover waits', json.dumps(self.hook('Stop', background_tasks=teammate)))
+        self.hook('Stop', background_tasks=[dict(teammate[0], status='completed')])
+        self.assertEqual(self.control()['phase'], 'requested')
+
     def test_unknown_children_clear_at_main_stop_and_children_expire(self):
         self.start()
         self.hook('SubagentStart')  # no agent_id: fate unknown

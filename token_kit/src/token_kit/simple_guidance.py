@@ -57,7 +57,7 @@ EFFORT = (
     'Workers do not spawn further workers unless their _in.md allows it; one level by default. Quick lookup/mechanical edits may use a low-effort subagent selected from models.md.\n'
     'Verification is always by the OTHER model family: Claude-authored work is checked by a Shunt GPT agent, GPT-authored work by Claude; a verifier is never weaker than the author (verifier intelligence rank <= author intelligence rank). Escalate one level on failure. If Shunt is inactive or its GPT agents fail (e.g. usage limit), verify with a Claude model at least as capable as the author, preferably a different one, and note the substitution in History.\n'
     "Workers read agents/<name>_in.md, append progress to agents/<name>_out.md and reuse <task>/models.md. Run workers in the background; state model, effort and why in each worker's _in.md.\n"
-    'Workers are Agent-tool subagents (Claude models, or Shunt agents for GPT), which hooks record. Long workers (>~30 min): token-kit run --headless for rollover and recording, adding --yolo only if this session runs with it.\n'
+    'Workers are Agent-tool subagents (Claude models, or Shunt agents for GPT), which hooks record; ending this session ends them, so rollover waits for them. Long workers (>~30 min: submitters, pollers) run detached: setsid -f token-kit run --headless --prompt ... </dev/null >log 2>&1, adding --yolo only if this session runs with it; link their task folders from agents/.\n'
 )
 
 

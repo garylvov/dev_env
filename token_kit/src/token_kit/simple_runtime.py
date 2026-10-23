@@ -25,6 +25,8 @@ CHILD_TTL = 1800
 # Claude Code clips session_crons prompts at 1000 chars with this marker.
 CLIP_MARKER = '\u2026 [+'
 MIN_CLIPPED_HEAD = 200
+# Background work that dies with the session: named Agent workers report as 'teammate'.
+WORKER_TASKS = ('subagent', 'teammate', 'workflow')
 DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
@@ -182,6 +184,11 @@ def _history_line(control: dict, text: str):
         history.write(f'- {datetime.now().astimezone().isoformat(timespec="minutes")} {text}\n')
 
 
+WAITING_NOTE = ('Token Kit: context passed the rollover threshold, but rollover waits until no background '
+                'workers remain, because ending this session ends them. TaskStop idle workers; run any long '
+                'worker detached (see guidance) instead of in this session.')
+
+
 def _settle_children(control: dict, payload: dict, now: float):
     """Forget children no hook has mentioned for CHILD_TTL; a main Stop resolves the rest."""
     seen = control.get('child_seen', {})
@@ -190,7 +197,7 @@ def _settle_children(control: dict, payload: dict, now: float):
         tasks = payload.get('background_tasks')
         if isinstance(tasks, list):
             # Parent-scoped registry: the source of truth when the client sends it.
-            busy = any(isinstance(t, dict) and t.get('type') == 'subagent'
+            busy = any(isinstance(t, dict) and t.get('type') in WORKER_TASKS
                        and str(t.get('status', '')).lower() not in DONE_TASK for t in tasks)
             control['unknown_children'] = busy and not children
             if not busy:
@@ -370,6 +377,9 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         # Native children of unknown fate defer this segment's managed rollover.
         if control.get('children') or control.get('unknown_children'):
             control['degraded'] = 'Native workers are active; using native compaction until they finish'
+            if crossed and control['phase'] == 'running' and event == 'Stop' and not control.get('waiting_note'):
+                control['waiting_note'] = True
+                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': WAITING_NOTE}}
         elif control.get('threshold') is not None:
             if control['phase'] == 'requested' and event == 'Stop':
                 control['phase'] = 'ready'

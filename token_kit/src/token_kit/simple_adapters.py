@@ -22,6 +22,7 @@ from .simple_guidance import CONCURRENCY, REPO_DOCS, TASK_RULES, load_dispatch_g
 class Capabilities:
     managed_hooks: bool
     diagnostics: tuple[str, ...]
+    names: bool = False  # client accepts --name, so successors keep the task's session name
 
 
 def capabilities(options: LaunchOptions) -> Capabilities:
@@ -36,7 +37,7 @@ def capabilities(options: LaunchOptions) -> Capabilities:
     if result.returncode or not all(flag in result.stdout for flag in ("--session-id", "--settings")):
         return Capabilities(False, ("Client help does not confirm session identity and settings flags; "
                                     "automatic rollover is unavailable.",))
-    return Capabilities(True, ())
+    return Capabilities(True, (), "--name" in result.stdout)
 
 
 def _argument(value: str, label: str) -> None:
@@ -160,6 +161,8 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
         argv.extend(("--session-id", session_id, "--settings", json.dumps({"hooks": hooks()})))
     if options.model is not None:
         argv.extend(("--model", options.model))
+    if cap.names and view.title.strip() and not view.title.startswith("-"):
+        argv.extend(("--name", view.title))
     argv.extend(codegraph.argv)
     if prompt is not None:
         argv.extend(("--", prompt))

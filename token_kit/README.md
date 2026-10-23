@@ -22,6 +22,7 @@ first message, or starts on `--prompt` if given. Headless runs skip the overview
 rollover; continuation reuses saved settings unless overridden. Use
 `--rollover-perc 70` or `--rollover-tokens 100k` to choose another threshold,
 `--no-rollover` to disable restarts, and `--help` for all arguments.
+Every session, including rollover successors, is named after the task (`claude --name`).
 `pick` selects a task; `status NAME --full` is a read-only preview of the recovery text.
 Run unattended with `token-kit run "Title" --headless --prompt "..."` (Claude print mode).
 `token-kit continue NAME --headless` reuses saved options; `--no-headless` restores interactive launches.
@@ -95,8 +96,11 @@ worker finishes, `SubagentStop` appends a dated `### final` section with its rep
 (a `SubagentHandback` message if seen, else its last message) and transcript path
 to `agents/<name>_out.md`, and one `- worker <name> (<model>) finished: ...` line
 to the task output. Workers append their own dated progress lines in between.
-Raw `claude -p` workers have no hooks and are not recorded; long workers use
-`token-kit run --headless` instead.
+Raw `claude -p` workers have no hooks and are not recorded. Agent-tool workers live
+inside the session, so ending it ends them: rollover waits until no subagent, teammate
+or workflow is running (named workers report as `teammate`) and tells Claude once that
+it is waiting. Long workers (submitters, pollers) run detached instead:
+`setsid -f token-kit run --headless --prompt ... </dev/null >log 2>&1`.
 
 `experiments.md` tracks runs the way `asks.md` tracks requests. A Bash `PreToolUse`
 hook (main session and workers) matches launch commands (`systemd-run`, `sbatch`,
