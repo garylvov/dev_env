@@ -19,7 +19,7 @@ MATCHED = {'PreToolUse': 'Bash'}
 
 
 # Claude Code delivers these through UserPromptSubmit, but the user did not write them.
-MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message')
+MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message', '<agent-message')
 # A child no hook has mentioned for this long is presumed gone (TaskStop, crash).
 CHILD_TTL = 1800
 # Claude Code clips session_crons prompts at 1000 chars with this marker.
@@ -27,6 +27,8 @@ CLIP_MARKER = '\u2026 [+'
 MIN_CLIPPED_HEAD = 200
 # Background work that dies with the session: named Agent workers report as 'teammate'.
 WORKER_TASKS = ('subagent', 'teammate', 'workflow')
+# A due rollover waits this long for background workers, then proceeds and ends them.
+WAIT_LIMIT = 1800
 DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
@@ -184,9 +186,25 @@ def _history_line(control: dict, text: str):
         history.write(f'- {datetime.now().astimezone().isoformat(timespec="minutes")} {text}\n')
 
 
-WAITING_NOTE = ('Token Kit: context passed the rollover threshold, but rollover waits until no background '
-                'workers remain, because ending this session ends them. TaskStop idle workers; run any long '
-                'worker detached (see guidance) instead of in this session.')
+def _busy(task) -> bool:
+    return (isinstance(task, dict) and task.get('type') in WORKER_TASKS
+            and str(task.get('status', '')).lower() not in DONE_TASK)
+
+
+def _waiting_on(control: dict, payload: dict) -> list[str]:
+    tasks = payload.get('background_tasks') if isinstance(payload.get('background_tasks'), list) else []
+    names = [str(t.get('description') or t.get('id') or t['type']) for t in tasks if _busy(t)]
+    workers = control.get('workers', {})
+    names += [workers.get(c, {}).get('name', c) for c in control.get('children', [])]
+    return sorted(set(names))
+
+
+def waiting_note(names: list[str], deadline: float) -> str:
+    shown = ', '.join(names[:8]) + (f' and {len(names) - 8} more' if len(names) > 8 else '') or 'unnamed workers'
+    return (f'Token Kit: rollover is due but waits for background workers ({shown}), because ending this '
+            f'session ends them. TaskStop idle ones; run long workers detached (see guidance). At '
+            f'{datetime.fromtimestamp(deadline).strftime("%H:%M")} rollover proceeds anyway and ends any still '
+            'running; their agents/ records let the successor relaunch them.')
 
 
 def _settle_children(control: dict, payload: dict, now: float):
@@ -197,8 +215,7 @@ def _settle_children(control: dict, payload: dict, now: float):
         tasks = payload.get('background_tasks')
         if isinstance(tasks, list):
             # Parent-scoped registry: the source of truth when the client sends it.
-            busy = any(isinstance(t, dict) and t.get('type') in WORKER_TASKS
-                       and str(t.get('status', '')).lower() not in DONE_TASK for t in tasks)
+            busy = any(_busy(t) for t in tasks)
             control['unknown_children'] = busy and not children
             if not busy:
                 children = []
@@ -374,12 +391,28 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
             if type(window) is int and window > 0:
                 control['telemetry_window'] = window
         _settle_children(control, payload, now)
-        # Native children of unknown fate defer this segment's managed rollover.
-        if control.get('children') or control.get('unknown_children'):
+        # Native children of unknown fate defer this segment's managed rollover, up to WAIT_LIMIT.
+        waiting = bool(control.get('children') or control.get('unknown_children'))
+        due = crossed or control['phase'] == 'requested'
+        if waiting and due and control.get('threshold') is not None:
+            since = control.setdefault('waiting_since', now)
+            if now - since >= WAIT_LIMIT:
+                waiting = False
+                if not control.get('wait_expired'):
+                    control['wait_expired'] = True
+                    names = ', '.join(_waiting_on(control, payload)) or 'unnamed workers'
+                    try:
+                        _history_line(control, f'Rollover waited {WAIT_LIMIT // 60} min for workers; '
+                                               f'proceeding, which ends: {names}.')
+                    except OSError as exc:
+                        _record_error(control, exc)
+        elif not waiting:
+            control.pop('waiting_since', None)
+        if waiting:
             control['degraded'] = 'Native workers are active; using native compaction until they finish'
-            if crossed and control['phase'] == 'running' and event == 'Stop' and not control.get('waiting_note'):
-                control['waiting_note'] = True
-                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': WAITING_NOTE}}
+            if due and event == 'Stop' and control.get('waiting_since'):
+                note = waiting_note(_waiting_on(control, payload), control['waiting_since'] + WAIT_LIMIT)
+                output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}}
         elif control.get('threshold') is not None:
             if control['phase'] == 'requested' and event == 'Stop':
                 control['phase'] = 'ready'

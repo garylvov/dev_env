@@ -16,7 +16,7 @@ token-kit run "My task"
 ```
 
 New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
-A new task opens with Claude's short overview of the task folder, delegation, rollover
+A new task (or a folder whose sessions never started) opens with Claude's short overview of the task folder, delegation, rollover
 and CodeGraph state (answered from its system prompt, no file reads), then waits for your
 first message, or starts on `--prompt` if given. Headless runs skip the overview. New tasks default to 80%
 rollover; continuation reuses saved settings unless overridden. Use
@@ -98,8 +98,9 @@ to `agents/<name>_out.md`, and one `- worker <name> (<model>) finished: ...` lin
 to the task output. Workers append their own dated progress lines in between.
 Raw `claude -p` workers have no hooks and are not recorded. Agent-tool workers live
 inside the session, so ending it ends them: rollover waits until no subagent, teammate
-or workflow is running (named workers report as `teammate`) and tells Claude once that
-it is waiting. Long workers (submitters, pollers) run detached instead:
+or workflow is running (named workers report as `teammate`), naming them to Claude at each
+turn end. After 30 minutes it proceeds anyway, ends them and says so in History; their
+`agents/` records let the successor relaunch them. Long workers (submitters, pollers) run detached instead:
 `setsid -f token-kit run --headless --prompt ... </dev/null >log 2>&1`.
 
 `experiments.md` tracks runs the way `asks.md` tracks requests. A Bash `PreToolUse`
@@ -189,6 +190,11 @@ prints a rollback command for changed installations. Task files and client hook
 configuration are untouched. Optional legacy cleanup previews owned changes and
 backs them up; customized guidance and unrelated hooks survive. The
 [legacy guide](docs/legacy-guide.md) describes the old workflow.
+
+Rollover percentages apply to the model's documented window (1M for current Opus, Sonnet
+and Fable). A cloud provider or remote gateway in `ANTHROPIC_BASE_URL` counts as 200K;
+a loopback URL (a local pass-through proxy such as Shunt) keeps the documented window.
+A run whose supervisor died without recording its exit is marked `died` at the next launch.
 
 Automatic rollover requires growth since the first session telemetry sample of at least max(10% of the context window, 20,000 tokens), so very low thresholds are clamped by this startup loop guard. After two consecutive rollovers that add only rollover entries to the output, further automatic rollover is disabled and the successor continues with native compaction; the default restart count remains unlimited.
 

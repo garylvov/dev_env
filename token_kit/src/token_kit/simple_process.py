@@ -145,10 +145,22 @@ class Slot:
             never_released = 'child_pid' not in previous and dead(previous, 'supervisor')
             if previous and previous.get('status') != 'exited' and not never_released and not dead(previous, 'child'):
                 raise ValueError('Previous client is alive or its launch outcome is uncertain; no duplicate launched')
+            self._mark_died(previous)
             return self
         except Exception:
             self.close()
             raise
+
+    def _mark_died(self, previous: dict):
+        # A supervisor killed before publishing its exit leaves its run saying 'running'.
+        run_id = previous.get('run_id')
+        if (previous.get('status') in ('starting', 'running') and isinstance(run_id, str)
+                and re.fullmatch(r'[0-9a-f]{32}', run_id) and dead(previous, 'supervisor')):
+            record = dict(previous, status='died')
+            write(self.current, record)
+            stale = safe(self.root, self.root / '.token-kit' / 'runs' / run_id / 'process.json')
+            if stale.is_file():
+                write(stale, record)
 
     def claim(self) -> Path:
         run_id = uuid.uuid4().hex

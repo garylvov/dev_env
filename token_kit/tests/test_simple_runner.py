@@ -175,12 +175,14 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         # Subagent reports and peer messages arrive as prompts but are not the user's words.
         for machine in ('<task-notification>\n<task-id>a1</task-id>\nPROBE</task-notification>',
                         '<system-reminder>x</system-reminder>\n<teammate-message teammate_id="w">hi</teammate-message>',
-                        '<cross-session-message from="s">hi</cross-session-message>'):
+                        '<cross-session-message from="s">hi</cross-session-message>',
+                        '<agent-message from="w">REPORT</agent-message>'):
             handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=machine), run.name)
         text = assignment.read_text()
         self.assertNotIn('PROBE', text)
         self.assertNotIn('teammate-message', text)
         self.assertNotIn('cross-session-message', text)
+        self.assertNotIn('REPORT', text)
         self.assertEqual(read(run / 'control.json')['last_ask'], 3)
 
     def test_main_stop_mirrors_session_crons_into_loops_md(self):
@@ -361,6 +363,23 @@ p.write_text(json.dumps(s))
         self.assertGreater(len(self.greets), 1)
         self._run_fake(resume=True)
         self.assertFalse(any(self.greets))
+
+    def test_continuing_a_folder_that_never_started_greets(self):
+        self._run_fake(resume=True, failures=True)  # the client exits before SessionStart
+        self.assertEqual(self.greets, [True])
+        self._run_fake(resume=True, failures=True)
+        self.assertEqual(self.greets, [True])
+
+    def test_dead_supervisor_run_is_marked_died(self):
+        gone = subprocess.Popen([sys.executable, '-c', 'pass'])
+        gone.wait()
+        owner = Slot(self.root, 'coordinator').acquire()
+        run = owner.claim()
+        owner.publish(supervisor_pid=gone.pid, child_pid=gone.pid, child_identity='old', status='running')
+        write(run / 'process.json', owner.record)
+        owner.close()
+        Slot(self.root, 'coordinator').acquire().close()
+        self.assertEqual(read(run / 'process.json')['status'], 'died')
 
     def test_recorded_loops_reach_continue_and_successors(self):
         from token_kit.simple_records import record_loops

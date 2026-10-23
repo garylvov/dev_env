@@ -73,6 +73,17 @@ def _with_loops(view, prompt):
     return ((prompt + '\n\n') if prompt else '') + line if line else prompt
 
 
+def _ever_started(view: TaskView) -> bool:
+    """True once any run's session reached SessionStart (armed)."""
+    for control in (view.root / '.token-kit' / 'runs').glob('*/control.json'):
+        try:
+            if read(control).get('armed'):
+                return True
+        except (OSError, ValueError):
+            return True  # unreadable: assume it ran rather than greet twice
+    return False
+
+
 def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = None,
                 agent: str = 'coordinator', resume: bool = False) -> int:
     from .task_files import recovery_input, save_settings, has_work_context
@@ -83,7 +94,8 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
     rollover_entries = []
     notices = set()
     next_prompt = prompt
-    greet = not resume  # only a newly created task's first launch
+    # A new task's first launch, or a folder whose sessions never started.
+    greet = not resume or not _ever_started(view)
     try:
         if resume:
             if prompt:

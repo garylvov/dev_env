@@ -6,12 +6,15 @@ Other defaults verified 2026-09-25 against https://code.claude.com/docs/en/model
 (Extended context, Sonnet 5 context window, third-party deployments) and
 https://platform.claude.com/docs/en/models/overview . The fallback is conservative:
 provider/gateway deployments can budget only 200K even for a 1M-capable model.
+A loopback ANTHROPIC_BASE_URL is a local pass-through proxy (such as Shunt) to the
+first-party API, so it keeps the documented window.
 An actual reported window or Token Kit's explicit override can refine it.
 """
 from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from urllib.parse import urlsplit
 
 
 _NATIVE_MILLION = frozenset({
@@ -22,6 +25,8 @@ _STANDARD = frozenset({
     "claude-opus-4-6", "claude-sonnet-4-6",
     "claude-haiku-4-5", "claude-haiku-4-5-20251001",
 })
+_FIRST_PARTY = ("", "https://api.anthropic.com")
+_LOOPBACK = ("127.0.0.1", "localhost", "::1")
 _PROVIDERS = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
               "CLAUDE_CODE_USE_FOUNDRY", "CLAUDE_CODE_USE_MANTLE",
               "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST")
@@ -62,7 +67,11 @@ def claude_window(model: str, *, reported=None,
     if enabled("CLAUDE_CODE_DISABLE_1M_CONTEXT"):
         return 200_000, "documented_default:disable_1m"
     base_url = env.get("ANTHROPIC_BASE_URL", "").rstrip("/")
-    custom_provider = (base_url not in ("", "https://api.anthropic.com") or
+    try:
+        loopback = urlsplit(base_url).hostname in _LOOPBACK
+    except ValueError:
+        loopback = False
+    custom_provider = ((base_url not in _FIRST_PARTY and not loopback) or
                        any(env.get(key, "").lower() not in ("", "0", "false")
                            for key in _PROVIDERS))
     if custom_provider:

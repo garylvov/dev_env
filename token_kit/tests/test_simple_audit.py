@@ -101,17 +101,32 @@ class HookTests(unittest.TestCase):
         self.assertEqual(self.control()['children'], [])
 
     # Named Agent workers report as 'teammate'; a rollover would kill them.
-    def test_teammates_defer_rollover_with_one_note(self):
+    def test_teammates_defer_rollover_with_named_note(self):
         self.start(startup_tokens=10_000)
         self.usage(70_000)
         teammate = [{'id': 't1', 'type': 'teammate', 'status': 'running', 'description': 'fleet submitter'}]
         note = self.hook('Stop', background_tasks=teammate)
         self.assertEqual(self.control()['phase'], 'running')
         self.assertTrue(self.control()['unknown_children'])
-        self.assertIn('rollover waits', note['hookSpecificOutput']['additionalContext'])
-        self.assertNotIn('rollover waits', json.dumps(self.hook('Stop', background_tasks=teammate)))
+        self.assertIn('fleet submitter', note['hookSpecificOutput']['additionalContext'])
+        # Repeated at each Stop while it waits, so a stale note never hides who holds it.
+        self.assertIn('fleet submitter', json.dumps(self.hook('Stop', background_tasks=teammate)))
         self.hook('Stop', background_tasks=[dict(teammate[0], status='completed')])
         self.assertEqual(self.control()['phase'], 'requested')
+        self.assertNotIn('waiting_since', self.control())
+
+    def test_idle_worker_cannot_hold_rollover_past_limit(self):
+        self.request_summary()
+        teammate = [{'id': 't1', 'type': 'teammate', 'status': 'running', 'description': 'idle poller'}]
+        self.hook('Stop', background_tasks=teammate)
+        self.assertEqual(self.control()['phase'], 'requested')
+        current = self.control()
+        current['waiting_since'] -= simple_runtime.WAIT_LIMIT
+        write(self.run / 'control.json', current)
+        result = self.hook('Stop', background_tasks=teammate)
+        self.assertEqual(self.control()['phase'], 'ready')
+        self.assertIs(result.get('continue'), False)
+        self.assertIn('ends: idle poller', self.view.output.read_text())
 
     def test_unknown_children_clear_at_main_stop_and_children_expire(self):
         self.start()

@@ -32,6 +32,12 @@ class ClaudeContextWindowTests(unittest.TestCase):
             self.assertEqual(claude_window("claude-fable-5-1", environ=env)[0], 200_000)
         self.assertEqual(claude_window("claude-fable-5-1", environ={
             "CLAUDE_CODE_USE_BEDROCK": "0", "ANTHROPIC_BASE_URL": "https://api.anthropic.com/"})[0], 1_000_000)
+        # A local pass-through proxy (Shunt) keeps the documented window; a provider behind it does not.
+        for url in ("http://127.0.0.1:3001", "http://localhost:3001/", "http://[::1]:3001"):
+            self.assertEqual(claude_window("claude-opus-5-5", environ={"ANTHROPIC_BASE_URL": url})[0], 1_000_000)
+        self.assertEqual(claude_window("claude-opus-5-5", environ={
+            "ANTHROPIC_BASE_URL": "http://127.0.0.1:3001", "CLAUDE_CODE_USE_BEDROCK": "1"})[0], 200_000)
+        self.assertEqual(claude_window("claude-opus-5-5", environ={"ANTHROPIC_BASE_URL": "http://127.0.0.1.evil.test"})[0], 200_000)
 
     def test_actual_report_wins_and_invalid_window_is_not_a_default(self):
         self.assertEqual(claude_window("custom", reported=320_000, environ={}), (320_000, "reported"))
