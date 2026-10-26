@@ -15,7 +15,7 @@ token-kit continue retread
 token-kit run "My task"
 ```
 
-New tasks default to `--model 'opus[1m]'` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
+New tasks default to `--model 'opus[1m]'` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task; a saved plain `opus`, the old default, now takes the default).
 A new task (or a folder whose sessions never started) opens with Claude's short overview of the task folder, delegation, rollover
 and CodeGraph state (answered from its system prompt, no file reads), then waits for your
 first message, or starts on `--prompt` if given. Headless runs skip the overview. New tasks default to 80%

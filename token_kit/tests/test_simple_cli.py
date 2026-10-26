@@ -49,6 +49,13 @@ class CLITests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'headless'):
             cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), {'headless': 'bad'})
 
+    def test_saved_plain_opus_takes_the_1m_default_unless_chosen_now(self):
+        args = cli.parser_for('continue').parse_args(['task'])
+        self.assertEqual(cli.resolve_options(args, {'model': 'opus'}).model, 'opus[1m]')
+        self.assertEqual(cli.resolve_options(args, {'model': 'sonnet'}).model, 'sonnet')
+        chosen = cli.parser_for('continue').parse_args(['task', '--model', 'opus'])
+        self.assertEqual(cli.resolve_options(chosen, {'model': 'opus'}).model, 'opus')
+
     def test_saved_codex_task_continues_on_claude(self):
         from dataclasses import asdict
         from token_kit.task_files import load_task, save_settings, load_settings

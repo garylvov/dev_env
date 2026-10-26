@@ -106,6 +106,9 @@ def parser_for(command: str):
 
 def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     values = dict(saved or {})
+    if values.get("model") == "opus":
+        # Saved when plain opus was the default; it compacts near 200K, so take today's default.
+        values.pop("model")
     if "rollover" not in values and values.get("rollover_tokens") is not None:
         values["rollover"] = values["rollover_tokens"]
     if values.get("engine", "claude") != "claude":
