@@ -15,7 +15,7 @@ token-kit continue retread
 token-kit run "My task"
 ```
 
-New tasks default to `--model opus` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
+New tasks default to `--model 'opus[1m]'` and `--codegraph` (`--no-codegraph` or another `--model` overrides; saved per task).
 A new task (or a folder whose sessions never started) opens with Claude's short overview of the task folder, delegation, rollover
 and CodeGraph state (answered from its system prompt, no file reads), then waits for your
 first message, or starts on `--prompt` if given. Headless runs skip the overview. New tasks default to 80%
@@ -143,8 +143,8 @@ manual interruption and arbitrary errors do not restart.
 Session loops (`/loop`, `CronCreate`, `ScheduleWakeup`) die with the client. At each
 main-session turn end the `Stop` hook mirrors its `session_crons` into `<task>/loops.md`
 (schedule, prompt, first-seen date) plus still-running background shells and monitors,
-which cannot be resumed; the file disappears when nothing is scheduled, so deleted loops
-stay deleted. Rollover successors and `continue` get one kickoff line asking the model
+which cannot be resumed; the shell list always follows the live snapshot, and the file
+disappears when nothing is scheduled, so deleted loops stay deleted. Rollover successors and `continue` get one kickoff line asking the model
 to recreate the listed loops with its own tools. Loop firings are not recorded as asks.
 
 Missing telemetry or untrusted hooks cause a diagnostic and leave native
@@ -194,6 +194,9 @@ backs them up; customized guidance and unrelated hooks survive. The
 Rollover percentages apply to the model's documented window (1M for current Opus, Sonnet
 and Fable). A cloud provider or remote gateway in `ANTHROPIC_BASE_URL` counts as 200K;
 a loopback URL (a local pass-through proxy such as Shunt) keeps the documented window.
+Claude Code gives the 1M window only to a model launched with `[1m]` (plain `opus`
+compacts near 200K), and transcripts drop the suffix, so a run launched without it counts
+as 200K. Cross-session delivery notices are not recorded as asks.
 A run whose supervisor died without recording its exit is marked `died` at the next launch.
 
 Automatic rollover requires growth since the first session telemetry sample of at least max(10% of the context window, 20,000 tokens), so very low thresholds are clamped by this startup loop guard. After two consecutive rollovers that add only rollover entries to the output, further automatic rollover is disabled and the successor continues with native compaction; the default restart count remains unlimited.

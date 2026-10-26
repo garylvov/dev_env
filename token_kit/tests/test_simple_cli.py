@@ -65,7 +65,7 @@ class CLITests(unittest.TestCase):
         self.assertIn('saved for Codex and now continues on Claude', err)
         settings = json.loads(out)['settings']
         self.assertEqual((settings['model'], settings['effort'], settings['yolo'], settings['headless']),
-                         ('opus', None, False, True))
+                         ('opus[1m]', None, False, True))
         self.assertNotIn('engine', settings)
         self.assertEqual(json.loads(session.read_text())['settings']['engine'], 'codex')
         view = load_task(task)

@@ -19,7 +19,8 @@ MATCHED = {'PreToolUse': 'Bash'}
 
 
 # Claude Code delivers these through UserPromptSubmit, but the user did not write them.
-MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message', '<agent-message')
+MACHINE_TAGS = ('<task-notification>', '<teammate-message', '<cross-session-message', '<agent-message',
+                '[Cross-session delivery notice]')
 # A child no hook has mentioned for this long is presumed gone (TaskStop, crash).
 CHILD_TTL = 1800
 # Claude Code clips session_crons prompts at 1000 chars with this marker.
@@ -29,6 +30,7 @@ MIN_CLIPPED_HEAD = 200
 WORKER_TASKS = ('subagent', 'teammate', 'workflow')
 # A due rollover waits this long for background workers, then proceeds and ends them.
 WAIT_LIMIT = 1800
+STANDARD_WINDOW = 200_000
 DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
@@ -160,7 +162,7 @@ def initialize(run: Path, options, expected_session: str | None, state: Path,
                assignment: Path | None = None, output: Path | None = None,
                kickoff_prompt: str | None = None):
     write(run / 'control.json', {'run_id': run.name,
-          'expected_session': expected_session, 'armed': False, 'phase': 'running',
+          'expected_session': expected_session, 'armed': False, 'phase': 'running', 'launch_model': options.model,
           'threshold': None if options.rollover in (0, 'off') else options.rollover, 'context_window': options.context_window,
           'state': str(state), 'assignment': str(assignment) if assignment else None,
           'output': str(output or state), 'kickoff_prompt': kickoff_prompt,
@@ -368,6 +370,10 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 sample = {}
         if sample.get('window_note'):
             control['window_note'] = sample['window_note']
+        # Transcripts drop [1m]; Claude Code gives a model launched without it the standard window.
+        launched = control.get('launch_model')
+        if sample.get('context_window') and launched and not launched.lower().endswith('[1m]'):
+            sample['context_window'] = min(sample['context_window'], STANDARD_WINDOW)
         used = sample.get('context_tokens')
         window = control.get('context_window') or sample.get('context_window')
         from token_kit.rollover import effective_limit

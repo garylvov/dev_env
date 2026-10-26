@@ -148,18 +148,20 @@ def record_loops(root: Path, crons: list, tasks: list, seen: dict, may_clear: bo
     """Rewrite loops.md from a main-session Stop snapshot; returns the cron first-seen dates to keep.
 
     The file is entirely hook-owned, so a deleted loop disappears instead of being resurrected.
-    A run that never saw a loop (a successor yet to recreate them) leaves the recorded list alone.
+    A run that never saw a loop (a successor yet to recreate them) keeps the recorded schedules;
+    the running-task list always follows the live snapshot, so finished shells drop out.
     """
     from .simple_runtime import DONE_TASK
     path = _inside(root, root / LOOPS)
     stamp = _stamp()
-    if not may_clear and path.exists() and not any(isinstance(c, dict) and c.get('schedule') for c in crons):
-        return dict(seen)
     kept, loops = {}, []
     try:  # a successor's control starts empty; the file carries earlier dates
-        earlier = {f'{s} {p}': d for s, p, d in re.findall(r'^- `([^`]+)` \S+: (.*) \(since (\S+)\)$', path.read_text(), re.M)}
+        text = path.read_text()
     except (OSError, UnicodeDecodeError):
-        earlier = {}
+        text = ''
+    earlier = {f'{s} {p}': d for s, p, d in re.findall(r'^- `([^`]+)` \S+: (.*) \(since (\S+)\)$', text, re.M)}
+    if not may_clear and not any(isinstance(c, dict) and c.get('schedule') for c in crons):
+        kept, loops = dict(seen), re.findall(r'^- `[^`]+` \S+: .* \(since \S+\)$', text, re.M)
     for cron in crons:
         if not isinstance(cron, dict) or not cron.get('schedule'):
             continue

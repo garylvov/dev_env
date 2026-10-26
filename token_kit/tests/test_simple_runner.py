@@ -177,13 +177,15 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         for machine in ('<task-notification>\n<task-id>a1</task-id>\nPROBE</task-notification>',
                         '<system-reminder>x</system-reminder>\n<teammate-message teammate_id="w">hi</teammate-message>',
                         '<cross-session-message from="s">hi</cross-session-message>',
-                        '<agent-message from="w">REPORT</agent-message>'):
+                        '<agent-message from="w">REPORT</agent-message>',
+                        '[Cross-session delivery notice] Your message was held (msg_id: m1). NOTICE'):
             handle(run, dict(base, hook_event_name='UserPromptSubmit', prompt=machine), run.name)
         text = assignment.read_text()
         self.assertNotIn('PROBE', text)
         self.assertNotIn('teammate-message', text)
         self.assertNotIn('cross-session-message', text)
         self.assertNotIn('REPORT', text)
+        self.assertNotIn('NOTICE', text)
         self.assertEqual(read(run / 'control.json')['last_ask'], 3)
 
     def test_main_stop_mirrors_session_crons_into_loops_md(self):
@@ -409,6 +411,31 @@ p.write_text(json.dumps(s))
         (self.root / 'loops.md').unlink()
         code, launched = self._run_fake(resume=True)
         self.assertFalse(any(line in prompt for _, prompt in launched))
+
+    def test_finished_shells_leave_loops_md_even_before_a_cron_is_seen(self):
+        from token_kit.simple_records import record_loops
+        cron = {'schedule': '*/30 * * * *', 'prompt': 'check the build'}
+        shell = {'type': 'shell', 'status': 'running', 'command': 'watch.sh job1'}
+        record_loops(self.root, [cron], [shell], {})
+        # A successor that has not recreated the cron yet still sees the shell finish.
+        record_loops(self.root, [], [dict(shell, status='completed')], {}, may_clear=False)
+        text = (self.root / 'loops.md').read_text()
+        self.assertNotIn('watch.sh', text)
+        self.assertIn('*/30 * * * *', text)
+
+    def test_window_follows_launch_model_since_transcripts_drop_1m(self):
+        transcript = self.root / 'usage.jsonl'
+        transcript.write_text(json.dumps({'type': 'assistant', 'sessionId': 'parent',
+            'message': {'model': 'claude-opus-5-5', 'usage': {'input_tokens': 50_000}}}) + '\n')
+        base = {'session_id': 'parent', 'transcript_path': str(transcript)}
+        for model, window in (('opus', 200_000), ('opus[1m]', 1_000_000), (None, 1_000_000)):
+            run = self.root / f'window-{model}'
+            run.mkdir()
+            initialize(run, LaunchOptions(rollover='80%', model=model), 'parent', self.state)
+            with patch.dict(os.environ, {}, clear=True):
+                handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+                handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+            self.assertEqual(read(run / 'control.json')['telemetry_window'], window, model)
 
     def test_prepare_failure_allows_corrected_configuration_retry(self):
         from token_kit.task_files import safe_task_path, archive_history

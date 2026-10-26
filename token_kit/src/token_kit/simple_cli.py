@@ -32,7 +32,8 @@ Use COMMAND --help for launch options. Files can be edited normally.
 
 
 
-OPERATOR_DEFAULTS = {"model": "opus", "codegraph": True}
+# [1m] gives the 1M window; plain "opus" compacts near 200K.
+OPERATOR_DEFAULTS = {"model": "opus[1m]", "codegraph": True}
 
 def default_root() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "token_kit"
