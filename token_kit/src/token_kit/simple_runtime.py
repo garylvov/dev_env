@@ -417,10 +417,15 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                         _record_error(control, exc)
         elif not waiting:
             control.pop('waiting_since', None)
+            control.pop('waiting_noted', None)
         if waiting:
             control['degraded'] = 'Native workers are active; using native compaction until they finish'
-            if due and event == 'Stop' and control.get('waiting_since'):
-                note = waiting_note(_waiting_on(control, payload), control['waiting_since'] + WAIT_LIMIT)
+            names = _waiting_on(control, payload)
+            # Stop context wakes the model for another turn, so a note repeated at every Stop
+            # loops it until the deadline. Say it once, and again only when the workers change.
+            if due and event == 'Stop' and control.get('waiting_since') and control.get('waiting_noted') != names:
+                control['waiting_noted'] = names
+                note = waiting_note(names, control['waiting_since'] + WAIT_LIMIT)
                 output = {'hookSpecificOutput': {'hookEventName': event, 'additionalContext': note}}
         elif control.get('threshold') is not None:
             if control['phase'] == 'requested' and event == 'Stop':

@@ -109,8 +109,13 @@ class HookTests(unittest.TestCase):
         self.assertEqual(self.control()['phase'], 'running')
         self.assertTrue(self.control()['unknown_children'])
         self.assertIn('fleet submitter', note['hookSpecificOutput']['additionalContext'])
-        # Repeated at each Stop while it waits, so a stale note never hides who holds it.
-        self.assertIn('fleet submitter', json.dumps(self.hook('Stop', background_tasks=teammate)))
+        # Stop context wakes the model, so an unchanged note is not repeated (that loops the session
+        # until the deadline); a change in who holds the rollover is announced again.
+        self.assertEqual(self.hook('Stop', background_tasks=teammate), {})
+        self.assertEqual(self.hook('Stop', background_tasks=teammate), {})
+        second = teammate + [{'id': 't2', 'type': 'teammate', 'status': 'running', 'description': 'g1 walker'}]
+        self.assertIn('g1 walker', json.dumps(self.hook('Stop', background_tasks=second)))
+        self.assertEqual(self.hook('Stop', background_tasks=second), {})
         self.hook('Stop', background_tasks=[dict(teammate[0], status='completed')])
         self.assertEqual(self.control()['phase'], 'requested')
         self.assertNotIn('waiting_since', self.control())

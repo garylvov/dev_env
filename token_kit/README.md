@@ -98,8 +98,9 @@ to `agents/<name>_out.md`, and one `- worker <name> (<model>) finished: ...` lin
 to the task output. Workers append their own dated progress lines in between.
 Raw `claude -p` workers have no hooks and are not recorded. Agent-tool workers live
 inside the session, so ending it ends them: rollover waits until no subagent, teammate
-or workflow is running (named workers report as `teammate`), naming them to Claude at each
-turn end. After 30 minutes it proceeds anyway, ends them and says so in History; their
+or workflow is running (named workers report as `teammate`), naming them to Claude at the
+next turn end, and again only when that list changes (a note at every turn end would wake Claude into
+a loop of empty turns). After 30 minutes it proceeds anyway, ends them and says so in History; their
 `agents/` records let the successor relaunch them. Long workers (submitters, pollers) run detached instead:
 `setsid -f token-kit run --headless --prompt ... </dev/null >log 2>&1`.
 
