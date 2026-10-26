@@ -423,20 +423,6 @@ p.write_text(json.dumps(s))
         self.assertNotIn('watch.sh', text)
         self.assertIn('*/30 * * * *', text)
 
-    def test_window_follows_launch_model_since_transcripts_drop_1m(self):
-        transcript = self.root / 'usage.jsonl'
-        transcript.write_text(json.dumps({'type': 'assistant', 'sessionId': 'parent',
-            'message': {'model': 'claude-opus-5-5', 'usage': {'input_tokens': 50_000}}}) + '\n')
-        base = {'session_id': 'parent', 'transcript_path': str(transcript)}
-        for model, window in (('opus', 200_000), ('opus[1m]', 1_000_000), (None, 1_000_000)):
-            run = self.root / f'window-{model}'
-            run.mkdir()
-            initialize(run, LaunchOptions(rollover='80%', model=model), 'parent', self.state)
-            with patch.dict(os.environ, {}, clear=True):
-                handle(run, dict(base, hook_event_name='SessionStart'), run.name)
-                handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
-            self.assertEqual(read(run / 'control.json')['telemetry_window'], window, model)
-
     def test_prepare_failure_allows_corrected_configuration_retry(self):
         from token_kit.task_files import safe_task_path, archive_history
         files = types.ModuleType('token_kit.task_files')

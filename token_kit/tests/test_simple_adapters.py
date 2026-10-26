@@ -55,6 +55,8 @@ class SimpleAdaptersTest(unittest.TestCase):
         self.assertIn('--print', plan.argv)
         self.assertIn('high', plan.argv)
         self.assertIn('simple-only', plan.argv[plan.argv.index('--settings') + 1])
+        # Rollover replaces compaction, including Claude Code's compaction of idle sessions.
+        self.assertIs(json.loads(plan.argv[plan.argv.index('--settings') + 1])['idleCompaction'], False)
 
     def test_session_name_is_task_title_when_supported(self):
         with patch.object(adapters, 'capabilities', return_value=adapters.Capabilities(True, (), True)):

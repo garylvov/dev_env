@@ -158,7 +158,7 @@ def prepare(view: TaskView, options: LaunchOptions, prompt: str | None,
         from .simple_runtime import hooks
         session_id = str(uuid.uuid4())
         env["TOKEN_KIT_SIMPLE_SESSION_ID"] = session_id
-        argv.extend(("--session-id", session_id, "--settings", json.dumps({"hooks": hooks()})))
+        argv.extend(("--session-id", session_id, "--settings", json.dumps({"hooks": hooks(), "idleCompaction": False})))
     if options.model is not None:
         argv.extend(("--model", options.model))
     if cap.names and view.title.strip() and not view.title.startswith("-"):

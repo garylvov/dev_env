@@ -30,7 +30,6 @@ MIN_CLIPPED_HEAD = 200
 WORKER_TASKS = ('subagent', 'teammate', 'workflow')
 # A due rollover waits this long for background workers, then proceeds and ends them.
 WAIT_LIMIT = 1800
-STANDARD_WINDOW = 200_000
 DONE_TASK = ('completed', 'failed', 'killed', 'stopped', 'cancelled', 'canceled', 'done', 'error')
 
 
@@ -162,7 +161,7 @@ def initialize(run: Path, options, expected_session: str | None, state: Path,
                assignment: Path | None = None, output: Path | None = None,
                kickoff_prompt: str | None = None):
     write(run / 'control.json', {'run_id': run.name,
-          'expected_session': expected_session, 'armed': False, 'phase': 'running', 'launch_model': options.model,
+          'expected_session': expected_session, 'armed': False, 'phase': 'running',
           'threshold': None if options.rollover in (0, 'off') else options.rollover, 'context_window': options.context_window,
           'state': str(state), 'assignment': str(assignment) if assignment else None,
           'output': str(output or state), 'kickoff_prompt': kickoff_prompt,
@@ -370,10 +369,6 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
                 sample = {}
         if sample.get('window_note'):
             control['window_note'] = sample['window_note']
-        # Transcripts drop [1m]; Claude Code gives a model launched without it the standard window.
-        launched = control.get('launch_model')
-        if sample.get('context_window') and launched and not launched.lower().endswith('[1m]'):
-            sample['context_window'] = min(sample['context_window'], STANDARD_WINDOW)
         used = sample.get('context_tokens')
         window = control.get('context_window') or sample.get('context_window')
         from token_kit.rollover import effective_limit

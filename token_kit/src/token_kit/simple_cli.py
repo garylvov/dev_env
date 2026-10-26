@@ -32,8 +32,7 @@ Use COMMAND --help for launch options. Files can be edited normally.
 
 
 
-# [1m] gives the 1M window; plain "opus" compacts near 200K.
-OPERATOR_DEFAULTS = {"model": "opus[1m]", "codegraph": True}
+OPERATOR_DEFAULTS = {"model": "opus", "codegraph": True}
 
 def default_root() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "token_kit"
@@ -106,9 +105,6 @@ def parser_for(command: str):
 
 def resolve_options(args, saved: dict | None = None) -> LaunchOptions:
     values = dict(saved or {})
-    if values.get("model") == "opus":
-        # Saved when plain opus was the default; it compacts near 200K, so take today's default.
-        values.pop("model")
     if "rollover" not in values and values.get("rollover_tokens") is not None:
         values["rollover"] = values["rollover_tokens"]
     if values.get("engine", "claude") != "claude":
