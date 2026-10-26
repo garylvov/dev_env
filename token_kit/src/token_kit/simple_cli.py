@@ -75,6 +75,10 @@ def _launch_options(parser):
                            default=argparse.SUPPRESS)
     parser.add_argument("--max-rollovers", type=_budget, default=argparse.SUPPRESS)
     parser.add_argument("--context-window", type=_window, default=argparse.SUPPRESS)
+    parser.add_argument("--idle-rollover", type=int, metavar="MINUTES", default=argparse.SUPPRESS,
+                        help="Roll over a session idle this long, before its prompt cache expires (0 disables; default 50)")
+    parser.add_argument("--idle-min-growth", type=int, metavar="TOKENS", default=argparse.SUPPRESS,
+                        help="Idle rollover only after context grew this much in the session (default 100000)")
     parser.add_argument("--headless", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--codegraph", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS,
                         help="Attach CodeGraph MCP to this session (default: when an index exists)")

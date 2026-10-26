@@ -294,6 +294,14 @@ def handle(run: Path, payload: dict, nonce: str) -> dict:
         native = str(payload.get('agent_id') or '')
         if native in control.get('children', []):
             control.setdefault('child_seen', {})[native] = now
+        if not native:  # the supervisor rolls a session that stays idle (simple_runner._idle_due)
+            if event == 'Stop':
+                tasks = payload.get('background_tasks') if isinstance(payload.get('background_tasks'), list) else []
+                control['idle_since'] = now
+                control['idle_busy'] = any(isinstance(t, dict) and str(t.get('status', '')).lower() not in DONE_TASK
+                                           for t in tasks)
+            elif event in ('SessionStart', 'UserPromptSubmit', 'PostToolUse'):
+                control.pop('idle_since', None)
         try:
             done = _records(control, payload, event)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:

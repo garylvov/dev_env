@@ -27,6 +27,9 @@ class LaunchOptions:
     rollover: int | str | None = "80%"
     max_rollovers: int | None = None
     context_window: int | None = None
+    # Roll over a session idle this many minutes (before the 1h prompt cache expires); 0 disables.
+    idle_rollover: int = 50
+    idle_min_growth: int = 100_000  # only when context grew this much since the session started
     executable: str | None = None
     non_interactive: bool = False
     headless: bool = False

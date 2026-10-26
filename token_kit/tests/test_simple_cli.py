@@ -49,6 +49,13 @@ class CLITests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'headless'):
             cli.resolve_options(cli.parser_for('continue').parse_args([str(task)]), {'headless': 'bad'})
 
+    def test_idle_rollover_options(self):
+        args = cli.parser_for('continue').parse_args(['task', '--idle-rollover', '0', '--idle-min-growth', '5000'])
+        options = cli.resolve_options(args)
+        self.assertEqual((options.idle_rollover, options.idle_min_growth), (0, 5000))
+        default = cli.resolve_options(cli.parser_for('continue').parse_args(['task']))
+        self.assertEqual((default.idle_rollover, default.idle_min_growth), (50, 100_000))
+
     def test_saved_codex_task_continues_on_claude(self):
         from dataclasses import asdict
         from token_kit.task_files import load_task, save_settings, load_settings

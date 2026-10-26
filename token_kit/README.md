@@ -196,6 +196,12 @@ and Fable). A cloud provider or remote gateway in `ANTHROPIC_BASE_URL` counts as
 a loopback URL (a local pass-through proxy such as Shunt) keeps the documented window.
 Managed launches set `"idleCompaction": false`: Claude Code otherwise compacts an idle
 session before its prompt cache expires, at any size, and rollover replaces compaction.
+Token Kit's own version is idle rollover: a main session idle 50 minutes after a turn ends
+(`--idle-rollover MINUTES`, 0 disables), whose context grew 100K tokens since it started
+(`--idle-min-growth TOKENS`), with no live background task or worker, is restarted by the
+supervisor into fresh context before the 1h cache expires. Task files are current at a
+turn end, so no summary turn runs; `_out.md` gets an `### idle rollover` line. Any message,
+tool use or cron firing resets the idle clock.
 Cross-session delivery notices are not recorded as asks.
 A run whose supervisor died without recording its exit is marked `died` at the next launch.
 

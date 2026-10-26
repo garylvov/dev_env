@@ -294,7 +294,7 @@ import os; os._exit(3)  # killed during setup, before any spawn (e.g. Ctrl-C in 
         self.assertEqual(read(run / 'control.json')['activity'], 0)
 
     def _run_fake(self, failures=False, cap=None, resume=False, no_progress=False, headless=False, substantive=False,
-                  workers=False):
+                  workers=False, idle=False):
         launched = []
         self.greets = []
         def prepare(view, options, prompt, run, agent='coordinator', greet=False):
@@ -316,8 +316,13 @@ p.write_text(json.dumps(s))
             if workers:  # a worker still runs, but the hook's wait limit expired
                 script = script.replace("phase='ready'", "children=['w'], unknown_children=True, wait_expired=True, phase='ready'")
                 script += '\nimport time\ntime.sleep(20)'  # the client stays up until the runner stops it
+            if idle:  # idle an hour after a turn, context grown; only the supervisor can end it
+                script = script.replace("phase='ready'", "phase='running', idle_since=__import__('time').time() - 3600, "
+                                        "startup_tokens=40_000, context_tokens=190_000")
+                script += '\nimport time\ntime.sleep(20)'
             if not failures:
                 script = script.replace("phase='ready'", "armed=True, phase='ready'")
+                script = script.replace("phase='running'", "armed=True, phase='running'")
             if not action:
                 script = 'pass'
             if headless:
@@ -337,7 +342,8 @@ p.write_text(json.dumps(s))
         adapters = types.ModuleType('token_kit.simple_adapters')
         adapters.prepare = prepare
         with patch.dict(sys.modules, {'token_kit.task_files': files, 'token_kit.simple_adapters': adapters}):
-            code = run_session(self.view, LaunchOptions(max_rollovers=cap, headless=headless), resume=resume)
+            code = run_session(self.view, LaunchOptions(max_rollovers=cap, headless=headless,
+                               idle_rollover=0 if idle == 'off' else 50), resume=resume)
         return code, launched
 
     def test_headless_successors_log_and_final_exit(self):
@@ -411,6 +417,45 @@ p.write_text(json.dumps(s))
         (self.root / 'loops.md').unlink()
         code, launched = self._run_fake(resume=True)
         self.assertFalse(any(line in prompt for _, prompt in launched))
+
+    def test_idle_session_rolls_over_before_the_prompt_cache_expires(self):
+        started = time.monotonic()
+        code, launched = self._run_fake(idle=True)
+        self.assertLess(time.monotonic() - started, 15)
+        self.assertGreater(len(launched), 1)
+        self.assertIn('### idle rollover', (self.root / 'out.md').read_text())
+
+    def test_idle_hook_marks_turn_end_and_clears_on_activity(self):
+        run = self.root / 'idle'
+        run.mkdir()
+        initialize(run, LaunchOptions(), 'parent', self.state)
+        base = {'session_id': 'parent'}
+        handle(run, dict(base, hook_event_name='SessionStart'), run.name)
+        handle(run, dict(base, hook_event_name='Stop', background_tasks=[
+            {'type': 'shell', 'status': 'completed'}]), run.name)
+        control = read(run / 'control.json')
+        self.assertIn('idle_since', control)
+        self.assertFalse(control['idle_busy'])
+        handle(run, dict(base, hook_event_name='Stop', background_tasks=[
+            {'type': 'shell', 'status': 'running'}]), run.name)
+        self.assertTrue(read(run / 'control.json')['idle_busy'])
+        handle(run, dict(base, hook_event_name='PostToolUse'), run.name)
+        self.assertNotIn('idle_since', read(run / 'control.json'))
+        handle(run, dict(base, hook_event_name='Stop', agent_id='w1'), run.name)
+        self.assertNotIn('idle_since', read(run / 'control.json'))
+
+    def test_idle_rollover_respects_limits(self):
+        from token_kit.simple_runner import _idle_due
+        idle = {'threshold': '80%', 'phase': 'running', 'idle_since': 0, 'startup_tokens': 40_000,
+                'context_tokens': 190_000}
+        options = LaunchOptions()
+        self.assertTrue(_idle_due(idle, options, 50 * 60))
+        self.assertFalse(_idle_due(idle, options, 49 * 60))
+        self.assertFalse(_idle_due(idle, LaunchOptions(idle_rollover=0), 3600))
+        self.assertFalse(_idle_due(dict(idle, context_tokens=120_000), options, 3600))
+        for blocked in ({'idle_busy': True}, {'children': ['w']}, {'unknown_children': True},
+                        {'threshold': None}, {'phase': 'requested'}):
+            self.assertFalse(_idle_due(dict(idle, **blocked), options, 3600), blocked)
 
     def test_finished_shells_leave_loops_md_even_before_a_cron_is_seen(self):
         from token_kit.simple_records import record_loops

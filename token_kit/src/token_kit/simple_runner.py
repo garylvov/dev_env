@@ -78,6 +78,15 @@ def _workers_hold(control: dict) -> bool:
     return bool(control.get('children') or control.get('unknown_children')) and not control.get('wait_expired')
 
 
+def _idle_due(control: dict, options: LaunchOptions, now: float) -> bool:
+    """An idle main session with grown context, nothing running, past the idle limit."""
+    since, used, start = control.get('idle_since'), control.get('context_tokens'), control.get('startup_tokens')
+    return bool(options.idle_rollover and control.get('threshold') is not None and control.get('phase') == 'running'
+                and isinstance(since, (int, float)) and now - since >= options.idle_rollover * 60
+                and not control.get('idle_busy') and not control.get('children') and not control.get('unknown_children')
+                and type(used) is int and type(start) is int and used - start >= options.idle_min_growth)
+
+
 def _ever_started(view: TaskView) -> bool:
     """True once any run's session reached SessionStart (armed)."""
     for control in (view.root / '.token-kit' / 'runs').glob('*/control.json'):
@@ -205,6 +214,18 @@ def run_session(view: TaskView, options: LaunchOptions, prompt: str | None = Non
                             current['phase'] = 'requested'
                             current['continue_request'] = request.get('request_id')
                             write(run / 'control.json', current)
+                    if not safe and _idle_due(control, effective, time.time()):
+                        from .simple_process import locked
+                        with locked(run / 'control.lock'):
+                            current = _observe(run / 'control.json', notices)
+                            if _idle_due(current, effective, time.time()):
+                                idle = int((time.time() - current['idle_since']) // 60)
+                                current.update(phase='ready', reason='idle', rollover_entry=(
+                                    f"\n### idle rollover {time.strftime('%Y-%m-%dT%H:%M:%S%z')} at "
+                                    f"{current['context_tokens']} tokens\nIdle {idle} min; fresh context "
+                                    "before the prompt cache expires.\n"))
+                                write(run / 'control.json', current)
+                                safe = True
                     if safe:
                         latest = _observe(run / 'control.json', notices)
                         if _workers_hold(latest) or latest.get('phase') != 'ready':
